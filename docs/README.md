@@ -3,6 +3,7 @@
 | Path | Role |
 |------|------|
 | [`ocp/0.1.md`](./ocp/0.1.md) | **Canonical** OCP 0.1 contract |
+| [`hosts/`](./hosts/) | Host enablement notes (MiMo/Kilo operator attach via OCP) |
 | [`plans/`](./plans/) | Product plan, ADR, evidence, companion migrator plan |
 | [`plans/zcode-asset-migrator-plan.md`](./plans/zcode-asset-migrator-plan.md) | Companion: plugin-package → `.zcode-plugin` migrator (**not** OCP ABI; no host MCP; ZCode stays T0) |
 | [`guides/kilocode-telemetry-disable.md`](./guides/kilocode-telemetry-disable.md) | Disable Kilo PostHog telemetry (config / env; host feature) |

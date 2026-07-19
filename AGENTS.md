@@ -20,7 +20,7 @@ Universal **OCP** compatibility **bridge** monorepo. Ship the **complete** stack
 packages/ocp          # umbrella UX (+ ocp setup)
 packages/profile|facade-*|adapter|host-promise-v2|cli|migrate-zcode
 fixtures/          # OCP conformance (migrator tests use in-memory mocks)
-patches/           # host enablement notes (operator attach)
+docs/hosts/        # host enablement notes (operator attach)
 docs/ocp/0.1.md   # contract
 docs/plans/        # ADR + product plan + evidence (+ zcode-asset-migrator-plan.md)
 docs/guides/       # companion privacy / ZCode import notes (non-OCP runtime)

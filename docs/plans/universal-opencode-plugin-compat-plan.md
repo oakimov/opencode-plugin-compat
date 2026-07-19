@@ -514,7 +514,7 @@ Completed 2026-07-19; see `phase0-hooks-parity.md`, `../ocp/0.1.md`, `phase0-adr
 | **Host kit** | `@opencode-compat/host-promise-v2` — aisdk language/sdk end-to-end; other domains loud-stub |
 | **CLI** | `@opencode-compat/cli` — `compat doctor` + matrix runner |
 | **Fixtures** | Full conformance set from OCP §10 (T0–T3 + unsupported-domain) |
-| **Host enablement notes** | `patches/mimo.md` + `patches/kilo.md` — operator overrides / path workarounds / host-kit wiring from OCP |
+| **Host enablement notes** | `docs/hosts/mimo.md` + `docs/hosts/kilo.md` — operator overrides / path workarounds / host-kit wiring from OCP |
 | **Docs** | Per-host enablement, public Plugin×Host×Tier matrix, ZCode T0 honesty |
 | **Companion (non-runtime)** | Kilo + **MiMo** telemetry **disable** guides + ZCode telemetry **block** guide — §7.1 / `docs/guides/kilocode-telemetry-disable.md` + `docs/guides/mimocode-telemetry-disable.md` + `docs/guides/zcode-telemetry-block.md` (ZCode = firewall/DNS docs only; **not** an OCP plugin kill) |
 | **Out of scope** | Host-specific consumer plugin forks (`cursor-mimocode-provider`, etc.) — close TX/path gaps in the bridge instead |
@@ -532,7 +532,7 @@ opencode-plugin-compat/
     cli/                    # doctor + matrix
   fixtures/                 # conformance
   docs/ocp/0.1.md
-  patches/                  # host enablement notes (operator attach)
+  docs/hosts/               # host enablement notes (operator attach)
 ```
 
 ### 8.4 Suggested build order (parallelizable; not gated phases)
@@ -645,10 +645,10 @@ Build sequencing (dependency only):
 
 1. ~~Create repo `opencode-plugin-compat`; copy OCP docs; scaffold packages (§8.3).~~ **Done.**
 2. ~~Implement profile + facade + **one** universal adapter + host kit + CLI + fixtures as **one product**.~~ **Done** (matrix green; T3 needs host embed).
-3. Prove external attach on MiMo/Kilo from `patches/`: install overrides → facade + path/docs workarounds + host-kit wiring from the OCP layer.
+3. Prove external attach on MiMo/Kilo from `docs/hosts/`: install overrides → facade + path/docs workarounds + host-kit wiring from the OCP layer.
 4. Prove unchanged plugins (incl. `cursor-opencode-provider`) via the bridge — **no** host-specific consumer forks.
 5. ZCode remains T0 stub/doctor only.
-6. ~~**Write** §7.1 companion guides~~ **Done:** `docs/guides/kilocode-telemetry-disable.md` + `docs/guides/mimocode-telemetry-disable.md` (in-app opt-out) + `docs/guides/zcode-telemetry-block.md` (ARMS + optional `zcode.z.ai` block tiers; docs only). Linked from `docs/README.md`, cross-guides, `patches/mimo.md` / `patches/kilo.md`, and doctor one-liners.
+6. ~~**Write** §7.1 companion guides~~ **Done:** `docs/guides/kilocode-telemetry-disable.md` + `docs/guides/mimocode-telemetry-disable.md` (in-app opt-out) + `docs/guides/zcode-telemetry-block.md` (ARMS + optional `zcode.z.ai` block tiers; docs only). Linked from `docs/README.md`, cross-guides, `docs/hosts/mimo.md` / `docs/hosts/kilo.md`, and doctor one-liners.
 
 ---
 

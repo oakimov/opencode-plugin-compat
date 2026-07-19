@@ -27,4 +27,4 @@ Bridge packages (`profile`, `facade-*`, `adapter`, `host-promise-v2`, `cli`, …
 
 **License:** MPL-2.0
 
-See the monorepo [README](../../README.md), [OCP 0.1](../../docs/ocp/0.1.md), and host notes under [`patches/`](../../patches/).
+See the monorepo [README](../../README.md), [OCP 0.1](../../docs/ocp/0.1.md), and host notes under [`docs/hosts/`](../../docs/hosts/).

@@ -25,7 +25,7 @@ Bridge packages, OCP §10 fixtures, CLI doctor/matrix/setup, host enablement not
 | [`cli`](./packages/cli) | `compat doctor` + matrix + `setup`/`overrides` (+ migrate-zcode companion) |
 | [`migrate-zcode`](./packages/migrate-zcode) | Companion: plugin-package skills/commands/manifests → `.zcode-plugin` (**not** OCP ABI; **no** host MCP — [plan](./docs/plans/zcode-asset-migrator-plan.md)) |
 
-Also: [`fixtures/`](./fixtures) (conformance), [`patches/`](./patches) (host enablement notes), [`docs/ocp/0.1.md`](./docs/ocp/0.1.md).
+Also: [`fixtures/`](./fixtures) (conformance), [`docs/hosts/`](./docs/hosts) (host enablement notes), [`docs/ocp/0.1.md`](./docs/ocp/0.1.md).
 
 **Not in scope:** separate publishable packages per host (`adapter-mimo`, `adapter-kilo`, …). Host differences live in `HostProfile` data + internal dispatch inside `@opencode-compat/adapter`. ZCode marketplace packing is a **companion** deliverable and does not make ZCode T1+.
 

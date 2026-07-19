@@ -147,13 +147,13 @@ opencode-plugin-compat/
     migrate-zcode/          # companion (not OCP ABI)
   fixtures/                 # conformance
   docs/ocp/0.1.md
-  patches/                  # host enablement notes (operator attach)
+  docs/hosts/               # host enablement notes (operator attach)
 ```
 
 **Rejected layout:** `adapter-opencode` / `adapter-mimo` / `adapter-kilo` / `adapter-zcode` as separate packages.
 ### P3 — Host enablement notes (external layer)
 
-See [`patches/`](https://github.com/oakimov/opencode-plugin-compat/tree/main/patches) — operator-facing notes for MiMo/Kilo.
+See [`docs/hosts/`](https://github.com/oakimov/opencode-plugin-compat/tree/main/docs/hosts) — operator-facing notes for MiMo/Kilo.
 
 **MiMo / Kilo (via OCP)**
 1. Install `@opencode-compat/ocp` → run **`ocp setup`** to write overrides for `@opencode-ai/plugin` / `sdk` → facades
