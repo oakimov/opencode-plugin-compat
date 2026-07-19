@@ -59,7 +59,7 @@ export function opencodeProfile(options?: DraftOptions): HostProfile {
 }
 
 /**
- * MiMo Code — classic T1 target; Promise v2 requires host kit embed.
+ * MiMo Code — classic T1 target; Promise v2 requires host-kit wiring from OCP.
  * Missing: dispose, experimental.provider.small_model (no-op + doctor).
  */
 export function mimoProfile(options?: DraftOptions): HostProfile {
@@ -113,7 +113,7 @@ export function mimoProfile(options?: DraftOptions): HostProfile {
 
 /**
  * Kilo Code — classic Hooks key-identical to OpenCode 1.18.3.
- * No project `.opencode` scan today; dual-scan needs M1 PR.
+ * No project `.opencode` scan today; close via bridge docs/doctor/operator copy-symlink.
  */
 export function kiloProfile(options?: DraftOptions): HostProfile {
   const { env, home } = baseOpts(options)

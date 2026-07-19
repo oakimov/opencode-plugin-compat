@@ -20,7 +20,7 @@ OCP defines a **portable contract** so plugins written against `@opencode-ai/plu
 | `kilo` | `@kilocode/plugin` | T1 (+ T3 if host kit embedded) |
 | `zcode` | *(none — marketplace ABI)* | **T0 only** (stub / doctor) |
 
-OCP is **not** ownership of the `@opencode-ai` npm scope. Facades remapped **inside fork install trees** satisfy plugin imports without spoofing the public registry org.
+OCP is **not** ownership of the `@opencode-ai` npm scope. Facades remapped in **plugin install trees / operator overrides** satisfy plugin imports without spoofing the public registry org. OCP is an **external compatibility layer** — it is **not** delivered by upstream PRs or long-lived forks of MiMo/Kilo.
 
 ---
 
@@ -55,7 +55,7 @@ Non-goals for 0.1 product: Effect v2 **completeness**, perfect SDK event-union i
 |------|-------------|
 | **T0** | Unsupported. Doctor explains why (ZCode today). |
 | **T1** | Classic Hooks plugins resolve `@opencode-ai/plugin` (+ `/tool`, `/tui`) via facade→**universal adapter** (autodetect)→native. Core hooks from §6 work. |
-| **T2** | Local project plugins under `.opencode/plugins` **or** host-native project dir **plus** optional `.opencode` dual-scan (M1). |
+| **T2** | Local project plugins under `.opencode/plugins` **or** host-native project dir **plus** optional `.opencode` compat expectation (docs/doctor/operator — not an upstream dual-scan PR). |
 | **T3** | Promise v2: `import { define } from "@opencode-ai/plugin/v2/promise"` + **`ctx.aisdk`** language/model injection works end-to-end. |
 | **T4** | Additional Promise v2 domains: `catalog`, `agent`, `command`, `skill`, `reference`, `integration` (progressive). |
 | **T5** | Effect v2 host alignment. |
@@ -81,7 +81,7 @@ type HostProfile = {
     dataDir: string
     cacheDir: string
     projectDirs: string[]          // actually scanned today
-    compatProjectDirs?: string[]   // recommended M1 additions, e.g. [".opencode"]
+    compatProjectDirs?: string[]   // matrix/doctor expectation, e.g. [".opencode"] — not an upstream PR
     pluginInstallDir?: string      // e.g. "~/.cache/kilo/packages"
   }
   configFiles: string[]
@@ -198,20 +198,20 @@ export default define({
 
 ### 7.3 Delivery
 
-Shared package `@opencode-compat/host-promise-v2` embedded by **M1** fork PRs (MiMo, Kilo). Sidecar alone cannot invent provider-resolve hooks. Ship host kit with the product — do not withhold it for a later “phase.”
+Shared package `@opencode-compat/host-promise-v2` is wired from the **OCP layer** (operator overrides / sidecar / host-kit helpers) wherever provider-resolve can be reached without patching MiMo/Kilo upstream. Sidecar alone may not invent every host hook — incomplete seams stay `capabilities.promiseV2: false` and `v2/promise` fails loud with an upgrade path. Ship the host kit with the product — do not withhold it for a later “phase.” **Do not** treat host-kit embed as an upstream MiMo/Kilo PR track.
 
 ---
 
 ## 8. Path & env federation (Layers B/C)
 
-### 8.1 Project dir scan (recommended M1)
+### 8.1 Project dir scan (T2)
 
 Precedence (native wins on conflict):
 
 1. Host native project dirs (`.mimocode` / `.kilo`+`.kilocode` / `.opencode`)  
 2. Compat: `.opencode` if not already native  
 
-Kilo and MiMo **do not** scan `.opencode` today → dual-scan is an **upstream PR**, not a facade-only fix.
+Kilo and MiMo **do not** scan `.opencode` today. Closing that gap is the **bridge’s** job (doctor honesty, docs, optional operator copy/symlink into host-native dirs) — **not** an upstream dual-scan PR from this project. Matrix `--compat-scan` exercises the documented expectation.
 
 ### 8.2 Env bridge (opt-in)
 
@@ -284,8 +284,8 @@ Repo home: **`opencode-plugin-compat`** (see ADR).
 These are **not** phase gates. Use defaults below unless evidence forces a change:
 
 1. **Minimal `@opencode-ai/sdk` facade** — start from methods used by sample classic plugins + Cursor provider; expand via fixtures.  
-2. **MiMo PRs** (`dispose`, `small_model`, dual-scan) — ship no-op gaps + doctor; dual-scan in M1 patch regardless of upstream accept latency.  
-3. **Kilo `.opencode` scan** — opt-in flag in M1 patch; copy-to-`.kilo` workaround in docs if refused.  
+2. **MiMo gaps** (`dispose`, `small_model`, `.opencode` paths) — ship no-op gaps + doctor; path gaps via docs/doctor/operator copy-symlink (not an upstream dual-scan PR).  
+3. **Kilo `.opencode` scan** — hosts do not scan it today; document copy/symlink into `.kilo` / `.kilocode` and keep matrix `--compat-scan` honest.  
 4. **`facade-sdk` depth** — close with T3+path smoke on **unchanged** plugins (ADR-6); no dual-package escape hatch.  
 5. **Naming** — **`@opencode-compat/*`** (preferred over `@ocp/*`).
 

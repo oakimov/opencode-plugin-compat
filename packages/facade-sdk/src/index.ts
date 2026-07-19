@@ -77,7 +77,7 @@ type ClientFactory = (
 
 let injectedFactory: ClientFactory | undefined
 
-/** M1 hosts / tests may inject the native client factory. */
+/** OCP layer / tests may inject the native client factory. */
 export function setCreateOpencodeClient(factory: ClientFactory | undefined): void {
   injectedFactory = factory
 }

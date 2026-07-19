@@ -1,11 +1,11 @@
-# Plan: MiMo OpenCode plugin compatibility (M1 integration detail)
+# Plan: MiMo OpenCode plugin compatibility (host integration detail)
 
-**Date:** 2026-07-19 (revised: final-product framing)  
-**Status:** **Build as part of final OCP product** — no phased MVP. MiMo is an **equal** cooperating host and `HostProfile` target of the one universal adapter (this doc is M1 integration detail, worked first only for build sequencing), **not** a privileged "proof" and **not** a separate adapter package  
-**Primary target:** [XiaomiMiMo/MiMo-Code](https://github.com/XiaomiMiMo/MiMo-Code) (upstream PR / fork work) via universal `@opencode-compat/adapter` + `HostProfile` `mimo`  
+**Date:** 2026-07-19 (revised: external-bridge framing)  
+**Status:** **Build as part of final OCP product** — no phased MVP. MiMo is an **equal** cooperating host and `HostProfile` target of the one universal adapter (this doc is MiMo integration detail, worked first only for build sequencing), **not** a privileged "proof" and **not** a separate adapter package  
+**Primary target:** [XiaomiMiMo/MiMo-Code](https://github.com/XiaomiMiMo/MiMo-Code) (read-only host reference) via **external** universal `@opencode-compat/adapter` + `HostProfile` `mimo` — **not** an upstream PR/fork track  
 **Repo:** `opencode-plugin-compat` (`docs/plans/`)  
 **Related:** `universal-opencode-plugin-compat-plan.md` (parent); `dual-host-packages-plan.md` is **superseded / out of scope** (historical only)  
-**Goal:** Let **published OpenCode plugins** load on MiMoCode with **no republish**, including **plugin v2** (`@opencode-ai/plugin/v2/promise`), via the universal compat product (facade + **one** adapter + host kit + M1 patches).
+**Goal:** Let **published OpenCode plugins** load on MiMoCode with **no republish**, including **plugin v2** (`@opencode-ai/plugin/v2/promise`), via the universal **external** compat product (facade + **one** adapter + host kit + operator enablement notes).
 
 ---
 
@@ -73,14 +73,14 @@ MiMoCode is an OpenCode fork but breaks drop-in plugins because:
 └─────────────────────────────────────────────────────────────┘
 ```
 
-### Suggested package split (OCP + MiMo M1)
+### Suggested package split (OCP external layer + MiMo profile)
 
 | Artifact | Role |
 |----------|------|
 | `@opencode-compat/facade-plugin` / `facade-sdk` | Install-override stand-ins for `@opencode-ai/*` (Layer A target) |
 | `@opencode-compat/adapter` | Universal autodetection; `mimo` dispatch → `@mimo-ai/*` |
-| `@opencode-compat/host-promise-v2` | Shared Promise v2 aisdk kit MiMo embeds (M1) |
-| MiMo `packages/opencode/src/plugin/*` | Install overrides → facade, dual-dir scan, v2 loader/host wiring |
+| `@opencode-compat/host-promise-v2` | Shared Promise v2 aisdk kit wired from the OCP layer |
+| Operator / sidecar attach points | Install-tree overrides → facade; path docs/doctor; v2 host-kit helpers (no MiMo source patch) |
 
 **Do not** alias `@opencode-ai/plugin` straight to `@mimo-ai/plugin` as the product path — that skips OCP (v2 surface, doctor, shared host kit). Prefer **one export surface** plugins already know: `@opencode-ai/plugin` → **facade** → universal adapter → `@mimo-ai/plugin`.
 
@@ -191,7 +191,7 @@ await ctx.aisdk.sdk((event) => { … event.sdk = … })
 await ctx.aisdk.language((event) => { … event.language = … })
 ```
 
-**Implement via `@opencode-compat/host-promise-v2`** embedded by MiMo M1 (do **not** require full Effect port):
+**Implement via `@opencode-compat/host-promise-v2`** wired from the OCP layer where provider-resolve can be reached (do **not** require full Effect port; **do not** PR MiMo upstream):
 
 1. Config field parity: support OpenCode-style `plugins: ["pkg/plugin/v2"]` **or** map legacy `plugin` entries that export v2 `define()` shapes.
 2. Loader: detect v2 module (`export` with `{ id, setup }` / known export path).
@@ -246,11 +246,11 @@ Build **all** of the following as the MiMo slice of the OCP product:
 | Workstream | Work |
 |------------|------|
 | **Alias (A)** | Install-time `@opencode-ai/plugin` + `sdk` (+ v2 subpaths) → facade / `@mimo-ai/*` |
-| **Paths (B)** | Dual-scan `.opencode` + `.mimocode`; fix docs (#1151) |
+| **Paths (B)** | Bridge honesty for `.opencode` vs `.mimocode` (docs/doctor/operator copy-symlink; see #1151) — **not** an upstream dual-scan PR |
 | **Env bridge (C)** | Opt-in path bridge; no secret dual-write |
-| **Classic (D)** | Gaps: `dispose`, `experimental.provider.small_model` (no-op + doctor or upstream add); fixture plugins |
-| **v2 host (E)** | Facade `v2/promise` + embed `host-promise-v2` aisdk; other domains loud-stub |
-| **Release** | Compat matrix row for MiMo; M1 PR to XiaomiMiMo/MiMo-Code; changelog |
+| **Classic (D)** | Gaps: `dispose`, `experimental.provider.small_model` (no-op + doctor); fixture plugins |
+| **v2 host (E)** | Facade `v2/promise` + wire `host-promise-v2` aisdk from OCP layer; other domains loud-stub |
+| **Release** | Compat matrix row for MiMo; host enablement notes; changelog (hold npm until necessary) |
 
 **Exit bar (MiMo):** T1 + T2 path story + T3 aisdk fixture; Effect = loud fail unless ported.
 
@@ -305,8 +305,8 @@ Close TX/path gaps in the bridge so unchanged plugins (including `cursor-opencod
 | Promise v2 aisdk host + wiring | ~1–2 weeks |
 | Path bridge + domain stubs/wiring | ~1–2 weeks (overlap) |
 | Effect stub (default) | days |
-| Docs / matrix / upstream PR | parallel ~1 week |
-| **MiMo product slice** | **~3–5 weeks eng** (calendar + upstream review) |
+| Docs / matrix / enablement notes | parallel ~1 week |
+| **MiMo product slice** | **~3–5 weeks eng** (in this repo only; no upstream review gate) |
 
 ---
 
@@ -326,20 +326,20 @@ Close TX/path gaps in the bridge so unchanged plugins (including `cursor-opencod
 
 | Option | Pros | Cons |
 |--------|------|------|
-| **PR to XiaomiMiMo/MiMo-Code** | Right layer; benefits ecosystem | Review latency |
-| **Hard fork of MiMo with compat** | Ship faster | Ongoing merge cost |
-| **External installer wrapper** | No upstream needed | Fragile; doesn’t fix runtime v2 host |
+| **Upstream PR to XiaomiMiMo/MiMo-Code** | Would land in host tree | **Rejected** for this project — review latency + wrong ownership |
+| **Hard fork of MiMo with compat** | Ship faster | Ongoing merge cost; **rejected** as OCP delivery |
+| **External OCP layer** (overrides / sidecar / docs) | No upstream needed; owned here | Some host seams may stay incomplete → loud fail + doctor |
 
-**Recommendation:** Design for upstream PR; develop on a short-lived fork if needed; ship full MiMo product slice (A–E above), not a classic-only interim.
+**Recommendation:** Ship and maintain OCP **only** in this repo. MiMo stays a read-only reference. Full MiMo product slice (A–E above) via external attach — not a classic-only interim and not an upstream PR track.
 
 ---
 
 ## 13. Immediate next actions
 
-1. Implement universal `@opencode-compat/adapter` (`mimo` `HostProfile` dispatch) + facade overrides under `opencode-plugin-compat`.  
-2. M1 patch: install overrides → **facade** (not direct `@mimo-ai/*`) + dual-scan + host kit embed.  
+1. Keep universal `@opencode-compat/adapter` (`mimo` `HostProfile` dispatch) + facade overrides under `opencode-plugin-compat`.  
+2. Operator path: install overrides → **facade** (not direct `@mimo-ai/*`) + docs/doctor/copy-symlink for paths + wire host kit from OCP layer.  
 3. Classic + aisdk fixtures green.  
-4. Upstream PR + matrix row.  
+4. Matrix row + enablement notes in `patches/mimo.md` (no MiMo PR).  
 5. Prove unchanged `cursor-opencode-provider` via the bridge — **no** `cursor-mimocode-provider` / dual-package track.
 
 ---

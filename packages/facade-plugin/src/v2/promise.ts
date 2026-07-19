@@ -44,7 +44,7 @@ export function define(plugin: PromisePlugin): PromisePlugin {
   if (!result.profile.capabilities.promiseV2) {
     throw new Error(
       `${PKG_V2_PROMISE}: Promise v2 not available on host "${result.profile.id}". ` +
-        "Embed @opencode-compat/host-promise-v2 via an M1 host patch, or run on OpenCode. " +
+        "Wire @opencode-compat/host-promise-v2 from the OCP layer (or run on OpenCode). " +
         "See docs/ocp/0.1.md §7.",
     )
   }

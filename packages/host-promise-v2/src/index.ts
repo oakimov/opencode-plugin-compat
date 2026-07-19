@@ -1,5 +1,6 @@
 /**
- * Shared Promise v2 aisdk host kit — embedded by M1 fork patches.
+ * Shared Promise v2 aisdk host kit — wired from the OCP layer
+ * (operator overrides / sidecar / host-kit helpers), not via host PRs.
  * OCP 0.1 T3 bar: `ctx.aisdk` language (+ ideally sdk) hooks.
  * Other domains loud-stub in the same ship.
  */
@@ -111,7 +112,7 @@ export function createAisdkBus(): AisdkBus {
   }
 }
 
-/** Create a PluginContext for hosts that embed this kit. */
+/** Create a PluginContext for the OCP layer / hosts that wire this kit. */
 export function createPluginContext(
   options: Record<string, unknown> = {},
   plugin: PluginContext["plugin"] = {},
@@ -131,7 +132,7 @@ export function createPluginContext(
 
 /**
  * Promise v2 `define()` — registers a plugin setup against the host kit.
- * Hosts must invoke `setup` at provider-resolve time (M1 embed).
+ * The OCP layer / host must invoke `setup` at provider-resolve time.
  */
 export function define(plugin: PromisePlugin): PromisePlugin {
   if (!plugin || typeof plugin.setup !== "function") {

@@ -231,7 +231,7 @@ Exit code (CLI): `0` if emit succeeded (even with JS skips); `1` on I/O/schema/c
 | **H** | `docs/guides/zcode-import-and-migrate.md` | Guide published | **Done** |
 | **I** | (Optional) multi-plugin marketplace wrapper polish | Documented as stretch | **Done** |
 
-No MiMo/Kilo M1 work is blocked by this; keep bridge PRs independent.
+No MiMo/Kilo bridge work is blocked by this; keep OCP external-layer work independent of this companion.
 
 ---
 
@@ -321,4 +321,4 @@ bun run migrate-zcode -- \
   --marketplace-name my-fleet --out /tmp/fleet --dry-run
 ```
 
-Keep bridge/M1 work independent; ZCode OCP tier stays **T0**.
+Keep OCP external-layer work independent; ZCode OCP tier stays **T0**.

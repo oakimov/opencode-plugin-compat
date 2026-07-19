@@ -126,7 +126,7 @@ describe("OCP §10 fixtures", () => {
     expect(results[0]?.status).toBe("pass")
   })
 
-  test("mimo T3 aisdk language skips until M1", async () => {
+  test("mimo T3 aisdk language skips until OCP wires promiseV2", async () => {
     const results = await runMatrix({
       hosts: ["mimo"],
       fixtureIds: ["v2.aisdk.language"],

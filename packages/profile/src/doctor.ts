@@ -93,7 +93,7 @@ export function formatProfileSummary(
   return profileSummaryLines(profile).join("\n")
 }
 
-/** Suggested override map snippet for fork install trees. */
+/** Suggested override map snippet for plugin install trees / operator overrides. */
 export function facadeOverrideSnippet(version = "0.1.x"): string {
   return JSON.stringify(
     {

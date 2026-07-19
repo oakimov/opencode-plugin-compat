@@ -19,20 +19,21 @@ Published OpenCode plugins import `@opencode-ai/plugin` (+ optional `/v2/promise
 
 Goal: one universal **compatibility bridge** so **published OpenCode plugins run unchanged** on cooperating hosts (no republish, no per-host plugin forks). Example consumer: `cursor-opencode-provider` — must work via OCP, not via `cursor-mimocode-provider` / Kilo / ZCode variants.
 
-**Delivery rule:** No “Phase 1 T1 / Phase 2 T3 / Phase 3 …” product cuts. Research is finished. Ship the complete bridge stack (facades, **one universal adapter**, host kit, doctor, fixtures, M1 patches, matrix). Dual-host consumer packages are **out of scope**. Per-host adapter packages are **out of scope**.
+**Delivery rule:** No “Phase 1 T1 / Phase 2 T3 / Phase 3 …” product cuts. Research is finished. Ship the complete **external** bridge stack (facades, **one universal adapter**, host kit, doctor, fixtures, host enablement notes, matrix). Dual-host consumer packages are **out of scope**. Per-host adapter packages are **out of scope**. **Do not** open or maintain upstream PRs/forks against MiMo/Kilo for OCP.
 
 ---
 
 ## 2. Decisions
 
-### ADR-1 — Delivery model: **M1-first** (in-fork), M2 overlay only for Layer A
+### ADR-1 — Delivery model: **external OCP layer** (operator overrides / sidecar); host source untouched
 
 | Option | Verdict |
 |--------|---------|
-| M1 — forks call compat in install/loader + provider resolve | **Chosen** |
-| M2 — user sidecar / manual cache patches only | Stopgap for alias only; **cannot** deliver T3 host kit |
+| External `@opencode-compat/*` layer — install-tree overrides, doctor/matrix, host-kit helpers without patching host repos | **Chosen** |
+| In-fork embed — PR dual-scan / embed kit into XiaomiMiMo or Kilo-Org | **Rejected** for this project (hosts remain read-only references) |
+| M2 — user sidecar / manual cache patches only | Compatible with Layer A; T3 still needs reachable provider-resolve seams via OCP, not upstream PRs |
 
-**Consequences:** Ship PRs/patches for MiMo + Kilo. ZCode requires vendor M1 (unlikely short-term) → T0 stub.
+**Consequences:** Ship and maintain OCP in this repo only. Path gaps → docs/doctor/operator copy-symlink. ZCode stays T0. Mistaken dual-scan upstream PRs were closed; do not reopen.
 
 ### ADR-2 — Protocol name & product shape: **OCP 0.1 = classic T1+T2 path story + Promise v2 aisdk (T3)**
 
@@ -80,12 +81,14 @@ Do **not** publish impersonating packages to the public `@opencode-ai/*` org.
 
 `actor.*` / `session.*` hooks stay **MiMo HostProfile extensions**. Portable plugins must not depend on them. Facade does not surface them on the `@opencode-ai/plugin` portable path in 0.1.
 
-### ADR-8 — Path dual-scan is a host PR, not a facade feature
+### ADR-8 — Path gaps close in the bridge, not via host PRs
 
-Without M1 changes, T2 (`.opencode` local plugins) **fails** on MiMo and Kilo. Product includes:
+MiMo and Kilo do **not** scan `.opencode` today, so T2 local OpenCode project plugins fail unless the **bridge** closes the gap. Product includes:
 
-- MiMo: scan `.opencode` after `.mimocode` (fixes docs bug #1151 as behavior)  
-- Kilo: opt-in or documented compat scan for `.opencode` (higher friction — they deliberately removed it)
+- Docs + doctor honesty for `.opencode` vs host-native dirs (`.mimocode` / `.kilo` / `.kilocode`)  
+- Operator copy/symlink into host-native project dirs when needed  
+- Matrix `--compat-scan` exercising the documented expectation  
+- **Do not** open upstream dual-scan PRs from this project
 
 ### ADR-9 — No phased product delivery
 
@@ -104,7 +107,7 @@ From discovery (artifacts under `tasks/`):
 | Examine ZCode 3.3.6 plugin ABI | ✅ T0 |
 | Diff classic Hooks OC × MiMo × Kilo | ✅ `phase0-hooks-parity.md` |
 | Inventory top OpenCode plugins classic vs v2 | ✅ sample in parity doc |
-| ADR: M1 / facade / OCP 0.1 | ✅ this document |
+| ADR: external layer / facade / OCP 0.1 | ✅ this document |
 | Decide repo home | ✅ `opencode-plugin-compat` |
 
 ---
@@ -127,23 +130,19 @@ opencode-plugin-compat/
     cli/                    # doctor + matrix
   fixtures/                 # conformance
   docs/ocp/0.1.md
-  patches/                  # reference M1 patches for MiMo/Kilo
+  patches/                  # host enablement notes (NOT upstream PR patches)
 ```
 
 **Rejected layout:** `adapter-opencode` / `adapter-mimo` / `adapter-kilo` / `adapter-zcode` as separate packages.
-### P3 — M1 patch outlines (ship with product)
+### P3 — Host enablement notes (external layer; not upstream PRs)
 
-**MiMo**
-1. Plugin install: overrides for `@opencode-ai/plugin` / `sdk`  
-2. `ConfigPaths.directories`: append `.opencode` targets  
-3. Embed `host-promise-v2` at provider resolve (T3)  
-4. Optionally add missing `dispose` + `experimental.provider.small_model` to `@mimo-ai/plugin` (upstream hygiene)
+See [`patches/`](https://github.com/oakimov/opencode-plugin-compat/tree/main/patches) — operator-facing notes for MiMo/Kilo. **Not** patch series or PR sources.
 
-**Kilo**
-1. Same install overrides under `~/.cache/kilo/packages` / local `.kilo`  
-2. Opt-in `.opencode` project scan (`KILO_COMPAT_OPENCODE_DIRS=1` or always-on compat)  
-3. Embed host kit for T3  
-4. Replace residual `@opencode-ai/plugin` type-casts in builtin auth plugins with facade types
+**MiMo / Kilo (via OCP)**
+1. Plugin install: overrides for `@opencode-ai/plugin` / `sdk` → facades  
+2. Project dirs: document native dirs; optional operator copy/symlink `.opencode` assets into `.mimocode` / `.kilo`  
+3. Wire `host-promise-v2` from the OCP layer where provider-resolve can be reached without host source changes  
+4. Facade policy for MiMo classic gaps (`dispose`, `small_model`) — accept + no-op + warn
 
 **ZCode**
 1. Stub adapter + doctor only  
@@ -179,8 +178,8 @@ Implement OCP §10 fixtures as part of first ship (not a later phase).
 |------|------------|
 | Classic types match but runtime invoke differs | Conformance suite before claiming T1 |
 | MiMo extension hooks tempt “universal” API bloat | ADR-7 — extensions non-portable |
-| Kilo refuses `.opencode` scan PR | T2 degraded; document copy-to-`.kilo` workaround |
-| Facade mistaken for official SDK | Naming `@opencode-compat/*`; docs; overrides only in fork caches |
+| Kilo / MiMo lack `.opencode` scan | T2 via docs/doctor/operator copy-symlink; **do not** upstream dual-scan PRs from this project |
+| Facade mistaken for official SDK | Naming `@opencode-compat/*`; docs; overrides only in plugin install trees / operator tooling |
 | Scope creep to ZCode marketplace bridge | Hard T0; separate project if ever |
 | Effect beta skew (MiMo 48 / Kilo 74 / OC 83) | Facade avoids depending on host Effect for classic T1 |
 | “Ship MVP then phases” regression | ADR-9 — one product bar |
@@ -191,7 +190,7 @@ Implement OCP §10 fixtures as part of first ship (not a later phase).
 
 **In scope for universal OCP product:**
 - OpenCode (reference)  
-- MiMo + Kilo as **cooperating open CLI forks** (M1)  
+- MiMo + Kilo as **equal host targets** of the external OCP bridge  
 - ZCode as **explicit T0 cell** in the same matrix/docs/CLI doctor  
 
 **Not claimed:**
@@ -199,18 +198,18 @@ Implement OCP §10 fixtures as part of first ship (not a later phase).
 - ZCode marketplace plugins via `@opencode-ai/plugin`  
 - Full Effect v2 parity on every fork  
 - Host-branded republishes of consumer plugins as a compatibility strategy  
+- Upstream PRs or long-lived forks of XiaomiMiMo/MiMo-Code or Kilo-Org/kilocode as the OCP delivery path  
 
 ---
 
 ## 7. Next actions (build)
 
 1. ~~**Create repo** `opencode-plugin-compat` and move/copy OCP docs~~ **done** (scaffold + `docs/`)  
-2. **Implement full product** — profile + facades + **universal adapter** (autodetect) + host kit + CLI + fixtures  
-3. **M1 patches** against MiMo/Kilo (overrides, dual-scan, host kit embed)  
-4. **Prove unchanged plugins** on MiMo/Kilo (classic + `v2/promise` samples, incl. `cursor-opencode-provider` as a matrix subject)  
-5. Prefer naming **`@opencode-compat/*`** (open question #5 default)
+2. ~~**Implement full product** — profile + facades + **universal adapter** (autodetect) + host kit + CLI + fixtures~~ **done** (matrix green; T3 needs OCP-layer wiring)  
+3. **Prove unchanged plugins** on MiMo/Kilo via external overrides / sidecar (classic + `v2/promise` samples, incl. `cursor-opencode-provider`) — **not** via host PRs  
+4. Close path/env gaps in bridge docs + doctor; hold npm publish until necessary  
 
-**Recommendation:** (1)+(2)+(3)+(4). All cooperating hosts are **equal** `HostProfile` targets of the one universal adapter — no host is a privileged "proof" and none gets a dedicated adapter path. MiMo is the first M1 integration target **only** for build sequencing (its classic Hooks are closest to the portable core); this confers no special role in the adapter. Do **not** implement dual-host consumer packages or per-host adapter packages.
+**Recommendation:** Keep all work in this repo. Hosts are read-only references. Do **not** implement dual-host consumer packages, per-host adapter packages, or upstream host PRs.
 
 ---
 
@@ -222,5 +221,5 @@ Implement OCP §10 fixtures as part of first ship (not a later phase).
 | `phase0-hooks-parity.md` | Research evidence (Hooks / path / inventory) |
 | `ocp-0.1-spec.md` | Protocol / product contract |
 | `phase0-adr-universal-compat.md` | This ADR |
-| `mimo-opencode-compat-layer-plan.md` | MiMo M1 integration detail — MiMo is an **equal** `HostProfile` target, not a separate adapter package |
+| `mimo-opencode-compat-layer-plan.md` | MiMo integration detail — MiMo is an **equal** `HostProfile` target, not a separate adapter package |
 | `dual-host-packages-plan.md` | **Superseded** historical sketch |

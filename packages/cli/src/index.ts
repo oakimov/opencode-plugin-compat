@@ -48,7 +48,7 @@ export function doctor(options?: DetectOptions): DoctorResult {
 export type MatrixCliOptions = {
   hosts?: HostId[]
   fixtureIds?: string[]
-  /** When true, treat mimo/kilo compatProjectDirs dual-scan as landed. */
+  /** When true, exercise mimo/kilo compatProjectDirs expectations (operator/docs path — not upstream dual-scan). */
   compatScan?: boolean
 }
 

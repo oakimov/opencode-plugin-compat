@@ -148,7 +148,7 @@ export async function importNativeSdk(
 
 /**
  * Wrap a classic plugin so returned hooks are normalized for the detected host.
- * M1 hosts may call this when loading `@opencode-ai/plugin` plugins via the bridge.
+ * The OCP layer / host kit may call this when loading `@opencode-ai/plugin` plugins via the bridge.
  */
 export function wrapClassicPlugin<
   TInput,

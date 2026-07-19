@@ -16,7 +16,7 @@ export type FixtureResult = {
 export type FixtureContext = {
   host: HostId
   profile: HostProfile
-  /** When true, treat compatProjectDirs as already applied (M1 landed). */
+  /** When true, exercise compatProjectDirs expectations (operator/docs path — not upstream dual-scan). */
   compatScanEnabled?: boolean
 }
 

@@ -1,6 +1,6 @@
 # @opencode-compat/host-promise-v2
 
-Shared Promise v2 aisdk host kit embedded by M1 fork patches
+Shared Promise v2 aisdk host kit wired from the OCP layer
 
 **License:** MPL-2.0
 

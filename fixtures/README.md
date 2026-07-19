@@ -17,7 +17,7 @@ bun packages/cli/bin/compat.ts matrix --fixture v2.aisdk.language --host opencod
 | `classic.tool-before-after` | T1 | tool execute hooks |
 | `classic.chat-params` | T1 | `chat.params` mutates options |
 | `alias.resolve-plugin` | T1 | facade-plugin / facade-sdk resolve |
-| `local.dot-opencode-scan` | T2 | native scan or `--compat-scan` M1 |
+| `local.dot-opencode-scan` | T2 | native scan or `--compat-scan` (operator/docs expectation) |
 | `v2.aisdk.language` | T3 | LanguageModelV3 injection via host kit |
 | `v2.unsupported-domain` | T3 | loud stub for unimplemented domains |
 | `zcode.t0-doctor` | T0 | ZCode doctor message only |

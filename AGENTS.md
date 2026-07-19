@@ -5,19 +5,21 @@
 Universal **OCP** compatibility **bridge** monorepo. Ship the **complete** stack — no phased MVP cuts.
 
 - Goal: **any OpenCode plugin runs unchanged** on cooperating hosts via facades + **one** autodetection adapter + host kit.
-- Facades remapped **inside fork install trees** (not spoofing public `@opencode-ai` on npm).
+- OCP is an **external compatibility layer** for MiMo/Kilo/OpenCode — **not** an upstream patch/PR track into those hosts.
+- Facades remapped in **plugin install trees / operator overrides** (not spoofing public `@opencode-ai` on npm; npm publish held until necessary).
 - Scope: `@opencode-compat/*` — **host bridge packages** plus named **companions** that must not redefine OCP success.
 - License: **MPL-2.0** (all packages).
 - ZCode is **T0 only** for OCP (marketplace ≠ OpenCode plugin ABI). Companion `@opencode-compat/migrate-zcode` migrates **plugin-packaged** skills/commands/marketplace manifests into `.zcode-plugin` trees (**not** host MCP; **not** unchanged `@opencode-ai/plugin` loadability).
 - **Do not** create or plan host-specific forks of consumer plugins (no `cursor-mimocode-provider`, `cursor-kilocode-provider`, ZCode variants, etc.). Dual-package tracks are **out of scope**; close gaps in the bridge.
 - **Do not** ship separate per-host adapter packages. Host differences are `HostProfile` data + dispatch inside `@opencode-compat/adapter`.
+- **Do not** open or maintain PRs/forks against XiaomiMiMo/MiMo-Code or Kilo-Org/kilocode for OCP.
 
 ## Layout
 
 ```
 packages/profile|facade-*|adapter|host-promise-v2|cli|migrate-zcode
 fixtures/          # OCP conformance (migrator tests use in-memory mocks)
-patches/           # reference M1 MiMo/Kilo patches
+patches/           # host enablement notes (NOT upstream PR patches)
 docs/ocp/0.1.md   # contract
 docs/plans/        # ADRs + plans (incl. zcode-asset-migrator-plan.md)
 docs/guides/       # companion privacy / ZCode import notes (non-OCP runtime)
@@ -41,9 +43,10 @@ docs/guides/       # companion privacy / ZCode import notes (non-OCP runtime)
 
 ## Suggested next work
 
-1. Land MiMo/Kilo M1 PRs from `patches/` (overrides, dual-scan, embed `host-promise-v2`).
-2. Prove unchanged plugins (classic + `v2/promise`, incl. `cursor-opencode-provider`) on MiMo/Kilo via the bridge — not via republished host forks.
-3. Expand `facade-sdk` surface from real plugin smoke failures; keep matrix green.
+1. Prove unchanged plugins (classic + `v2/promise`, incl. `cursor-opencode-provider`) on MiMo/Kilo via **external** facades + adapter + host kit — operator overrides / OCP sidecar, **not** upstream host PRs or long-lived host forks.
+2. Close path/env gaps in the bridge (`HostProfile`, doctor, docs, optional operator copy/symlink into host-native project dirs). Do **not** PR dual-scan into MiMo/Kilo.
+3. Expand `facade-sdk` surface from real plugin smoke failures; keep matrix green. Wire `host-promise-v2` from the OCP layer where provider-resolve allows.
 4. Companion migrator MVP is landed (`migrate-zcode` library + `compat migrate-zcode`); keep ZCode OCP at T0; never pack host MCP. Optional Step I = marketplace polish only.
+5. Hold npm publish of `@opencode-compat/*` until necessary.
 
 Companion privacy guides (§7.1) are shipped under `docs/guides/` (Kilo/MiMo in-app opt-out; ZCode docs-only firewall/DNS). Doctor prints one-liner pointers; OCP never mutates telemetry.

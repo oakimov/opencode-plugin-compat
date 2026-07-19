@@ -1,16 +1,12 @@
-# Reference M1 patches
+# Host enablement notes (not upstream patches)
 
-Reference patches / PR outlines for cooperating forks. Cite **GitHub repo paths only** (no local checkout paths).
+OCP is an **external compatibility layer** for OpenCode-compatible hosts. It is **not** delivered by PRing or forking MiMo/Kilo.
 
-| Host | Outline | Upstream | PR-source fork |
-|------|---------|----------|----------------|
-| **MiMo** | [mimo-m1.md](./mimo-m1.md) | [XiaomiMiMo/MiMo-Code](https://github.com/XiaomiMiMo/MiMo-Code) · [PR #1810](https://github.com/XiaomiMiMo/MiMo-Code/pull/1810) | [oakimov/MiMo-Code](https://github.com/oakimov/MiMo-Code) |
-| **Kilo** | [kilo-m1.md](./kilo-m1.md) | [Kilo-Org/kilocode](https://github.com/Kilo-Org/kilocode) · [PR #12390](https://github.com/Kilo-Org/kilocode/pull/12390) | [oakimov/kilocode](https://github.com/oakimov/kilocode) |
+| Host | Notes | Upstream (read-only reference) |
+|------|-------|--------------------------------|
+| **MiMo** | [mimo.md](./mimo.md) | [XiaomiMiMo/MiMo-Code](https://github.com/XiaomiMiMo/MiMo-Code) |
+| **Kilo** | [kilo.md](./kilo.md) | [Kilo-Org/kilocode](https://github.com/Kilo-Org/kilocode) |
 
-Each outline covers:
+These notes document how operators / this repo’s packages attach to a host (install-tree overrides, path dual-scan expectations, Promise v2 kit). They are **not** patch series to merge into those repos.
 
-1. **Layer A** — install-time facade overrides (`@opencode-ai/plugin` → `@opencode-compat/facade-*`)
-2. **Layer B** — `.opencode` dual-scan (MiMo always-on; Kilo opt-in via `KILO_OCP_SCAN_OPENCODE`)
-3. **Layer E** — embed [`host-promise-v2`](https://github.com/oakimov/opencode-plugin-compat/tree/main/packages/host-promise-v2) at provider-resolve
-
-See [`docs/plans/phase0-adr-universal-compat.md`](https://github.com/oakimov/opencode-plugin-compat/blob/main/docs/plans/phase0-adr-universal-compat.md) §P3.
+**Do not** open upstream PRs, maintain long-lived host forks, or treat `patches/` as a contribution track to XiaomiMiMo / Kilo-Org.

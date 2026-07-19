@@ -16,7 +16,7 @@ export const v2AisdkLanguage: Fixture = {
       return skip(
         this,
         ctx.host,
-        "promiseV2=false — embed host-promise-v2 (M1) to claim T3",
+        "promiseV2=false — wire host-promise-v2 from the OCP layer to claim T3",
       )
     }
     const plugin = define({
@@ -68,7 +68,7 @@ export const v2UnsupportedDomain: Fixture = {
       }
       const note = ctx.profile.capabilities.promiseV2
         ? "host kit loud stub ok"
-        : "host kit loud stub ok (host promiseV2 still false — M1 required for end-to-end T3)"
+        : "host kit loud stub ok (host promiseV2 still false — OCP wiring required for end-to-end T3)"
       return pass(this, ctx.host, note, message)
     }
   },

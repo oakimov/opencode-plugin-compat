@@ -98,7 +98,7 @@ MiMo extension hooks pull in MiMo-only types (`ActorPreStopRegistration`, `Traje
 | Config dir | `~/.config/opencode` (`OPENCODE_CONFIG_DIR`) | `~/.config/mimocode` or `$MIMOCODE_HOME/config` | `~/.config/kilo` (`KILO_CONFIG_DIR`) | `~/.zcode/v2/setting.json` etc. |
 | Cache / npm plugins | `~/.cache/opencode` (packages under cache) | `~/.cache/mimocode` or `$MIMOCODE_HOME/cache` | `~/.cache/kilo/packages/<pkg>` | marketplace, not OC npm cache |
 | Project dirs scanned | `.opencode` | `.mimocode` **only** (docs mention `.opencode` — bug #1151) | `.kilo`, `.kilocode` **only** (deliberately dropped `.opencode`) | not OC plugin dirs |
-| Compat dual-scan `.opencode` | native | **needs M1 PR** | **needs M1 PR** | N/A |
+| Compat dual-scan `.opencode` | native | **bridge/docs/operator** (not upstream PR) | **bridge/docs/operator** (not upstream PR) | N/A |
 | Config basenames | `opencode.json(c)` | `mimocode.json(c)` | `kilo.json(c)`, also merges leftover global `opencode.json(c)` in kilo config dir | ZCode settings / marketplace |
 | `scansDotOpencode` | true | false today | false today | false |
 

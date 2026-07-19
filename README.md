@@ -1,14 +1,14 @@
 # opencode-plugin-compat
 
-**OCP** — OpenCode Compatibility Protocol and a **universal compatibility bridge** for OpenCode forks.
+**OCP** — OpenCode Compatibility Protocol and a **universal compatibility bridge** for OpenCode-compatible hosts.
 
-Run **published OpenCode plugins unchanged** (`import "@opencode-ai/plugin"` / `v2/promise`) on cooperating forks (**MiMo Code**, **Kilo Code**). **ZCode** stays honestly at T0 (marketplace ABI ≠ OpenCode plugin ABI). This repo does **not** ship or plan host-specific forks of individual plugins (no `cursor-mimocode-provider`, `cursor-kilocode-provider`, etc.).
+Run **published OpenCode plugins unchanged** (`import "@opencode-ai/plugin"` / `v2/promise`) on **MiMo Code** and **Kilo Code** via an **external** `@opencode-compat/*` layer (install-tree overrides / sidecar) — **not** by patching those hosts upstream. **ZCode** stays honestly at T0 (marketplace ABI ≠ OpenCode plugin ABI). This repo does **not** ship or plan host-specific forks of individual plugins (no `cursor-mimocode-provider`, `cursor-kilocode-provider`, etc.), and does **not** maintain MiMo/Kilo upstream PRs or long-lived host forks for OCP.
 
 **License:** [MPL-2.0](./LICENSE)
 
 ## Status
 
-Bridge packages, OCP §10 fixtures, CLI doctor/matrix, and M1 patch outlines are in-tree. Pin hosts to exact `@opencode-compat/*` versions; prove unchanged plugins on MiMo/Kilo via facades + host kit.
+Bridge packages, OCP §10 fixtures, CLI doctor/matrix, and host enablement notes are in-tree. npm publish of `@opencode-compat/*` is **held until necessary**. Prove unchanged plugins on MiMo/Kilo via facades + adapter + host kit.
 
 ## Packages (`@opencode-compat/*`)
 
@@ -18,11 +18,11 @@ Bridge packages, OCP §10 fixtures, CLI doctor/matrix, and M1 patch outlines are
 | [`facade-plugin`](./packages/facade-plugin) | Install-override stand-in for `@opencode-ai/plugin` |
 | [`facade-sdk`](./packages/facade-sdk) | Stand-in for `@opencode-ai/sdk` (minimal) |
 | [`adapter`](./packages/adapter) | **One** universal host adapter — autodetects host, dispatches via `HostProfile` |
-| [`host-promise-v2`](./packages/host-promise-v2) | Shared Promise v2 aisdk host kit (M1 embed) |
+| [`host-promise-v2`](./packages/host-promise-v2) | Shared Promise v2 aisdk host kit (wired from OCP layer) |
 | [`cli`](./packages/cli) | `compat doctor` + matrix runner |
 | [`migrate-zcode`](./packages/migrate-zcode) | Companion: plugin-package skills/commands/manifests → `.zcode-plugin` (**not** OCP ABI; **no** host MCP — [plan](./docs/plans/zcode-asset-migrator-plan.md)) |
 
-Also: [`fixtures/`](./fixtures) (conformance), [`patches/`](./patches) (reference M1 patches), [`docs/ocp/0.1.md`](./docs/ocp/0.1.md).
+Also: [`fixtures/`](./fixtures) (conformance), [`patches/`](./patches) (host enablement notes — **not** upstream PR patches), [`docs/ocp/0.1.md`](./docs/ocp/0.1.md).
 
 **Not in scope:** separate publishable packages per host (`adapter-mimo`, `adapter-kilo`, …). Host differences live in `HostProfile` data + internal dispatch inside `@opencode-compat/adapter`. ZCode marketplace packing is a **companion** deliverable and does not make ZCode T1+.
 
@@ -34,7 +34,7 @@ Also: [`fixtures/`](./fixtures) (conformance), [`patches/`](./patches) (referenc
 | [`docs/plans/universal-opencode-plugin-compat-plan.md`](./docs/plans/universal-opencode-plugin-compat-plan.md) | Parent product plan |
 | [`docs/plans/phase0-adr-universal-compat.md`](./docs/plans/phase0-adr-universal-compat.md) | Product ADR |
 | [`docs/plans/phase0-hooks-parity.md`](./docs/plans/phase0-hooks-parity.md) | Hooks / path evidence |
-| [`docs/plans/mimo-opencode-compat-layer-plan.md`](./docs/plans/mimo-opencode-compat-layer-plan.md) | MiMo M1 integration detail (an **equal** `HostProfile` target, not a separate adapter package) |
+| [`docs/plans/mimo-opencode-compat-layer-plan.md`](./docs/plans/mimo-opencode-compat-layer-plan.md) | MiMo integration detail (an **equal** `HostProfile` target, not a separate adapter package; external layer — not an upstream PR track) |
 | [`docs/plans/dual-host-packages-plan.md`](./docs/plans/dual-host-packages-plan.md) | **Superseded** — historical dual-package sketch (out of scope) |
 | [`docs/plans/zcode-asset-migrator-plan.md`](./docs/plans/zcode-asset-migrator-plan.md) | Companion plugin-package → `.zcode-plugin` migrator (ZCode stays T0; no host MCP) |
 | [`docs/guides/kilocode-telemetry-disable.md`](./docs/guides/kilocode-telemetry-disable.md) | Disable Kilo PostHog telemetry (config / `KILO_TELEMETRY_LEVEL`) |

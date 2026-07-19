@@ -1,7 +1,7 @@
 {
   "name": "@opencode-compat/host-promise-v2",
   "version": "0.1.0",
-  "description": "Shared Promise v2 aisdk host kit embedded by M1 fork patches",
+  "description": "Shared Promise v2 aisdk host kit wired from the OCP layer",
   "type": "module",
   "license": "MPL-2.0",
   "author": "oakimov",

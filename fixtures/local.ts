@@ -3,7 +3,7 @@ import { fail, pass, skip, type Fixture } from "./types.ts"
 export const localDotOpencodeScan: Fixture = {
   id: "local.dot-opencode-scan",
   tier: "T2",
-  description: ".opencode project dir scan (native or M1 compat)",
+  description: ".opencode project dir scan (native or compat expectation)",
   async run(ctx) {
     if (ctx.host === "zcode" || ctx.host === "unknown") {
       return skip(this, ctx.host, "not an OCP plugin host")
@@ -16,7 +16,7 @@ export const localDotOpencodeScan: Fixture = {
       return pass(
         this,
         ctx.host,
-        "compat dual-scan enabled via M1 (compatProjectDirs)",
+        "compatProjectDirs expectation exercised (--compat-scan)",
         compat.join(","),
       )
     }
@@ -24,8 +24,8 @@ export const localDotOpencodeScan: Fixture = {
       return skip(
         this,
         ctx.host,
-        "scansDotOpencode=false; M1 dual-scan not enabled in this run",
-        "set compatScanEnabled or land host PR",
+        "scansDotOpencode=false; compat scan not enabled in this run",
+        "set compatScanEnabled / --compat-scan, or copy/symlink into host-native project dirs",
       )
     }
     return fail(
