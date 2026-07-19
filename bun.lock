@@ -11,6 +11,7 @@
         "@opencode-compat/facade-sdk": "workspace:*",
         "@opencode-compat/host-promise-v2": "workspace:*",
         "@opencode-compat/migrate-zcode": "workspace:*",
+        "@opencode-compat/ocp": "workspace:*",
         "@opencode-compat/profile": "workspace:*",
         "@types/bun": "latest",
         "typescript": "^5.8.3",
@@ -81,6 +82,25 @@
         "typescript": "^5.8.3",
       },
     },
+    "packages/ocp": {
+      "name": "@opencode-compat/ocp",
+      "version": "0.1.0",
+      "bin": {
+        "ocp": "./bin/ocp.ts",
+      },
+      "dependencies": {
+        "@opencode-compat/adapter": "workspace:*",
+        "@opencode-compat/cli": "workspace:*",
+        "@opencode-compat/facade-plugin": "workspace:*",
+        "@opencode-compat/facade-sdk": "workspace:*",
+        "@opencode-compat/host-promise-v2": "workspace:*",
+        "@opencode-compat/migrate-zcode": "workspace:*",
+        "@opencode-compat/profile": "workspace:*",
+      },
+      "devDependencies": {
+        "typescript": "^5.8.3",
+      },
+    },
     "packages/profile": {
       "name": "@opencode-compat/profile",
       "version": "0.1.0",
@@ -101,6 +121,8 @@
     "@opencode-compat/host-promise-v2": ["@opencode-compat/host-promise-v2@workspace:packages/host-promise-v2"],
 
     "@opencode-compat/migrate-zcode": ["@opencode-compat/migrate-zcode@workspace:packages/migrate-zcode"],
+
+    "@opencode-compat/ocp": ["@opencode-compat/ocp@workspace:packages/ocp"],
 
     "@opencode-compat/profile": ["@opencode-compat/profile@workspace:packages/profile"],
 

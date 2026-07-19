@@ -10,19 +10,19 @@ Run **published OpenCode plugins unchanged** (`import "@opencode-ai/plugin"` / `
 
 ## Status
 
-Bridge packages, OCP §10 fixtures, CLI doctor/matrix, and host enablement notes are in-tree. Umbrella `@opencode-compat/ocp` + `setup` is the next delivery surface. npm publish of `@opencode-compat/*` is **held until necessary**.
+Bridge packages, OCP §10 fixtures, CLI doctor/matrix/setup, host enablement notes, and the **`@opencode-compat/ocp`** umbrella are in-tree. npm publish of `@opencode-compat/*` is **held until necessary**.
 
 ## Packages (`@opencode-compat/*`)
 
 | Package | Role |
 |---------|------|
-| [`ocp`](./packages/ocp) | **Umbrella UX** (planned): one install + `ocp setup` → Layer A overrides; re-exports / depends on bridge packages |
+| [`ocp`](./packages/ocp) | **Umbrella UX**: one install + `ocp setup` → Layer A overrides; re-exports / depends on bridge packages |
 | [`profile`](./packages/profile) | `HostProfile` types + host drafts (opencode / mimo / kilo / zcode) |
 | [`facade-plugin`](./packages/facade-plugin) | Install-override stand-in for `@opencode-ai/plugin` |
 | [`facade-sdk`](./packages/facade-sdk) | Stand-in for `@opencode-ai/sdk` (minimal) |
 | [`adapter`](./packages/adapter) | **One** universal host adapter — autodetects host, dispatches via `HostProfile` |
 | [`host-promise-v2`](./packages/host-promise-v2) | Shared Promise v2 aisdk host kit (wired from OCP layer) |
-| [`cli`](./packages/cli) | `compat doctor` + matrix runner (+ setup entry used by umbrella) |
+| [`cli`](./packages/cli) | `compat doctor` + matrix + `setup`/`overrides` (+ migrate-zcode companion) |
 | [`migrate-zcode`](./packages/migrate-zcode) | Companion: plugin-package skills/commands/manifests → `.zcode-plugin` (**not** OCP ABI; **no** host MCP — [plan](./docs/plans/zcode-asset-migrator-plan.md)) |
 
 Also: [`fixtures/`](./fixtures) (conformance), [`patches/`](./patches) (host enablement notes), [`docs/ocp/0.1.md`](./docs/ocp/0.1.md).
@@ -47,6 +47,7 @@ Also: [`fixtures/`](./fixtures) (conformance), [`patches/`](./patches) (host ena
 bun install
 bun run typecheck
 bun test
+bun run setup -- --host mimo --dry-run
 bun run matrix
 bun run doctor -- --host mimo
 ```

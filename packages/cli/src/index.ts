@@ -1,5 +1,5 @@
 /**
- * @opencode-compat/cli — `compat doctor` + matrix + migrate-zcode companion.
+ * @opencode-compat/cli — `compat doctor` + matrix + setup + migrate-zcode companion.
  */
 export const PKG = "@opencode-compat/cli" as const
 export const VERSION = "0.1.0" as const
@@ -17,6 +17,14 @@ import {
   type HostId,
 } from "@opencode-compat/profile"
 import { resolve } from "node:path"
+import {
+  parseSetupArgs,
+  setup,
+  type SetupOptions,
+  type SetupResult,
+} from "./setup"
+
+export { parseSetupArgs, setup, type SetupOptions, type SetupResult } from "./setup"
 
 export type DoctorResult = {
   ok: boolean
@@ -90,11 +98,12 @@ export async function matrix(
 }
 
 function printHelp(): void {
-  console.log(`opencode-compat — OCP doctor + matrix + companions
+  console.log(`opencode-compat — OCP doctor + matrix + setup + companions
 
 Usage:
   opencode-compat doctor [--host opencode|mimo|kilo|zcode]
   opencode-compat overrides
+  opencode-compat setup [--dir <path>] [--host <id>] [--mode auto|npm|file] [--dry-run]
   opencode-compat matrix [--host <id>]... [--fixture <id>]... [--compat-scan]
   opencode-compat migrate-zcode --plugin <dir> [--out <dir>] [options]
   opencode-compat migrate-zcode --plugin <dir> [--plugin <dir>...] \\
@@ -103,9 +112,18 @@ Usage:
 Commands:
   doctor           Detect host and print capability summary
   overrides        Print suggested install-time facade override JSON
+  setup            Write Layer A overrides into host plugin install tree
   matrix           Run OCP §10 Plugin×Host×Tier conformance fixtures
   migrate-zcode    Companion: pack plugin skills/commands/manifests → .zcode-plugin
                    (not OCP ABI; ZCode stays T0; does not migrate host MCP)
+
+setup options:
+  --dir <path>                   Install tree root (default: host pluginInstallDir)
+  --host opencode|mimo|kilo|...  Force host detection
+  --mode auto|npm|file           Override spec form (auto prefers local file:)
+  --version <ver>                npm: facade version (default 0.1.0)
+  --dry-run                      Print plan only; do not write
+  --deep / --no-deep             Also patch child package.json (default: deep)
 
 migrate-zcode options:
   --plugin <dir>                 Plugin package root (repeatable; required)
@@ -131,6 +149,7 @@ function parseArgs(argv: string[]): {
   fixtures: string[]
   compatScan: boolean
   migrateRest: string[]
+  setupRest: string[]
 } {
   const [, , command = "doctor", ...rest] = argv
   let host: string | undefined
@@ -156,7 +175,45 @@ function parseArgs(argv: string[]): {
       compatScan = true
     }
   }
-  return { command, host, hosts, fixtures, compatScan, migrateRest: rest }
+  return {
+    command,
+    host,
+    hosts,
+    fixtures,
+    compatScan,
+    migrateRest: rest,
+    setupRest: rest,
+  }
+}
+
+export async function runSetupCli(rest: string[]): Promise<number> {
+  const opts = parseSetupArgs(rest)
+  if (opts.help) {
+    printHelp()
+    return 0
+  }
+  try {
+    const result = setup({
+      dir: opts.dir,
+      host: opts.host,
+      version: opts.version,
+      mode: opts.mode,
+      dryRun: opts.dryRun,
+      deep: opts.deep,
+    })
+    console.log(result.message)
+    if (opts.dryRun || !result.ok) {
+      console.log(JSON.stringify(result.overrides, null, 2))
+    }
+    for (const t of result.targets.filter((x) => x.changed)) {
+      console.log(`  ${t.created ? "+" : "~"} ${t.path}`)
+    }
+    return result.ok ? 0 : 1
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err)
+    console.error(`setup failed: ${message}`)
+    return 1
+  }
 }
 
 export type MigrateZcodeCliOptions = {
@@ -349,7 +406,7 @@ export async function runMigrateZcodeCli(rest: string[]): Promise<number> {
 }
 
 export async function mainAsync(argv: string[] = process.argv): Promise<number> {
-  const { command, host, hosts, fixtures, compatScan, migrateRest } =
+  const { command, host, hosts, fixtures, compatScan, migrateRest, setupRest } =
     parseArgs(argv)
 
   if (command === "help" || command === "--help" || command === "-h") {
@@ -359,6 +416,9 @@ export async function mainAsync(argv: string[] = process.argv): Promise<number> 
   if (command === "overrides") {
     console.log(facadeOverrideSnippet())
     return 0
+  }
+  if (command === "setup") {
+    return runSetupCli(setupRest)
   }
   if (command === "migrate-zcode") {
     return runMigrateZcodeCli(migrateRest)
@@ -401,9 +461,9 @@ export async function mainAsync(argv: string[] = process.argv): Promise<number> 
   return result.ok ? 0 : 1
 }
 
-/** Sync entry for doctor / overrides / help (used by unit tests). */
+/** Sync entry for doctor / overrides / setup / help (used by unit tests). */
 export function main(argv: string[] = process.argv): number {
-  const { command, host } = parseArgs(argv)
+  const { command, host, setupRest } = parseArgs(argv)
   if (command === "matrix" || command === "migrate-zcode") {
     console.error(
       `${command} requires async entry — use: opencode-compat ${command}`,
@@ -417,6 +477,30 @@ export function main(argv: string[] = process.argv): number {
   if (command === "overrides") {
     console.log(facadeOverrideSnippet())
     return 0
+  }
+  if (command === "setup") {
+    // setup is sync; expose via main for tests / thin wrappers
+    const opts = parseSetupArgs(setupRest)
+    if (opts.help) {
+      printHelp()
+      return 0
+    }
+    try {
+      const result = setup({
+        dir: opts.dir,
+        host: opts.host,
+        version: opts.version,
+        mode: opts.mode,
+        dryRun: opts.dryRun,
+        deep: opts.deep,
+      })
+      console.log(result.message)
+      return result.ok ? 0 : 1
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err)
+      console.error(`setup failed: ${message}`)
+      return 1
+    }
   }
   if (command !== "doctor") {
     console.error(`Unknown command: ${command}`)

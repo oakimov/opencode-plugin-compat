@@ -1,7 +1,7 @@
 # Kilo — OCP enablement notes
 
 **Host (reference only):** [Kilo-Org/kilocode](https://github.com/Kilo-Org/kilocode)
-**User-facing package:** [`@opencode-compat/ocp`](https://github.com/oakimov/opencode-plugin-compat/tree/main/packages/ocp) (umbrella + `ocp setup`; planned)
+**User-facing package:** [`@opencode-compat/ocp`](https://github.com/oakimov/opencode-plugin-compat/tree/main/packages/ocp) (umbrella + `ocp setup`)
 **Bridge packages (internal):** [`facade-plugin`](https://github.com/oakimov/opencode-plugin-compat/tree/main/packages/facade-plugin), [`facade-sdk`](https://github.com/oakimov/opencode-plugin-compat/tree/main/packages/facade-sdk), [`adapter`](https://github.com/oakimov/opencode-plugin-compat/tree/main/packages/adapter), [`host-promise-v2`](https://github.com/oakimov/opencode-plugin-compat/tree/main/packages/host-promise-v2)
 **HostProfile id:** `kilo`
 **Upstream pin observed:** OpenCode `v1.17.4` / `@kilocode/plugin@7.4.11`

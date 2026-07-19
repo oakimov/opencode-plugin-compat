@@ -340,6 +340,99 @@ describe("@opencode-compat/cli", () => {
     expect(result.message).toContain("host MCP")
   })
 
+  test("setup writes Layer A overrides into install tree", async () => {
+    const { mkdtemp, rm, readFile } = await import("node:fs/promises")
+    const { tmpdir } = await import("node:os")
+    const { join } = await import("node:path")
+    const { setup, parseSetupArgs } = await import("../packages/cli/src/index.ts")
+    const { facadeOverrides } = await import("../packages/profile/src/index.ts")
+
+    const parsed = parseSetupArgs([
+      "--dir",
+      "/tmp/x",
+      "--mode",
+      "npm",
+      "--dry-run",
+      "--no-deep",
+    ])
+    expect(parsed.dryRun).toBe(true)
+    expect(parsed.mode).toBe("npm")
+    expect(parsed.deep).toBe(false)
+
+    const dir = await mkdtemp(join(tmpdir(), "ocp-setup-"))
+    try {
+      await Bun.write(
+        join(dir, "demo-plugin", "package.json"),
+        JSON.stringify({ name: "demo-plugin", version: "1.0.0" }, null, 2),
+      )
+      const result = setup({
+        dir,
+        host: "mimo",
+        mode: "npm",
+        version: "0.1.0",
+        detectOptions: { home: "/tmp" },
+      })
+      expect(result.ok).toBe(true)
+      expect(result.host).toBe("mimo")
+      expect(result.mode).toBe("npm")
+      expect(result.overrides).toEqual(facadeOverrides("0.1.0"))
+      expect(result.targets.some((t) => t.changed)).toBe(true)
+
+      const root = JSON.parse(await readFile(join(dir, "package.json"), "utf8"))
+      expect(root.overrides["@opencode-ai/plugin"]).toBe(
+        "npm:@opencode-compat/facade-plugin@0.1.0",
+      )
+      expect(root.overrides["@opencode-ai/sdk"]).toBe(
+        "npm:@opencode-compat/facade-sdk@0.1.0",
+      )
+
+      const child = JSON.parse(
+        await readFile(join(dir, "demo-plugin", "package.json"), "utf8"),
+      )
+      expect(child.overrides["@opencode-ai/plugin"]).toBe(
+        "npm:@opencode-compat/facade-plugin@0.1.0",
+      )
+
+      // idempotent second pass
+      const again = setup({
+        dir,
+        host: "mimo",
+        mode: "npm",
+        version: "0.1.0",
+        detectOptions: { home: "/tmp" },
+      })
+      expect(again.ok).toBe(true)
+      expect(again.targets.every((t) => !t.changed)).toBe(true)
+    } finally {
+      await rm(dir, { recursive: true, force: true })
+    }
+  })
+
+  test("setup --mode file uses monorepo facade paths", async () => {
+    const { mkdtemp, rm } = await import("node:fs/promises")
+    const { tmpdir } = await import("node:os")
+    const { join } = await import("node:path")
+    const { setup } = await import("../packages/cli/src/index.ts")
+
+    const dir = await mkdtemp(join(tmpdir(), "ocp-setup-file-"))
+    try {
+      const result = setup({
+        dir,
+        host: "kilo",
+        mode: "file",
+        deep: false,
+        detectOptions: { home: "/tmp" },
+      })
+      expect(result.ok).toBe(true)
+      expect(result.mode).toBe("file")
+      expect(result.overrides["@opencode-ai/plugin"]).toMatch(/facade-plugin/)
+      expect(result.overrides["@opencode-ai/plugin"]).toMatch(/^file:/)
+      expect(result.overrides["@opencode-ai/sdk"]).toMatch(/^file:/)
+    } finally {
+      await rm(dir, { recursive: true, force: true })
+    }
+  })
+
   test("migrate-zcode CLI dry-run on mock plugin", async () => {
     const { mkdtemp, rm } = await import("node:fs/promises")
     const { tmpdir } = await import("node:os")
@@ -405,5 +498,16 @@ Body
     } finally {
       await rm(pluginDir, { recursive: true, force: true })
     }
+  })
+})
+
+describe("@opencode-compat/ocp", () => {
+  test("umbrella identity and re-exports", async () => {
+    const ocp = await import("../packages/ocp/src/index.ts")
+    expect(ocp.PKG).toBe("@opencode-compat/ocp")
+    expect(ocp.VERSION).toBe("0.1.0")
+    expect(typeof ocp.setup).toBe("function")
+    expect(typeof ocp.doctor).toBe("function")
+    expect(typeof ocp.facadeOverrides).toBe("function")
   })
 })

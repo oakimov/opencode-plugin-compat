@@ -17,7 +17,7 @@ Universal **OCP** compatibility **bridge** monorepo. Ship the **complete** stack
 ## Layout
 
 ```
-packages/ocp          # umbrella UX (+ setup) — planned / ship with product
+packages/ocp          # umbrella UX (+ ocp setup)
 packages/profile|facade-*|adapter|host-promise-v2|cli|migrate-zcode
 fixtures/          # OCP conformance (migrator tests use in-memory mocks)
 patches/           # host enablement notes (operator attach)
@@ -44,11 +44,10 @@ docs/guides/       # companion privacy / ZCode import notes (non-OCP runtime)
 
 ## Suggested next work
 
-1. Ship `@opencode-compat/ocp` umbrella + `ocp setup` (auto-write Layer A overrides into host plugin install trees); keep internal packages as implementation detail.
-2. Prove unchanged plugins (classic + `v2/promise`, incl. `cursor-opencode-provider`) on MiMo/Kilo via setup + facades + adapter + host kit.
-3. Close path/env gaps in the bridge (`HostProfile`, doctor, docs, optional operator copy/symlink into host-native project dirs).
-4. Expand `facade-sdk` surface from real plugin smoke failures; keep matrix green. Wire `host-promise-v2` from the OCP layer where provider-resolve allows.
-5. Companion migrator MVP is landed (`migrate-zcode` library + `compat migrate-zcode`); keep ZCode OCP at T0; never pack host MCP. Optional Step I = marketplace polish only.
-6. Hold npm publish of `@opencode-compat/*` until necessary (umbrella can ship from git/tarball first).
+1. Prove unchanged plugins (classic + `v2/promise`, incl. `cursor-opencode-provider`) on MiMo/Kilo via `ocp setup` + facades + adapter + host kit.
+2. Close path/env gaps in the bridge (`HostProfile`, doctor, docs, optional operator copy/symlink into host-native project dirs).
+3. Expand `facade-sdk` surface from real plugin smoke failures; keep matrix green. Wire `host-promise-v2` from the OCP layer where provider-resolve allows.
+4. Companion migrator MVP is landed (`migrate-zcode` library + `compat migrate-zcode`); keep ZCode OCP at T0; never pack host MCP. Optional Step I = marketplace polish only.
+5. Hold npm publish of `@opencode-compat/*` until necessary (umbrella ships from git/tarball first).
 
 Companion privacy guides (§7.1) are shipped under `docs/guides/` (Kilo/MiMo in-app opt-out; ZCode docs-only firewall/DNS). Doctor prints one-liner pointers; OCP never mutates telemetry.

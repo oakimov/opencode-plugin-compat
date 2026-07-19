@@ -1,0 +1,18 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "outDir": "./dist",
+    "rootDir": "./src",
+    "composite": true
+  },
+  "include": ["src/**/*.ts"],
+  "references": [
+    { "path": "../cli" },
+    { "path": "../profile" },
+    { "path": "../adapter" },
+    { "path": "../facade-plugin" },
+    { "path": "../facade-sdk" },
+    { "path": "../host-promise-v2" },
+    { "path": "../migrate-zcode" }
+  ]
+}

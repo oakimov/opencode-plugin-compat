@@ -11,6 +11,7 @@
     { "path": "./packages/adapter" },
     { "path": "./packages/host-promise-v2" },
     { "path": "./packages/cli" },
-    { "path": "./packages/migrate-zcode" }
+    { "path": "./packages/migrate-zcode" },
+    { "path": "./packages/ocp" }
   ]
 }

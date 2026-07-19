@@ -93,16 +93,17 @@ export function formatProfileSummary(
   return profileSummaryLines(profile).join("\n")
 }
 
+/** Layer A override map: `@opencode-ai/*` → `@opencode-compat/facade-*` (npm: form). */
+export function facadeOverrides(version = "0.1.0"): Record<string, string> {
+  return {
+    "@opencode-ai/plugin": `npm:@opencode-compat/facade-plugin@${version}`,
+    "@opencode-ai/sdk": `npm:@opencode-compat/facade-sdk@${version}`,
+  }
+}
+
 /** Suggested override map snippet for plugin install trees / operator overrides. */
-export function facadeOverrideSnippet(version = "0.1.x"): string {
-  return JSON.stringify(
-    {
-      "@opencode-ai/plugin": `npm:@opencode-compat/facade-plugin@${version}`,
-      "@opencode-ai/sdk": `npm:@opencode-compat/facade-sdk@${version}`,
-    },
-    null,
-    2,
-  )
+export function facadeOverrideSnippet(version = "0.1.0"): string {
+  return JSON.stringify(facadeOverrides(version), null, 2)
 }
 
 /** Resolve a project-relative plugin dir candidate list for a profile. */

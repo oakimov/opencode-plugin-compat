@@ -39,6 +39,7 @@ export {
 export { detect } from "./detect"
 
 export {
+  facadeOverrides,
   facadeOverrideSnippet,
   formatProfileSummary,
   privacyGuideHint,

@@ -1,14 +1,14 @@
 {
-  "name": "@opencode-compat/cli",
+  "name": "@opencode-compat/ocp",
   "version": "0.1.0",
-  "description": "OCP compat doctor, Plugin×Host×Tier matrix runner, Layer A setup/overrides, and migrate-zcode companion CLI",
+  "description": "OCP umbrella UX — one install + ocp setup for Layer A facade overrides",
   "type": "module",
   "license": "MPL-2.0",
   "author": "oakimov",
   "repository": {
     "type": "git",
     "url": "git+https://github.com/oakimov/opencode-plugin-compat.git",
-    "directory": "packages/cli"
+    "directory": "packages/ocp"
   },
   "publishConfig": {
     "access": "public"
@@ -16,8 +16,7 @@
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
   "bin": {
-    "opencode-compat": "./bin/compat.ts",
-    "compat": "./bin/compat.ts"
+    "ocp": "./bin/ocp.ts"
   },
   "exports": {
     ".": {
@@ -36,9 +35,13 @@
     "typecheck": "bunx tsc -p tsconfig.json --noEmit"
   },
   "dependencies": {
-    "@opencode-compat/profile": "workspace:*",
     "@opencode-compat/adapter": "workspace:*",
-    "@opencode-compat/migrate-zcode": "workspace:*"
+    "@opencode-compat/cli": "workspace:*",
+    "@opencode-compat/facade-plugin": "workspace:*",
+    "@opencode-compat/facade-sdk": "workspace:*",
+    "@opencode-compat/host-promise-v2": "workspace:*",
+    "@opencode-compat/migrate-zcode": "workspace:*",
+    "@opencode-compat/profile": "workspace:*"
   },
   "devDependencies": {
     "typescript": "^5.8.3"

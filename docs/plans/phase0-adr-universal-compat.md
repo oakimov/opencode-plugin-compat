@@ -223,7 +223,7 @@ Implement OCP §10 fixtures as part of first ship (not a later phase).
 
 1. ~~**Create repo** `opencode-plugin-compat` and move/copy OCP docs~~ **done** (scaffold + `docs/`)
 2. ~~**Implement full product** — profile + facades + **universal adapter** (autodetect) + host kit + CLI + fixtures~~ **done** (matrix green; T3 needs OCP-layer wiring)
-3. **Ship umbrella** `@opencode-compat/ocp` + **`ocp setup`** (auto-write Layer A overrides; ADR-10)
+3. ~~**Ship umbrella** `@opencode-compat/ocp` + **`ocp setup`** (auto-write Layer A overrides; ADR-10)~~ **done**
 4. **Prove unchanged plugins** on MiMo/Kilo via setup + facades + adapter + host kit (classic + `v2/promise` samples, incl. `cursor-opencode-provider`)
 5. Close path/env gaps in bridge docs + doctor; hold npm publish until necessary (umbrella may ship from git/tarball first)
 
