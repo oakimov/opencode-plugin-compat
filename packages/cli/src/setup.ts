@@ -1,6 +1,6 @@
 /**
  * Layer A setup — write `@opencode-ai/{plugin,sdk}` install-tree overrides
- * that resolve to `@opencode-compat/facade-*`.
+ * that resolve to `@opencode-compat/facade-*`, then Option B provider shims.
  */
 import {
   detect,
@@ -12,6 +12,10 @@ import { spawnSync } from "node:child_process"
 import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from "node:fs"
 import { dirname, join, resolve } from "node:path"
 import { fileURLToPath } from "node:url"
+import {
+  setupProviderShims,
+  type ProviderShimResult,
+} from "./provider-shim"
 
 export type SetupMode = "npm" | "file"
 
@@ -34,6 +38,11 @@ export type SetupOptions = {
    * Default: `"auto"`.
    */
   reify?: boolean | "auto" | "force"
+  /**
+   * After reify, write Option B in-place provider entry shims
+   * (`create*` → host-dynamic languageModel adoption). Default: true.
+   */
+  providerShim?: boolean
   /** Detect options (tests). */
   detectOptions?: DetectOptions
 }
@@ -54,6 +63,7 @@ export type SetupResult = {
   mode: SetupMode
   overrides: Record<string, string>
   targets: SetupTarget[]
+  providerShim?: ProviderShimResult
   message: string
 }
 
@@ -196,6 +206,7 @@ export function setup(options: SetupOptions = {}): SetupResult {
   const dryRun = options.dryRun ?? false
   const deep = options.deep ?? true
   const reify = options.reify ?? "auto"
+  const providerShim = options.providerShim ?? true
 
   const env = options.host
     ? {
@@ -305,6 +316,17 @@ export function setup(options: SetupOptions = {}): SetupResult {
     if (!outcome.ok) target.reifyError = outcome.error
   }
 
+  // Option B must run *after* reify — npm install restores stock package
+  // files from the tarball and would wipe in-place entry shims.
+  let providerShimResult: ProviderShimResult | undefined
+  if (providerShim) {
+    providerShimResult = setupProviderShims({
+      dir: resolvedDir,
+      hostHint: detected.id,
+      dryRun,
+    })
+  }
+
   const changed = targets.filter((t) => t.changed).length
   const reified = targets.filter((t) => t.reified).length
   const reifyFailed = targets.filter((t) => t.reifyError)
@@ -317,19 +339,22 @@ export function setup(options: SetupOptions = {}): SetupResult {
         ? `; reified ${reified}` +
           (reifyFailed.length ? `, ${reifyFailed.length} reify failed` : "")
         : ""),
+    providerShimResult ? providerShimResult.message : "provider-shim: skipped (--no-provider-shim)",
     "Note: listing OCP in host plugin config alone does not intercept @opencode-ai/* imports.",
     "Note: on MiMo/Kilo, re-run `ocp setup` after installing plugins (isolated per-plugin trees).",
+    "Note: provider shims are install-tree only (in-place entry); re-apply after plugin upgrade/reify.",
     ...reifyFailed.map((t) => `reify failed: ${dirname(t.path)} — ${t.reifyError}`),
   ].join("\n")
 
   return {
-    ok: reifyFailed.length === 0,
+    ok: reifyFailed.length === 0 && (providerShimResult?.ok ?? true),
     host: detected.id,
     source: detected.source,
     dir: resolvedDir,
     mode,
     overrides,
     targets,
+    providerShim: providerShimResult,
     message,
   }
 }
@@ -342,6 +367,7 @@ export function parseSetupArgs(rest: string[]): {
   dryRun: boolean
   deep: boolean
   reify: boolean | "auto" | "force"
+  providerShim: boolean
   help: boolean
 } {
   const opts: {
@@ -352,11 +378,13 @@ export function parseSetupArgs(rest: string[]): {
     dryRun: boolean
     deep: boolean
     reify: boolean | "auto" | "force"
+    providerShim: boolean
     help: boolean
   } = {
     dryRun: false,
     deep: true,
     reify: "auto",
+    providerShim: true,
     help: false,
   }
   for (let i = 0; i < rest.length; i++) {
@@ -385,7 +413,8 @@ export function parseSetupArgs(rest: string[]): {
       if (value === "auto" || value === "force") opts.reify = value
       else if (value === "false" || value === "0" || value === "no") opts.reify = false
       else if (value === "true" || value === "1" || value === "yes") opts.reify = "force"
-    }
+    } else if (arg === "--provider-shim") opts.providerShim = true
+    else if (arg === "--no-provider-shim") opts.providerShim = false
   }
   return opts
 }

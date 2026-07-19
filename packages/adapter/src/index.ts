@@ -25,6 +25,36 @@ export {
   type PromiseV2Host,
 } from "@opencode-compat/host-promise-v2"
 
+export {
+  adaptLanguageModel,
+  adaptLanguageModelForProfile,
+  adoptStreamPart,
+  defaultBashDescription,
+  policyForHostId,
+  policyFromProfile,
+  wrapProviderModule,
+  wrapProviderModuleForProfile,
+  wrapProviderSdk,
+  wrapProviderSdkForProfile,
+  type StreamAdoptionPolicy,
+  type StreamPartLike,
+} from "./language-model"
+
+export {
+  OCP_ORIGINAL_EXPORTS_KEY,
+  ORIGINAL_SUFFIX,
+  RUNTIME_FILENAME,
+  SHIM_FILENAME,
+  SHIM_MARKER,
+  SHIM_META_FILENAME,
+  originalBackupPath,
+  providerShimRuntimeSource,
+  relativeImportPath,
+  renderProviderShimSource,
+  renderShimMeta,
+  type ShimMeta,
+} from "./shim-source"
+
 import {
   createPromiseV2Host,
   type PromiseV2Host,
@@ -37,6 +67,10 @@ import {
   type DetectResult,
   type HostProfile,
 } from "@opencode-compat/profile"
+import {
+  adaptLanguageModelForProfile,
+  wrapProviderSdkForProfile,
+} from "./language-model"
 
 /** Resolve the active host profile (throws if OCP load is not supported). */
 export function requireHost(options?: DetectOptions): HostProfile {
@@ -51,6 +85,9 @@ export function requireHost(options?: DetectOptions): HostProfile {
  * Wire OCP-layer Promise v2 host kit for the active profile.
  * Call `host.register(plugin)` then `host.resolveProvider(input)` at
  * provider-resolve time (sidecar / operator helper — no host source edits).
+ *
+ * Returned `language` / `sdk` are host-adapted (MiMo stream preamble / bash
+ * description when required; Kilo/OpenCode pass-through).
  */
 export function wirePromiseV2(
   options?: DetectOptions & { pluginOptions?: Record<string, unknown> },
@@ -62,7 +99,27 @@ export function wirePromiseV2(
         "See docs/ocp/0.1.md §7.",
     )
   }
-  return createPromiseV2Host(options?.pluginOptions ?? {})
+  const host = createPromiseV2Host(options?.pluginOptions ?? {})
+  return {
+    ctx: host.ctx,
+    register: (plugin) => host.register(plugin),
+    remove: (id) => host.remove(id),
+    plugins: () => host.plugins(),
+    async resolveProvider(input) {
+      const result = await host.resolveProvider(input)
+      return {
+        ...result,
+        language:
+          result.language != null
+            ? adaptLanguageModelForProfile(result.language, profile)
+            : result.language,
+        sdk:
+          result.sdk != null
+            ? wrapProviderSdkForProfile(result.sdk, profile)
+            : result.sdk,
+      }
+    },
+  }
 }
 
 /** Native package names for the detected (or given) profile. */

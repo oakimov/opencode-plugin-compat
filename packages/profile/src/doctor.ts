@@ -51,6 +51,8 @@ export function profileSummaryLines(profile: {
     effectV2: boolean
     aisdkProviderHooks: boolean
     scansDotOpencode: boolean
+    streamToolCallEnsure: boolean
+    bashDescriptionRequired: boolean
     marketplacePlugins?: boolean
   }
   hooks: { missing: readonly string[]; extensions: readonly string[] }
@@ -76,6 +78,8 @@ export function profileSummaryLines(profile: {
     `effectV2: ${caps.effectV2}`,
     `aisdkProviderHooks: ${caps.aisdkProviderHooks}`,
     `scansDotOpencode: ${caps.scansDotOpencode}`,
+    `streamToolCallEnsure: ${caps.streamToolCallEnsure}`,
+    `bashDescriptionRequired: ${caps.bashDescriptionRequired}`,
     caps.marketplacePlugins ? "marketplacePlugins: true" : undefined,
     profile.hooks.missing.length
       ? `hooks.missing: ${profile.hooks.missing.join(", ")}`

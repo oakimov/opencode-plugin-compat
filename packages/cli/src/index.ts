@@ -104,6 +104,7 @@ Usage:
   opencode-compat doctor [--host opencode|mimo|kilo|zcode]
   opencode-compat overrides
   opencode-compat setup [--dir <path>] [--host <id>] [--mode auto|npm|file] [--dry-run]
+                        [--deep|--no-deep] [--reify|--no-reify] [--provider-shim|--no-provider-shim]
   opencode-compat matrix [--host <id>]... [--fixture <id>]... [--compat-scan]
   opencode-compat migrate-zcode --plugin <dir> [--out <dir>] [options]
   opencode-compat migrate-zcode --plugin <dir> [--plugin <dir>...] \\
@@ -112,7 +113,7 @@ Usage:
 Commands:
   doctor           Detect host and print capability summary
   overrides        Print suggested install-time facade override JSON
-  setup            Write Layer A overrides into host plugin install tree
+  setup            Write Layer A overrides + Option B provider shims into host install tree
   matrix           Run OCP §10 Plugin×Host×Tier conformance fixtures
   migrate-zcode    Companion: pack plugin skills/commands/manifests → .zcode-plugin
                    (not OCP ABI; ZCode stays T0; does not migrate host MCP)
@@ -125,6 +126,8 @@ setup options:
   --dry-run                      Print plan only; do not write
   --deep / --no-deep             Also patch child package.json (default: deep)
   --reify / --no-reify           npm install after patch when node_modules exists (default: auto)
+  --provider-shim / --no-provider-shim
+                                 In-place create*/languageModel adoption shims after reify (default: on)
 
 migrate-zcode options:
   --plugin <dir>                 Plugin package root (repeatable; required)

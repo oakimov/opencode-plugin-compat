@@ -24,13 +24,28 @@
   "files": [
     "dist",
     "LICENSE",
-    "README.md"
+    "README.md",
+    "!dist/**/*.map"
   ],
   "scripts": {
     "build": "bunx tsc -p tsconfig.json",
-    "typecheck": "bunx tsc -p tsconfig.json --noEmit"
+    "typecheck": "bunx tsc -p tsconfig.json --noEmit",
+    "prepack": "bunx tsc -p tsconfig.json"
   },
   "devDependencies": {
     "typescript": "^5.8.3"
+  },
+  "bugs": {
+    "url": "https://github.com/oakimov/opencode-plugin-compat/issues"
+  },
+  "homepage": "https://github.com/oakimov/opencode-plugin-compat/tree/main/packages/host-promise-v2#readme",
+  "keywords": [
+    "opencode",
+    "ocp",
+    "aisdk",
+    "promise-v2"
+  ],
+  "engines": {
+    "bun": ">=1.2.0"
   }
 }

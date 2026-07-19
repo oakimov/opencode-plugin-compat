@@ -3,11 +3,18 @@
 User-facing **OCP umbrella**: one install + **`ocp setup`** writes Layer A install-tree overrides so published OpenCode plugins resolve `@opencode-ai/plugin` / `@opencode-ai/sdk` through the compatibility facades.
 
 ```bash
-# from this monorepo (npm publish held until necessary)
+# from this monorepo
+bun run build
 bun packages/ocp/bin/ocp.ts setup --host mimo --dry-run
 bun packages/ocp/bin/ocp.ts setup --dir /path/to/host/plugin/cache
+
+# after public npm publish (see docs/guides/npm-publish.md)
+bun add -g @opencode-compat/ocp
+ocp setup --host mimo
 ocp doctor --host kilo
 ```
+
+`setup` default `--mode auto` uses local `file:` facade paths from this checkout when present; outside the monorepo (or with `--mode npm`) it writes `npm:@opencode-compat/facade-*@0.1.0`.
 
 ## Commands
 

@@ -49,6 +49,8 @@ export function opencodeProfile(options?: DraftOptions): HostProfile {
       aisdkProviderHooks: true,
       localPluginScan: true,
       scansDotOpencode: true,
+      streamToolCallEnsure: true,
+      bashDescriptionRequired: false,
     },
     hooks: {
       core: CORE_HOOKS,
@@ -61,6 +63,7 @@ export function opencodeProfile(options?: DraftOptions): HostProfile {
 /**
  * MiMo Code — classic T1 + OCP-layer Promise v2 (host-promise-v2), not native exports.
  * Missing classic: dispose, experimental.provider.small_model (no-op + doctor).
+ * Stream gap: no ensureToolCall — bare tool-call drops; bash.description required.
  */
 export function mimoProfile(options?: DraftOptions): HostProfile {
   const { env, home } = baseOpts(options)
@@ -102,13 +105,16 @@ export function mimoProfile(options?: DraftOptions): HostProfile {
       aisdkProviderHooks: true,
       localPluginScan: true,
       scansDotOpencode: false,
+      // MiMo SessionProcessor creates tool parts only on tool-input-start (no ensureToolCall)
+      streamToolCallEnsure: false,
+      bashDescriptionRequired: true,
     },
     hooks: {
       core: CORE_HOOKS,
       missing: MIMO_MISSING_HOOKS,
       extensions: MIMO_EXTENSION_HOOKS,
     },
-    note: "PluginInput still types createOpencodeClient from @mimo-ai/sdk (residual name); Promise v2 via OCP host kit",
+    note: "PluginInput still types createOpencodeClient from @mimo-ai/sdk (residual name); Promise v2 via OCP host kit; streamToolCallEnsure=false → OCP provider shim emits tool-input-start",
   }
 }
 
@@ -154,13 +160,16 @@ export function kiloProfile(options?: DraftOptions): HostProfile {
       aisdkProviderHooks: true,
       localPluginScan: true,
       scansDotOpencode: false,
+      // Kilo SessionProcessor has ensureToolCall; bash.description is optional
+      streamToolCallEnsure: true,
+      bashDescriptionRequired: false,
     },
     hooks: {
       core: CORE_HOOKS,
       missing: [],
       extensions: [],
     },
-    note: "Promise v2 via OCP host kit; live host provider-resolve calls createPromiseV2Host().resolveProvider",
+    note: "Promise v2 via OCP host kit; live host provider-resolve calls createPromiseV2Host().resolveProvider; keep stock plugins (no cursor-kilocode-provider fork)",
   }
 }
 
@@ -195,6 +204,8 @@ export function zcodeProfile(options?: DraftOptions): HostProfile {
       aisdkProviderHooks: false,
       localPluginScan: false,
       scansDotOpencode: false,
+      streamToolCallEnsure: true,
+      bashDescriptionRequired: false,
       marketplacePlugins: true,
     },
     hooks: {
@@ -229,6 +240,8 @@ export function unknownProfile(options?: DraftOptions): HostProfile {
       aisdkProviderHooks: false,
       localPluginScan: false,
       scansDotOpencode: false,
+      streamToolCallEnsure: true,
+      bashDescriptionRequired: false,
     },
     hooks: {
       core: [],

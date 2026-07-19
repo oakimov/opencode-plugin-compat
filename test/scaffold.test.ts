@@ -28,6 +28,8 @@ describe("@opencode-compat/profile", () => {
     expect(p.id).toBe("opencode")
     expect(p.capabilities.promiseV2).toBe(true)
     expect(p.capabilities.scansDotOpencode).toBe(true)
+    expect(p.capabilities.streamToolCallEnsure).toBe(true)
+    expect(p.capabilities.bashDescriptionRequired).toBe(false)
     expect(p.paths.projectDirs).toEqual([".opencode"])
     expect(p.hooks.missing).toEqual([])
   })
@@ -39,6 +41,9 @@ describe("@opencode-compat/profile", () => {
     expect(p.capabilities.promiseV2).toBe(true)
     expect(p.capabilities.aisdkProviderHooks).toBe(true)
     expect(p.capabilities.scansDotOpencode).toBe(false)
+    // MiMo: no ensureToolCall; bash.description required → Option B adoption
+    expect(p.capabilities.streamToolCallEnsure).toBe(false)
+    expect(p.capabilities.bashDescriptionRequired).toBe(true)
     expect(p.paths.compatProjectDirs).toEqual([".opencode"])
     expect(p.hooks.missing).toContain("dispose")
     expect(p.hooks.extensions).toContain("actor.preStop")
@@ -62,6 +67,9 @@ describe("@opencode-compat/profile", () => {
     // OCP-layer host-promise-v2 supplies T3 (not native @kilocode exports)
     expect(p.capabilities.promiseV2).toBe(true)
     expect(p.capabilities.aisdkProviderHooks).toBe(true)
+    // Kilo: ensureToolCall present; bash.description optional → pass-through
+    expect(p.capabilities.streamToolCallEnsure).toBe(true)
+    expect(p.capabilities.bashDescriptionRequired).toBe(false)
   })
 
   test("zcode is T0 / ocp none", () => {

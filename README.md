@@ -10,7 +10,7 @@ Run **published OpenCode plugins unchanged** (`import "@opencode-ai/plugin"` / `
 
 ## Status
 
-Bridge packages, OCP §10 fixtures, CLI doctor/matrix/setup, host enablement notes, and the **`@opencode-compat/ocp`** umbrella are in-tree. npm publish of `@opencode-compat/*` is **held until necessary**.
+Bridge packages, OCP §10 fixtures, CLI doctor/matrix/setup, host enablement notes, and the **`@opencode-compat/ocp`** umbrella are in-tree. First npm publish of **public** `@opencode-compat/*` is documented in [`docs/guides/npm-publish.md`](./docs/guides/npm-publish.md) (local create-publish, then OIDC Trusted Publishing on tags).
 
 ## Packages (`@opencode-compat/*`)
 
@@ -40,19 +40,22 @@ Also: [`fixtures/`](./fixtures) (conformance), [`docs/hosts/`](./docs/hosts) (ho
 | [`docs/plans/zcode-asset-migrator-plan.md`](./docs/plans/zcode-asset-migrator-plan.md) | Companion plugin-package → `.zcode-plugin` migrator (ZCode stays T0; no host MCP) |
 | [`docs/guides/kilocode-telemetry-disable.md`](./docs/guides/kilocode-telemetry-disable.md) | Disable Kilo PostHog telemetry (config / `KILO_TELEMETRY_LEVEL`) |
 | [`docs/guides/zcode-telemetry-block.md`](./docs/guides/zcode-telemetry-block.md) | ZCode telemetry block (**docs-only** firewall/DNS) |
+| [`docs/guides/npm-publish.md`](./docs/guides/npm-publish.md) | First-time + OIDC publish of **public** `@opencode-compat/*` |
 
 ## Develop
 
 ```bash
 bun install
+bun run build
 bun run typecheck
 bun test
 bun run setup -- --host mimo --dry-run
 bun run matrix
 bun run doctor -- --host mimo
+bun run pack:check          # publish dry-run (see docs/guides/npm-publish.md)
 ```
 
-Requires [Bun](https://bun.sh) ≥ 1.2.
+Requires [Bun](https://bun.sh) ≥ 1.2. CLI bins import `dist/` — run `bun run build` after a clean checkout.
 
 ## Compatibility tiers (labels, not phases)
 

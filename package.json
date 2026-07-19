@@ -25,7 +25,13 @@
     "doctor": "bun packages/cli/bin/compat.ts doctor",
     "setup": "bun packages/ocp/bin/ocp.ts setup",
     "migrate-zcode": "bun packages/cli/bin/compat.ts migrate-zcode",
-    "clean": "rm -rf packages/*/dist packages/*/tsconfig.tsbuildinfo"
+    "clean": "rm -rf packages/*/dist packages/*/tsconfig.tsbuildinfo",
+    "pack:check": "bun scripts/publish.ts",
+    "pack": "bun scripts/publish.ts --pack",
+    "publish:dry": "bun scripts/publish.ts",
+    "publish:npm": "bun scripts/publish.ts --publish",
+    "publish:ci": "bun scripts/publish.ts --publish --oidc --skip-tests",
+    "bump:version": "bun scripts/bump-version.ts"
   },
   "devDependencies": {
     "@opencode-compat/adapter": "workspace:*",

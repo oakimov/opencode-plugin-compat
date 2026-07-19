@@ -1,0 +1,72 @@
+# Publish public `@opencode-compat/*` packages via Trusted Publishing (OIDC).
+#
+# No long-lived npm token. Short-lived OIDC from GitHub Actions → npm.
+# Provenance attestations require a **public** repo + **public** packages
+# (this repo and all workspace packages are public).
+#
+# Requires npm CLI >= 11.5.1 and Node >= 22.14 (we use Node 24).
+#
+# First-time bootstrap (packages must exist before Trusted Publisher works):
+#   See docs/guides/npm-publish.md → "First-time publishing".
+#   After the local 0.1.0 create-publish, register this workflow as Trusted
+#   Publisher on each `@opencode-compat/*` package (same file + repo for all).
+#
+# Later releases:
+#   1. Bump the train version: bun scripts/bump-version.ts 0.1.1
+#   2. Commit to main, push.
+#   3. Tag matching package.json: git tag v0.1.1 && git push origin v0.1.1
+#   4. This workflow: install → typecheck → test → build → publish (OIDC).
+#
+# If OIDC fails with ENEEDAUTH, check that workflow filename (publish.yml),
+# repository (oakimov/opencode-plugin-compat), and each package.json
+# repository.url all match the Trusted Publisher registration on npm.
+
+name: Publish
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  id-token: write # OIDC trusted publishing
+  contents: read
+
+jobs:
+  publish:
+    name: Publish @opencode-compat/* (public)
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: "1.3.14"
+
+      - name: Setup Node + npm registry (OIDC)
+        uses: actions/setup-node@v6
+        # Node 24 → npm 11.x (trusted publishing needs npm >= 11.5.1).
+        with:
+          node-version: "24"
+          registry-url: https://registry.npmjs.org
+          package-manager-cache: false
+
+      - name: Install
+        run: bun install --frozen-lockfile
+
+      - name: Typecheck
+        run: bun run typecheck
+
+      - name: Test
+        run: bun test ./test
+
+      - name: Build
+        run: bun run build
+
+      - name: Publish (OIDC, public access)
+        # Packs with Bun (rewrites workspace:* → concrete versions), then
+        # npm-publishes each public tarball with OIDC + provenance.
+        run: bun scripts/publish.ts --publish --oidc --skip-tests

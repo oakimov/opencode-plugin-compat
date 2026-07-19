@@ -9,6 +9,17 @@ export type HostCapabilities = {
   aisdkProviderHooks: boolean
   localPluginScan: boolean
   scansDotOpencode: boolean
+  /**
+   * Host SessionProcessor lazily creates tool parts on bare `tool-call`
+   * (OpenCode / Kilo `ensureToolCall`). When false (MiMo), OCP must emit
+   * `tool-input-start` before `tool-call` for custom LanguageModel streams.
+   */
+  streamToolCallEnsure: boolean
+  /**
+   * Host `bash` tool schema requires a string `description`. When true (MiMo),
+   * OCP may fill a missing description on bash tool-call inputs only.
+   */
+  bashDescriptionRequired: boolean
   /** ZCode marketplace ABI — not OCP */
   marketplacePlugins?: boolean
 }
