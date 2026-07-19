@@ -1,0 +1,39 @@
+{
+  "name": "@opencode-compat/facade-sdk",
+  "version": "0.1.0",
+  "description": "Minimal install-override stand-in for @opencode-ai/sdk",
+  "type": "module",
+  "license": "MPL-2.0",
+  "author": "oakimov",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/oakimov/opencode-plugin-compat.git",
+    "directory": "packages/facade-sdk"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist",
+    "LICENSE",
+    "README.md"
+  ],
+  "scripts": {
+    "build": "bunx tsc -p tsconfig.json",
+    "typecheck": "bunx tsc -p tsconfig.json --noEmit"
+  },
+  "dependencies": {
+    "@opencode-compat/profile": "workspace:*"
+  },
+  "devDependencies": {
+    "typescript": "^5.8.3"
+  }
+}

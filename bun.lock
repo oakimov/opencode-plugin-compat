@@ -1,0 +1,133 @@
+{
+  "lockfileVersion": 1,
+  "configVersion": 1,
+  "workspaces": {
+    "": {
+      "name": "opencode-plugin-compat",
+      "devDependencies": {
+        "@types/bun": "latest",
+        "typescript": "^5.8.3",
+      },
+    },
+    "packages/adapter-kilo": {
+      "name": "@opencode-compat/adapter-kilo",
+      "version": "0.1.0",
+      "dependencies": {
+        "@opencode-compat/profile": "workspace:*",
+      },
+      "devDependencies": {
+        "typescript": "^5.8.3",
+      },
+    },
+    "packages/adapter-mimo": {
+      "name": "@opencode-compat/adapter-mimo",
+      "version": "0.1.0",
+      "dependencies": {
+        "@opencode-compat/profile": "workspace:*",
+      },
+      "devDependencies": {
+        "typescript": "^5.8.3",
+      },
+    },
+    "packages/adapter-opencode": {
+      "name": "@opencode-compat/adapter-opencode",
+      "version": "0.1.0",
+      "dependencies": {
+        "@opencode-compat/profile": "workspace:*",
+      },
+      "devDependencies": {
+        "typescript": "^5.8.3",
+      },
+    },
+    "packages/adapter-zcode": {
+      "name": "@opencode-compat/adapter-zcode",
+      "version": "0.1.0",
+      "dependencies": {
+        "@opencode-compat/profile": "workspace:*",
+      },
+      "devDependencies": {
+        "typescript": "^5.8.3",
+      },
+    },
+    "packages/cli": {
+      "name": "@opencode-compat/cli",
+      "version": "0.1.0",
+      "dependencies": {
+        "@opencode-compat/adapter-kilo": "workspace:*",
+        "@opencode-compat/adapter-mimo": "workspace:*",
+        "@opencode-compat/adapter-opencode": "workspace:*",
+        "@opencode-compat/adapter-zcode": "workspace:*",
+        "@opencode-compat/profile": "workspace:*",
+      },
+      "devDependencies": {
+        "typescript": "^5.8.3",
+      },
+    },
+    "packages/facade-plugin": {
+      "name": "@opencode-compat/facade-plugin",
+      "version": "0.1.0",
+      "dependencies": {
+        "@opencode-compat/profile": "workspace:*",
+      },
+      "devDependencies": {
+        "typescript": "^5.8.3",
+      },
+    },
+    "packages/facade-sdk": {
+      "name": "@opencode-compat/facade-sdk",
+      "version": "0.1.0",
+      "dependencies": {
+        "@opencode-compat/profile": "workspace:*",
+      },
+      "devDependencies": {
+        "typescript": "^5.8.3",
+      },
+    },
+    "packages/host-promise-v2": {
+      "name": "@opencode-compat/host-promise-v2",
+      "version": "0.1.0",
+      "dependencies": {
+        "@opencode-compat/profile": "workspace:*",
+      },
+      "devDependencies": {
+        "typescript": "^5.8.3",
+      },
+    },
+    "packages/profile": {
+      "name": "@opencode-compat/profile",
+      "version": "0.1.0",
+      "devDependencies": {
+        "typescript": "^5.8.3",
+      },
+    },
+  },
+  "packages": {
+    "@opencode-compat/adapter-kilo": ["@opencode-compat/adapter-kilo@workspace:packages/adapter-kilo"],
+
+    "@opencode-compat/adapter-mimo": ["@opencode-compat/adapter-mimo@workspace:packages/adapter-mimo"],
+
+    "@opencode-compat/adapter-opencode": ["@opencode-compat/adapter-opencode@workspace:packages/adapter-opencode"],
+
+    "@opencode-compat/adapter-zcode": ["@opencode-compat/adapter-zcode@workspace:packages/adapter-zcode"],
+
+    "@opencode-compat/cli": ["@opencode-compat/cli@workspace:packages/cli"],
+
+    "@opencode-compat/facade-plugin": ["@opencode-compat/facade-plugin@workspace:packages/facade-plugin"],
+
+    "@opencode-compat/facade-sdk": ["@opencode-compat/facade-sdk@workspace:packages/facade-sdk"],
+
+    "@opencode-compat/host-promise-v2": ["@opencode-compat/host-promise-v2@workspace:packages/host-promise-v2"],
+
+    "@opencode-compat/profile": ["@opencode-compat/profile@workspace:packages/profile"],
+
+    "@types/bun": ["@types/bun@1.3.14", "", { "dependencies": { "bun-types": "1.3.14" } }, "sha512-h1hFqFVcvAvD9j9K7ZW7vd82aSA+rTdznZa+5bwvCwqSB1jmmfLcbIWhOLx1/+boy/xmjgCs/OMUL8hRJSmnPw=="],
+
+    "@types/node": ["@types/node@26.1.1", "", { "dependencies": { "undici-types": "~8.3.0" } }, "sha512-nxAkRSVkN1Y0JC1W8ky/fTfkGsMmcrRsbx+3XoZE+rMOX71kLYTV7fLXpqud1GpbpP5TuffXFqfX7fH2GgZREw=="],
+
+    "bun-types": ["bun-types@1.3.14", "", { "dependencies": { "@types/node": "*" } }, "sha512-4N0ig0fEomHt5R0KCFWjovxow98rIoRwKolrYdCcknNwMekCXRnWEUvgu5soYV8QXtVsrUD8B95MBOZGPvr6KQ=="],
+
+    "typescript": ["typescript@5.9.3", "", { "bin": { "tsc": "bin/tsc", "tsserver": "bin/tsserver" } }, "sha512-jl1vZzPDinLr9eUt3J/t7V6FgNEw9QjvBPdysz9KfQDD41fQrC2Y4vKQdiaUpFT4bXlb1RHhLpp8wtm6M5TgSw=="],
+
+    "undici-types": ["undici-types@8.3.0", "", {}, "sha512-j375ScV60dom+YkPFIfTLcOiPxkN/buHz5GobjLhixFuANaNs3C9l4GmrWqejgXWJ7BbJcFYpTEUkS1Ge8bpZQ=="],
+  }
+}

@@ -1,0 +1,28 @@
+# deps / build
+node_modules/
+dist/
+*.tsbuildinfo
+.turbo/
+
+# bun / npm
+bun.lockb
+.npmrc.local
+
+# env / secrets
+.env
+.env.*
+!.env.example
+
+# OS / editor
+.DS_Store
+.idea/
+.vscode/*
+!.vscode/extensions.json
+
+# test / coverage
+coverage/
+*.log
+
+# local scratch
+.tmp/
+/tmp/

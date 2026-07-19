@@ -1,0 +1,55 @@
+{
+  "name": "@opencode-compat/facade-plugin",
+  "version": "0.1.0",
+  "description": "Install-override stand-in for @opencode-ai/plugin (classic + v2/promise)",
+  "type": "module",
+  "license": "MPL-2.0",
+  "author": "oakimov",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/oakimov/opencode-plugin-compat.git",
+    "directory": "packages/facade-plugin"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    },
+    "./tool": {
+      "types": "./dist/tool.d.ts",
+      "import": "./dist/tool.js"
+    },
+    "./tui": {
+      "types": "./dist/tui.d.ts",
+      "import": "./dist/tui.js"
+    },
+    "./v2/promise": {
+      "types": "./dist/v2/promise.d.ts",
+      "import": "./dist/v2/promise.js"
+    },
+    "./v2/effect": {
+      "types": "./dist/v2/effect.d.ts",
+      "import": "./dist/v2/effect.js"
+    }
+  },
+  "files": [
+    "dist",
+    "LICENSE",
+    "README.md"
+  ],
+  "scripts": {
+    "build": "bunx tsc -p tsconfig.json",
+    "typecheck": "bunx tsc -p tsconfig.json --noEmit"
+  },
+  "dependencies": {
+    "@opencode-compat/profile": "workspace:*"
+  },
+  "devDependencies": {
+    "typescript": "^5.8.3"
+  }
+}

@@ -1,0 +1,48 @@
+{
+  "name": "@opencode-compat/cli",
+  "version": "0.1.0",
+  "description": "OPHP compat doctor and Plugin×Host×Tier matrix runner",
+  "type": "module",
+  "license": "MPL-2.0",
+  "author": "oakimov",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/oakimov/opencode-plugin-compat.git",
+    "directory": "packages/cli"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "bin": {
+    "opencode-compat": "./bin/compat.ts",
+    "compat": "./bin/compat.ts"
+  },
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "files": [
+    "bin",
+    "dist",
+    "LICENSE",
+    "README.md"
+  ],
+  "scripts": {
+    "build": "bunx tsc -p tsconfig.json",
+    "typecheck": "bunx tsc -p tsconfig.json --noEmit"
+  },
+  "dependencies": {
+    "@opencode-compat/profile": "workspace:*",
+    "@opencode-compat/adapter-opencode": "workspace:*",
+    "@opencode-compat/adapter-mimo": "workspace:*",
+    "@opencode-compat/adapter-kilo": "workspace:*",
+    "@opencode-compat/adapter-zcode": "workspace:*"
+  },
+  "devDependencies": {
+    "typescript": "^5.8.3"
+  }
+}
