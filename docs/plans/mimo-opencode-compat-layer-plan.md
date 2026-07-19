@@ -1,11 +1,11 @@
-# Plan: MiMo OpenCode plugin compatibility (first OPHP adapter)
+# Plan: MiMo OpenCode plugin compatibility (M1 integration detail)
 
 **Date:** 2026-07-19 (revised: final-product framing)  
-**Status:** **Build as part of final OPHP product** — no phased MVP; MiMo is the first adapter instance  
-**Primary target:** [XiaomiMiMo/MiMo-Code](https://github.com/XiaomiMiMo/MiMo-Code) (upstream PR / fork work) + `@opencode-compat/adapter-mimo`  
+**Status:** **Build as part of final OPHP product** — no phased MVP. MiMo is an **equal** cooperating host and `HostProfile` target of the one universal adapter (this doc is M1 integration detail, worked first only for build sequencing), **not** a privileged "proof" and **not** a separate adapter package  
+**Primary target:** [XiaomiMiMo/MiMo-Code](https://github.com/XiaomiMiMo/MiMo-Code) (upstream PR / fork work) via universal `@opencode-compat/adapter` + `HostProfile` `mimo`  
 **Repo:** `opencode-plugin-compat` (`docs/plans/`)  
-**Related:** `universal-opencode-plugin-compat-plan.md` (parent), `dual-host-packages-plan.md` (parallel Cursor track in `cursor-opencode-provider`)  
-**Goal:** Let **published OpenCode plugins** load on MiMoCode with **no republish**, including **plugin v2** (`@opencode-ai/plugin/v2/promise`), via the universal compat product (facade + adapter + host kit + M1 patches).
+**Related:** `universal-opencode-plugin-compat-plan.md` (parent); `dual-host-packages-plan.md` is **superseded / out of scope** (historical only)  
+**Goal:** Let **published OpenCode plugins** load on MiMoCode with **no republish**, including **plugin v2** (`@opencode-ai/plugin/v2/promise`), via the universal compat product (facade + **one** adapter + host kit + M1 patches).
 
 ---
 
@@ -29,7 +29,7 @@ MiMoCode is an OpenCode fork but breaks drop-in plugins because:
 ## 2. Design principles
 
 1. **Compat lives in MiMo** (install + loader + runtime), not in each plugin repo.
-2. **Alias, don’t spoof npm scope ownership** — resolve `@opencode-ai/*` inside MiMo’s plugin install tree to `@mimo-ai/*` (or a dedicated shim package MiMo vendors). Do not require publishing to the real `@opencode-ai` npm org.
+2. **Alias, don’t spoof npm scope ownership** — resolve `@opencode-ai/*` inside MiMo’s plugin install tree to `@opencode-compat/facade-*` (which dispatch via the universal adapter to `@mimo-ai/*`). Do not require publishing to the real `@opencode-ai` npm org.
 3. **Tiered compatibility** — ship full OPHP surface (T1–T3 + loud stubs); document gaps honestly.
 4. **v2 is a host problem, not only an export problem** — re-exporting types without invoking `ctx.aisdk.*` / catalog transforms does nothing.
 5. **Promise v2 before Effect v2** — most third-party providers (e.g. `cursor-opencode-provider`) use `@opencode-ai/plugin/v2/promise`. Effect v2 is larger and tied to OpenCode’s Effect plugin host.
@@ -51,15 +51,17 @@ MiMoCode is an OpenCode fork but breaks drop-in plugins because:
 │  MiMo plugin install (resolvePluginTarget)                  │
 │    • bun/npm install plugin into cache                      │
 │    • package.json overrides / alias:                        │
-│        @opencode-ai/plugin -> @mimo-ai/plugin (+ shim)      │
-│        @opencode-ai/sdk    -> @mimo-ai/sdk   (+ shim)       │
+│        @opencode-ai/plugin -> @opencode-compat/facade-plugin│
+│        @opencode-ai/sdk    -> @opencode-compat/facade-sdk   │
+│    • facade → @opencode-compat/adapter (detect mimo)        │
+│              → native @mimo-ai/plugin / @mimo-ai/sdk        │
 └───────────────────────────┬─────────────────────────────────┘
                             │
 ┌───────────────────────────▼─────────────────────────────────┐
-│  @mimo-ai/plugin  (+ optional @mimo-ai/opencode-compat)     │
-│    "."           classic Hooks (existing + parity fixes)    │
-│    "./v2/promise" define() + PluginContext types            │
-│    "./v2/effect"  loud unsupported (or thin re-export)      │
+│  OPHP facade + universal adapter (mimo HostProfile)         │
+│    "."           classic Hooks via adapter→@mimo-ai/plugin  │
+│    "./v2/promise" define() + PluginContext (host kit)       │
+│    "./v2/effect"  loud unsupported unless capable           │
 └───────────────────────────┬─────────────────────────────────┘
                             │
 ┌───────────────────────────▼─────────────────────────────────┐
@@ -71,15 +73,16 @@ MiMoCode is an OpenCode fork but breaks drop-in plugins because:
 └─────────────────────────────────────────────────────────────┘
 ```
 
-### Suggested package split inside MiMo
+### Suggested package split (OPHP + MiMo M1)
 
 | Artifact | Role |
 |----------|------|
-| `@mimo-ai/plugin` | Extend exports: add `./v2/promise` (and later `./v2/effect`) matching OpenCode’s public paths |
-| `@mimo-ai/opencode-compat` (optional) | Install overrides helper, path/env bridge docs+utils, compatibility matrix tests — keeps core plugin package thinner |
-| MiMo `packages/opencode/src/plugin/*` | Install overrides, dual-dir scan, v2 loader/host wiring |
+| `@opencode-compat/facade-plugin` / `facade-sdk` | Install-override stand-ins for `@opencode-ai/*` (Layer A target) |
+| `@opencode-compat/adapter` | Universal autodetection; `mimo` dispatch → `@mimo-ai/*` |
+| `@opencode-compat/host-promise-v2` | Shared Promise v2 aisdk kit MiMo embeds (M1) |
+| MiMo `packages/opencode/src/plugin/*` | Install overrides → facade, dual-dir scan, v2 loader/host wiring |
 
-Alternatively: put v2 exports directly on `@mimo-ai/plugin` and keep install/path logic only in the CLI package (fewer packages). Prefer **one export surface** plugins already know: `@opencode-ai/plugin` → aliased to `@mimo-ai/plugin`.
+**Do not** alias `@opencode-ai/plugin` straight to `@mimo-ai/plugin` as the product path — that skips OPHP (v2 surface, doctor, shared host kit). Prefer **one export surface** plugins already know: `@opencode-ai/plugin` → **facade** → universal adapter → `@mimo-ai/plugin`.
 
 ---
 
@@ -89,14 +92,16 @@ Alternatively: put v2 exports directly on `@mimo-ai/plugin` and keep install/pat
 
 **When:** `resolvePluginTarget` / npm plugin install into MiMo cache.
 
-**Mechanism (pick one, prefer overrides):**
+**Mechanism (pick one, prefer overrides → facade):**
 - Write/merge `overrides` (npm) or Bun equivalent in the plugin install `package.json`:
-  - `"@opencode-ai/plugin": "npm:@mimo-ai/plugin@<mimo-version>"`
-  - `"@opencode-ai/sdk": "npm:@mimo-ai/sdk@<mimo-version>"`
-- Or install a tiny local shim package named via `file:` / `link:` that re-exports `@mimo-ai/*` under the `@opencode-ai/*` names **inside the cache only**.
+  - `"@opencode-ai/plugin": "npm:@opencode-compat/facade-plugin@<ophp-version>"`
+  - `"@opencode-ai/sdk": "npm:@opencode-compat/facade-sdk@<ophp-version>"`
+- Facade → `@opencode-compat/adapter` (autodetect `mimo`) → native `@mimo-ai/plugin` / `@mimo-ai/sdk`.
+- Do **not** override `@opencode-ai/plugin` straight to `@mimo-ai/plugin` as the product path (skips OPHP v2 surface, doctor, shared host kit).
+- Optional fallback for experiments only: a tiny local `file:` / `link:` shim that re-exports under `@opencode-ai/*` names **inside the cache only** — still prefer the published facades.
 
-**Must cover subpath exports:**
-- `@opencode-ai/plugin` → `@mimo-ai/plugin`
+**Must cover subpath exports (via facade):**
+- `@opencode-ai/plugin` → `@opencode-compat/facade-plugin` → adapter → `@mimo-ai/plugin`
 - `@opencode-ai/plugin/tool`, `/tui`
 - `@opencode-ai/plugin/v2/promise` (+ `/v2/effect` when ready)
 - `@opencode-ai/sdk`, `@opencode-ai/sdk/v2`, … (match what plugins import)
@@ -195,7 +200,7 @@ await ctx.aisdk.language((event) => { … event.language = … })
    - **Loud unsupported:** `agent`, `catalog`, `command`, `integration`, `reference`, `skill` until wired — same release, not a later phase
 4. Wire `aisdk` hooks into MiMo’s provider → LanguageModel resolution path.
 
-**Acceptance:** Unchanged `cursor-opencode-provider`-style v2 entry (`define` + `ctx.aisdk.*`) registers a custom LanguageModel on MiMo when classic auth plugin also loads (or dual-package MiMo host until path/TX gaps close).
+**Acceptance:** Unchanged `cursor-opencode-provider`-style v2 entry (`define` + `ctx.aisdk.*`) registers a custom LanguageModel on MiMo when classic auth plugin also loads — close path/TX gaps in the bridge; do **not** ship a host-specific Cursor package.
 
 #### 4.5.3 Promise domains beyond aisdk
 
@@ -283,12 +288,12 @@ CI should **not** require Cursor credentials; use fake LanguageModel fixtures.
 
 ## 9. Relationship to dual-host packages plan
 
-| Approach | Solves |
-|----------|--------|
-| **This MiMo adapter + OPHP** | Ecosystem: third-party OpenCode plugins on MiMo without republish |
-| **`dual-host-packages-plan.md`** | First-class Cursor provider with correct paths/agents on both hosts |
+| Approach | Role |
+|----------|------|
+| **This MiMo adapter + OPHP** | **In scope** — third-party OpenCode plugins on MiMo without republish |
+| **`dual-host-packages-plan.md`** | **Superseded / out of scope** — do not build `cursor-mimocode-provider` or other host-specific forks |
 
-**Build both** — dual packages are not deferred behind the MiMo adapter; they are the TX/product path in parallel.
+Close TX/path gaps in the bridge so unchanged plugins (including `cursor-opencode-provider`) work. Dual-package tracks are not a parallel product path.
 
 ---
 
@@ -309,7 +314,7 @@ CI should **not** require Cursor credentials; use fake LanguageModel fixtures.
 
 1. Documented tiers T1–T3 with CI fixtures on MiMo.  
 2. Unchanged classic OpenCode plugin installs via MiMo config and runs auth/config hooks.  
-3. Unchanged Promise v2 plugin using only `ctx.aisdk.*` can supply a LanguageModel on MiMo (or dual-pkg until TX closed).  
+3. Unchanged Promise v2 plugin using only `ctx.aisdk.*` can supply a LanguageModel on MiMo (bridge closes TX/path gaps; no dual-package fallback).  
 4. `.opencode/plugins` local plugins load (documented precedence vs `.mimocode`).  
 5. `@opencode-ai/plugin/v2/promise` import resolves under MiMo install alias/facade.  
 6. Unsupported Effect/domains fail clearly.  
@@ -331,11 +336,11 @@ CI should **not** require Cursor credentials; use fake LanguageModel fixtures.
 
 ## 13. Immediate next actions
 
-1. Implement `@opencode-compat/adapter-mimo` + facade overrides under `opencode-plugin-compat`.  
-2. M1 patch: overrides + dual-scan + host kit embed.  
+1. Implement universal `@opencode-compat/adapter` (`mimo` `HostProfile` dispatch) + facade overrides under `opencode-plugin-compat`.  
+2. M1 patch: install overrides → **facade** (not direct `@mimo-ai/*`) + dual-scan + host kit embed.  
 3. Classic + aisdk fixtures green.  
 4. Upstream PR + matrix row.  
-5. Keep dual Cursor MiMo package until T3+path proven.
+5. Prove unchanged `cursor-opencode-provider` via the bridge — **no** `cursor-mimocode-provider` / dual-package track.
 
 ---
 

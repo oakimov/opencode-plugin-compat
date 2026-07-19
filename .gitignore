@@ -26,3 +26,5 @@ coverage/
 # local scratch
 .tmp/
 /tmp/
+
+.claude/settings.local.json

@@ -1,11 +1,13 @@
 # Plan: Dual-host packages (OpenCode + MiMoCode) in one repo
 
-**Date:** 2026-07-19 (revised: final-product framing)  
-**Plan home:** `opencode-plugin-compat/docs/plans/` (OPHP product docs)  
-**Implementation repo:** `cursor-opencode-provider` (`~/Projects/cursor-opencode-provider`) — dual packages are **not** published from this monorepo  
-**Status:** **Build as part of final OPHP product** — TX escape hatch; ship in parallel with facades/adapters (not deferred)  
-**Related:** `universal-opencode-plugin-compat-plan.md` (parent), `mimo-opencode-compat-layer-plan.md` (MiMo adapter)  
-**Goal:** Maintain one Cursor-provider repo; publish **two npm packages** (OpenCode host + MiMoCode host); share Cursor protocol core; build/test (and optionally publish) both via GitHub Actions.
+**Date:** 2026-07-19 (revised: **superseded**)  
+**Plan home:** `opencode-plugin-compat/docs/plans/` (historical)  
+**Status:** **SUPERSEDED / OUT OF SCOPE** — do **not** build `cursor-mimocode-provider`, `cursor-kilocode-provider`, ZCode variants, or any host-specific fork of a consumer plugin.  
+**Replacement:** Universal OPHP bridge in this repo — [oakimov/cursor-opencode-provider](https://github.com/oakimov/cursor-opencode-provider) (and every other OpenCode plugin) must run **unchanged** via facades + adapters + host kit.  
+**Related:** `universal-opencode-plugin-compat-plan.md`, `phase0-adr-universal-compat.md` (ADR-6)  
+**Original goal (obsolete):** Maintain one Cursor-provider repo; publish **two npm packages** (OpenCode host + MiMoCode host). Kept below for archaeology only.
+
+> **Product rule:** This compatibility bridge closes host gaps. It does not multiply plugin packages per fork.
 
 ---
 

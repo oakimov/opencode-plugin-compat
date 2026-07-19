@@ -6,9 +6,9 @@
 **Sources (pinned):**
 | Host | Plugin package | Version / pin | Source |
 |------|----------------|---------------|--------|
-| OpenCode | `@opencode-ai/plugin` | **1.18.3** (npm) + local `opencode-research` `dev` | npm pack + `/Users/mitra/Projects/opencode-research` |
+| OpenCode | `@opencode-ai/plugin` | **1.18.3** (npm) + upstream [anomalyco/opencode](https://github.com/anomalyco/opencode) | npm pack + GitHub source |
 | MiMo | `@mimo-ai/plugin` | **0.1.6** (npm) + GitHub `main` `packages/plugin/src/index.ts` | npm pack + raw GitHub |
-| Kilo | `@kilocode/plugin` | **7.4.11** (npm); fork pin `.opencode-version` = **v1.17.4** | npm pack + `/tmp/kilocode-spike` |
+| Kilo | `@kilocode/plugin` | **7.4.11** (npm); fork pin `.opencode-version` = **v1.17.4** | npm pack + [Kilo-Org/kilocode](https://github.com/Kilo-Org/kilocode) checkout |
 | ZCode | *(no `@*-plugin` OpenCode ABI)* | Desktop **3.3.6** | DMG/`app.asar` exam — marketplace only |
 
 Related: `universal-opencode-plugin-compat-plan.md`, `ophp-0.1-spec.md`, `phase0-adr-universal-compat.md`.
@@ -22,7 +22,7 @@ Related: `universal-opencode-plugin-compat-plan.md`, `ophp-0.1-spec.md`, `phase0
 | **OpenCode 1.18.3 ↔ Kilo 7.4.11 classic `Hooks` keys** | **Identical** (21 hooks). Normalized `index.d.ts` differs only by SDK import / `create*Client` name. |
 | **OpenCode 1.18.3 ↔ MiMo 0.1.6 classic `Hooks`** | **Near-superset conflict.** MiMo **adds 6** host-specific hooks; MiMo **lacks 2** OpenCode hooks. |
 | **v2 exports** | OpenCode: yes (`./v2/promise`, `./v2/effect`, …). MiMo/Kilo published exports: **classic only** (`.`, `./tool`, `./tui`). |
-| **ZCode** | **Not an OPHP host.** Marketplace ABI (`.zcode-plugin/plugin.json`, Claude-style hooks). Public examples: `tmdgusya/glm-hammer`, marketplace `jhlee0409/zcode-glm-fleet`. See `oa-tools/zcode-review/ZCODE_RESEARCH.md` §7. |
+| **ZCode** | **Not an OPHP host.** Marketplace ABI (`.zcode-plugin/plugin.json`, Claude-style hooks). Public examples: `tmdgusya/glm-hammer`, marketplace `jhlee0409/zcode-glm-fleet`. See [oa-tools/zcode-review/ZCODE_RESEARCH.md](https://github.com/oakimov/oa-tools/blob/main/zcode-review/ZCODE_RESEARCH.md) §7. |
 
 **Implication for OPHP 0.1:** Classic facade can treat **OpenCode ∩ Kilo** as the portable core. MiMo extras are **host-extension hooks** (optional, never required for T1). Missing MiMo hooks must be documented as **compat gaps** (no-op or polyfill policy).
 
@@ -123,11 +123,11 @@ Static import scan of npm tarballs (2026-07-19). Not exhaustive; enough to size 
 | `@tarquinen/opencode-dcp@3.1.14` | classic+v2 | uses `@opencode-ai/sdk/v2` |
 | `oh-my-opencode-slim@2.2.4` | classic+v2 | |
 | `@cortexkit/opencode-magic-context@0.32.3` | classic+v2 | |
-| **`cursor-opencode-provider` (local)** | **classic+v2** | `@opencode-ai/plugin` + `/v2/promise` + sdk — **TX / dual-package** candidate |
+| **[`cursor-opencode-provider`](https://github.com/oakimov/cursor-opencode-provider)** | **classic+v2** | `@opencode-ai/plugin` + `/v2/promise` + sdk — **TX / path-sensitive**; must run **unchanged** via OPHP (no host-specific fork) |
 | `orca-opencode-plugin@1.2.8` | unclear | no direct `@opencode-ai/plugin` import in pack |
 | `@webpresso/opencode-plugin@3.1.22` | unclear | adapter wrapper |
 
-**Rough mix:** majority of sampled plugins are **classic-only** → T1 unlocks the most plugins first. A meaningful minority (incl. this Cursor provider) need **T3 Promise v2 aisdk** (or TX dual packages).
+**Rough mix:** majority of sampled plugins are **classic-only** → T1 unlocks the most plugins first. A meaningful minority (incl. this Cursor provider) need **T3 Promise v2 aisdk** plus path/TX bridge work — **not** host-specific dual packages.
 
 ---
 
@@ -143,9 +143,9 @@ Static import scan of npm tarballs (2026-07-19). Not exhaustive; enough to size 
 
 ## 7. Evidence pointers
 
-- OpenCode Hooks: `opencode-research/packages/plugin/src/index.ts`; npm `@opencode-ai/plugin@1.18.3` `dist/index.d.ts`  
-- MiMo Hooks: npm `@mimo-ai/plugin@0.1.6` `dist/index.d.ts`; GitHub `XiaomiMiMo/MiMo-Code` `packages/plugin/src/index.ts`  
-- Kilo Hooks: npm `@kilocode/plugin@7.4.11` `dist/index.d.ts`; spike `/tmp/kilocode-spike/packages/plugin/src/index.ts`  
+- OpenCode Hooks: [anomalyco/opencode](https://github.com/anomalyco/opencode) `packages/plugin/src/index.ts`; npm `@opencode-ai/plugin@1.18.3` `dist/index.d.ts`  
+- MiMo Hooks: npm `@mimo-ai/plugin@0.1.6` `dist/index.d.ts`; GitHub [`XiaomiMiMo/MiMo-Code`](https://github.com/XiaomiMiMo/MiMo-Code) `packages/plugin/src/index.ts`  
+- Kilo Hooks: npm `@kilocode/plugin@7.4.11` `dist/index.d.ts`; [Kilo-Org/kilocode](https://github.com/Kilo-Org/kilocode) `packages/plugin/src/index.ts`  
 - MiMo paths: `packages/shared/src/global.ts` (`APP = "mimocode"`, `MIMOCODE_HOME`); `packages/opencode/src/config/paths.ts` (`.mimocode` only)  
-- Kilo paths: spike `packages/core/src/global.ts`, `packages/opencode/src/config/paths.ts`  
-- Artifact workspace used for packs: `/tmp/ophp-phase0/`
+- Kilo paths: [Kilo-Org/kilocode](https://github.com/Kilo-Org/kilocode) `packages/core/src/global.ts`, `packages/opencode/src/config/paths.ts`  
+- Pack artifacts: npm packs of the pinned plugin versions above

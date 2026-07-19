@@ -2,31 +2,36 @@
 
 ## Product
 
-Universal **OPHP** (OpenCode Plugin Host Protocol) monorepo. Ship the **complete** stack — no phased MVP cuts.
+Universal **OPHP** compatibility **bridge** monorepo. Ship the **complete** stack — no phased MVP cuts.
 
+- Goal: **any OpenCode plugin runs unchanged** on cooperating hosts via facades + **one** autodetection adapter + host kit.
 - Facades remapped **inside fork install trees** (not spoofing public `@opencode-ai` on npm).
-- Scope: `@opencode-compat/*`
+- Scope: `@opencode-compat/*` (host bridge packages only).
 - License: **MPL-2.0** (all packages).
 - ZCode is **T0 only** (marketplace ≠ OpenCode plugin ABI).
-- Cursor dual-host packages are a **parallel TX track** in `cursor-opencode-provider`, not this repo’s publishables.
+- **Do not** create or plan host-specific forks of consumer plugins (no `cursor-mimocode-provider`, `cursor-kilocode-provider`, ZCode variants, etc.). Dual-package tracks are **out of scope**; close gaps in the bridge.
+- **Do not** ship separate per-host adapter packages. Host differences are `HostProfile` data + dispatch inside `@opencode-compat/adapter`.
 
 ## Layout
 
 ```
-packages/profile|facade-*|adapter-*|host-promise-v2|cli
+packages/profile|facade-*|adapter|host-promise-v2|cli
 fixtures/          # conformance
 patches/           # reference M1 MiMo/Kilo patches
 docs/ophp/0.1.md   # contract
-docs/plans/        # ADRs + plans (moved from cursor-opencode-provider/tasks)
+docs/plans/        # ADRs + plans
+docs/guides/       # companion privacy notes (non-runtime)
 ```
 
 ## Build rules
 
 - Prefer Bun workspaces; TypeScript strict; ESM only.
-- Core facades/adapters must not hardcode a single fork’s XDG paths — use `HostProfile`.
+- Facades / universal adapter must not hardcode a single fork’s XDG paths — use `HostProfile` + autodetection.
 - MiMo extension hooks (`actor.*`, `session.*`) are **non-portable** — never require them for T1 plugins.
 - Facade `v2/effect` may loud-fail unless host declares capability; `v2/promise` + aisdk is the T3 bar.
 - Do not claim ZCode drop-in without a Z.AI vendor loader.
+- Consumer plugins (e.g. `cursor-opencode-provider`) are **test/matrix subjects**, not deliverables of this repo.
+- Privacy companions: Kilo/MiMo document **in-app** telemetry opt-out; ZCode telemetry is **docs-only** firewall/DNS — never claim an OPHP plugin kill.
 
 ## Docs source of truth
 
@@ -36,8 +41,8 @@ docs/plans/        # ADRs + plans (moved from cursor-opencode-provider/tasks)
 
 ## Suggested next work
 
-1. Implement `@opencode-compat/profile` HostProfile + drafts.
+1. Implement `@opencode-compat/profile` HostProfile + drafts + detect().
 2. Classic exports on `facade-plugin` / `facade-sdk`.
-3. `adapter-mimo` first, then `adapter-kilo`, identity `adapter-opencode`, T0 `adapter-zcode`.
+3. `@opencode-compat/adapter` — one runtime: detect host, dispatch to native SDK (opencode / mimo / kilo; zcode → T0 doctor).
 4. `host-promise-v2` aisdk kit + CLI doctor + fixtures.
-5. Parallel: dual-host packages in `cursor-opencode-provider`.
+5. Prove unchanged plugins (incl. classic + `v2/promise` samples) on MiMo/Kilo via the bridge — not via republished host forks.

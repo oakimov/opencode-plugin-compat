@@ -37,10 +37,7 @@
   },
   "dependencies": {
     "@opencode-compat/profile": "workspace:*",
-    "@opencode-compat/adapter-opencode": "workspace:*",
-    "@opencode-compat/adapter-mimo": "workspace:*",
-    "@opencode-compat/adapter-kilo": "workspace:*",
-    "@opencode-compat/adapter-zcode": "workspace:*"
+    "@opencode-compat/adapter": "workspace:*"
   },
   "devDependencies": {
     "typescript": "^5.8.3"

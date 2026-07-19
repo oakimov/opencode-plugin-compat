@@ -9,38 +9,8 @@
         "typescript": "^5.8.3",
       },
     },
-    "packages/adapter-kilo": {
-      "name": "@opencode-compat/adapter-kilo",
-      "version": "0.1.0",
-      "dependencies": {
-        "@opencode-compat/profile": "workspace:*",
-      },
-      "devDependencies": {
-        "typescript": "^5.8.3",
-      },
-    },
-    "packages/adapter-mimo": {
-      "name": "@opencode-compat/adapter-mimo",
-      "version": "0.1.0",
-      "dependencies": {
-        "@opencode-compat/profile": "workspace:*",
-      },
-      "devDependencies": {
-        "typescript": "^5.8.3",
-      },
-    },
-    "packages/adapter-opencode": {
-      "name": "@opencode-compat/adapter-opencode",
-      "version": "0.1.0",
-      "dependencies": {
-        "@opencode-compat/profile": "workspace:*",
-      },
-      "devDependencies": {
-        "typescript": "^5.8.3",
-      },
-    },
-    "packages/adapter-zcode": {
-      "name": "@opencode-compat/adapter-zcode",
+    "packages/adapter": {
+      "name": "@opencode-compat/adapter",
       "version": "0.1.0",
       "dependencies": {
         "@opencode-compat/profile": "workspace:*",
@@ -52,11 +22,12 @@
     "packages/cli": {
       "name": "@opencode-compat/cli",
       "version": "0.1.0",
+      "bin": {
+        "opencode-compat": "./bin/compat.ts",
+        "compat": "./bin/compat.ts",
+      },
       "dependencies": {
-        "@opencode-compat/adapter-kilo": "workspace:*",
-        "@opencode-compat/adapter-mimo": "workspace:*",
-        "@opencode-compat/adapter-opencode": "workspace:*",
-        "@opencode-compat/adapter-zcode": "workspace:*",
+        "@opencode-compat/adapter": "workspace:*",
         "@opencode-compat/profile": "workspace:*",
       },
       "devDependencies": {
@@ -102,13 +73,7 @@
     },
   },
   "packages": {
-    "@opencode-compat/adapter-kilo": ["@opencode-compat/adapter-kilo@workspace:packages/adapter-kilo"],
-
-    "@opencode-compat/adapter-mimo": ["@opencode-compat/adapter-mimo@workspace:packages/adapter-mimo"],
-
-    "@opencode-compat/adapter-opencode": ["@opencode-compat/adapter-opencode@workspace:packages/adapter-opencode"],
-
-    "@opencode-compat/adapter-zcode": ["@opencode-compat/adapter-zcode@workspace:packages/adapter-zcode"],
+    "@opencode-compat/adapter": ["@opencode-compat/adapter@workspace:packages/adapter"],
 
     "@opencode-compat/cli": ["@opencode-compat/cli@workspace:packages/cli"],
 

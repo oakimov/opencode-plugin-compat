@@ -1,14 +1,14 @@
 {
-  "name": "@opencode-compat/adapter-mimo",
+  "name": "@opencode-compat/adapter",
   "version": "0.1.0",
-  "description": "OPHP adapter for MiMo Code (@mimo-ai/*) — first adapter instance",
+  "description": "Universal OPHP host adapter — autodetection HostProfile, one runtime for all cooperating hosts",
   "type": "module",
   "license": "MPL-2.0",
   "author": "oakimov",
   "repository": {
     "type": "git",
     "url": "git+https://github.com/oakimov/opencode-plugin-compat.git",
-    "directory": "packages/adapter-mimo"
+    "directory": "packages/adapter"
   },
   "publishConfig": {
     "access": "public"

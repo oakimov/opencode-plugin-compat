@@ -41,9 +41,9 @@ Non-goals for 0.1 product: Effect v2 **completeness**, perfect SDK event-union i
 | Term | Meaning |
 |------|---------|
 | **Portable plugin** | Imports `@opencode-ai/plugin` (classic and/or `v2/promise`) and does not hardcode fork XDG/env |
-| **Host-aware plugin (TX)** | Hardcodes `OPENCODE_*`, `.opencode`, or host agents — may need dual packages |
+| **Host-aware plugin (TX)** | Hardcodes `OPENCODE_*`, `.opencode`, or host agents — bridge should absorb where possible; residual gaps are documented, not solved by per-host plugin forks |
 | **Facade** | Package that satisfies `@opencode-ai/plugin` / `sdk` import paths via install override |
-| **Adapter** | Maps facade calls onto a native host SDK (`@mimo-ai/*`, `@kilocode/*`, …) |
+| **Adapter** | **One** universal runtime (`@opencode-compat/adapter`) that **autodetects** the host (`HostProfile`) and maps facade calls onto that host’s native SDK. Host differences are profile data + internal dispatch — **not** separate packages per host |
 | **Host kit** | Runtime embedded by the host that implements Promise v2 domains (aisdk MVP) |
 | **Tier** | Declared compatibility level (T0–T5, TX) |
 
@@ -54,12 +54,12 @@ Non-goals for 0.1 product: Effect v2 **completeness**, perfect SDK event-union i
 | Tier | Requirement |
 |------|-------------|
 | **T0** | Unsupported. Doctor explains why (ZCode today). |
-| **T1** | Classic Hooks plugins resolve `@opencode-ai/plugin` (+ `/tool`, `/tui`) via facade→adapter→native. Core hooks from §6 work. |
+| **T1** | Classic Hooks plugins resolve `@opencode-ai/plugin` (+ `/tool`, `/tui`) via facade→**universal adapter** (autodetect)→native. Core hooks from §6 work. |
 | **T2** | Local project plugins under `.opencode/plugins` **or** host-native project dir **plus** optional `.opencode` dual-scan (M1). |
 | **T3** | Promise v2: `import { define } from "@opencode-ai/plugin/v2/promise"` + **`ctx.aisdk`** language/model injection works end-to-end. |
 | **T4** | Additional Promise v2 domains: `catalog`, `agent`, `command`, `skill`, `reference`, `integration` (progressive). |
 | **T5** | Effect v2 host alignment. |
-| **TX** | Host-aware; OPHP may partially help but dual packages remain recommended. |
+| **TX** | Host-aware risk; OPHP aims to cover via path/env bridge. Do **not** recommend host-specific republishes of the plugin. |
 
 **OPHP 0.1 compliance claim** = at least **T1** + capability flags accurate. Advertising T3 requires aisdk conformance fixtures green.
 
@@ -229,7 +229,7 @@ Kilo and MiMo **do not** scan `.opencode` today → dual-scan is an **upstream P
 2. Doctor text MUST state: ZCode Agent Mode marketplace (`.zcode-plugin` / Claude-/Codex-style) ≠ `@opencode-ai/plugin`.  
 3. External “OpenCode” agent tile (runs OpenCode CLI / reads `~/.config/opencode`) is **not** OPHP plugin compatibility.  
 4. Future Z.AI loader cooperation would mint a real adapter; until then stub only.  
-5. **Evidence (2026-07-19):** public plugins (`tmdgusya/glm-hammer`, marketplace `jhlee0409/zcode-glm-fleet`) use `.zcode-plugin/plugin.json`, Claude-compatible subprocess hooks (`SessionStart`…`Stop`), skills/commands/MCP — see `oa-tools/zcode-review/ZCODE_RESEARCH.md` §7. Doctor may cite these as examples of the **other** ABI.
+5. **Evidence (2026-07-19):** public plugins (`tmdgusya/glm-hammer`, marketplace `jhlee0409/zcode-glm-fleet`) use `.zcode-plugin/plugin.json`, Claude-compatible subprocess hooks (`SessionStart`…`Stop`), skills/commands/MCP — see [oa-tools/zcode-review/ZCODE_RESEARCH.md](https://github.com/oakimov/oa-tools/blob/main/zcode-review/ZCODE_RESEARCH.md) §7. Doctor may cite these as examples of the **other** ABI.
 
 ---
 
@@ -255,15 +255,14 @@ Publish a public matrix: **Plugin × Host × Tier × last pass**. All fixtures a
 
 | Package | Role |
 |---------|------|
-| `@opencode-compat/profile` | HostProfile types + shipped drafts |
+| `@opencode-compat/profile` | HostProfile types + shipped drafts (opencode / mimo / kilo / zcode) + `detect()` |
 | `@opencode-compat/facade-plugin` | Install-override stand-in for `@opencode-ai/plugin` |
 | `@opencode-compat/facade-sdk` | Stand-in for `@opencode-ai/sdk` (minimal surface) |
-| `@opencode-compat/adapter-opencode` | Identity |
-| `@opencode-compat/adapter-mimo` | → `@mimo-ai/*` + MiMo gaps/extensions metadata |
-| `@opencode-compat/adapter-kilo` | → `@kilocode/*` |
-| `@opencode-compat/adapter-zcode` | T0 stub |
+| `@opencode-compat/adapter` | **Universal** host adapter — one runtime; autodetect + dispatch (ZCode → T0 doctor) |
 | `@opencode-compat/host-promise-v2` | Shared aisdk host kit |
 | `@opencode-compat/cli` | `compat doctor` + matrix runner |
+
+**Not shipped:** `@opencode-compat/adapter-{opencode,mimo,kilo,zcode}` — host variance is data inside `profile` + `adapter`, not separate publishable packages.
 
 Repo home: **`opencode-plugin-compat`** (see ADR).
 
@@ -285,7 +284,7 @@ These are **not** phase gates. Use defaults below unless evidence forces a chang
 1. **Minimal `@opencode-ai/sdk` facade** — start from methods used by sample classic plugins + Cursor provider; expand via fixtures.  
 2. **MiMo PRs** (`dispose`, `small_model`, dual-scan) — ship no-op gaps + doctor; dual-scan in M1 patch regardless of upstream accept latency.  
 3. **Kilo `.opencode` scan** — opt-in flag in M1 patch; copy-to-`.kilo` workaround in docs if refused.  
-4. **`facade-sdk` depth** — dual packages remain for TX until T3+path smoke (ADR-6).  
+4. **`facade-sdk` depth** — close with T3+path smoke on **unchanged** plugins (ADR-6); no dual-package escape hatch.  
 5. **Naming** — **`@opencode-compat/*`** (preferred over `@ophp/*`).
 
 ---

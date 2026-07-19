@@ -8,10 +8,7 @@
     { "path": "./packages/profile" },
     { "path": "./packages/facade-plugin" },
     { "path": "./packages/facade-sdk" },
-    { "path": "./packages/adapter-opencode" },
-    { "path": "./packages/adapter-mimo" },
-    { "path": "./packages/adapter-kilo" },
-    { "path": "./packages/adapter-zcode" },
+    { "path": "./packages/adapter" },
     { "path": "./packages/host-promise-v2" },
     { "path": "./packages/cli" }
   ]

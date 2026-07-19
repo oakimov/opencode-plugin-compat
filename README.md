@@ -1,8 +1,8 @@
 # opencode-plugin-compat
 
-**OPHP** — OpenCode Plugin Host Protocol and compatibility stack for OpenCode forks.
+**OPHP** — OpenCode Plugin Host Protocol and a **universal compatibility bridge** for OpenCode forks.
 
-Ship published OpenCode plugins (`import "@opencode-ai/plugin"` / `v2/promise`) on cooperating forks (**MiMo Code**, **Kilo Code**) without republish, with **ZCode** honestly at T0. Dual-host Cursor packages remain a parallel TX escape hatch in [`cursor-opencode-provider`](https://github.com/oakimov/cursor-opencode-provider).
+Run **published OpenCode plugins unchanged** (`import "@opencode-ai/plugin"` / `v2/promise`) on cooperating forks (**MiMo Code**, **Kilo Code**). **ZCode** stays honestly at T0 (marketplace ABI ≠ OpenCode plugin ABI). This repo does **not** ship or plan host-specific forks of individual plugins (no `cursor-mimocode-provider`, `cursor-kilocode-provider`, etc.).
 
 **License:** [MPL-2.0](./LICENSE)
 
@@ -14,17 +14,16 @@ Final-product monorepo scaffold. Research and ADRs live under [`docs/`](./docs/)
 
 | Package | Role |
 |---------|------|
-| [`profile`](./packages/profile) | `HostProfile` types + host drafts |
+| [`profile`](./packages/profile) | `HostProfile` types + host drafts (opencode / mimo / kilo / zcode) |
 | [`facade-plugin`](./packages/facade-plugin) | Install-override stand-in for `@opencode-ai/plugin` |
 | [`facade-sdk`](./packages/facade-sdk) | Stand-in for `@opencode-ai/sdk` (minimal) |
-| [`adapter-opencode`](./packages/adapter-opencode) | Identity adapter |
-| [`adapter-mimo`](./packages/adapter-mimo) | MiMo (`@mimo-ai/*`) — first adapter instance |
-| [`adapter-kilo`](./packages/adapter-kilo) | Kilo (`@kilocode/*`) |
-| [`adapter-zcode`](./packages/adapter-zcode) | T0 stub / doctor only |
+| [`adapter`](./packages/adapter) | **One** universal host adapter — autodetects host, dispatches via `HostProfile` |
 | [`host-promise-v2`](./packages/host-promise-v2) | Shared Promise v2 aisdk host kit (M1 embed) |
 | [`cli`](./packages/cli) | `compat doctor` + matrix runner |
 
 Also: [`fixtures/`](./fixtures) (conformance), [`patches/`](./patches) (reference M1 patches), [`docs/ophp/0.1.md`](./docs/ophp/0.1.md).
+
+**Not in scope:** separate publishable packages per host (`adapter-mimo`, `adapter-kilo`, …). Host differences live in `HostProfile` data + internal dispatch inside `@opencode-compat/adapter`.
 
 ## Docs
 
@@ -34,8 +33,10 @@ Also: [`fixtures/`](./fixtures) (conformance), [`patches/`](./patches) (referenc
 | [`docs/plans/universal-opencode-plugin-compat-plan.md`](./docs/plans/universal-opencode-plugin-compat-plan.md) | Parent product plan |
 | [`docs/plans/phase0-adr-universal-compat.md`](./docs/plans/phase0-adr-universal-compat.md) | Product ADR |
 | [`docs/plans/phase0-hooks-parity.md`](./docs/plans/phase0-hooks-parity.md) | Hooks / path evidence |
-| [`docs/plans/mimo-opencode-compat-layer-plan.md`](./docs/plans/mimo-opencode-compat-layer-plan.md) | MiMo adapter plan |
-| [`docs/plans/dual-host-packages-plan.md`](./docs/plans/dual-host-packages-plan.md) | Cursor TX dual-package track (impl in `cursor-opencode-provider`) |
+| [`docs/plans/mimo-opencode-compat-layer-plan.md`](./docs/plans/mimo-opencode-compat-layer-plan.md) | MiMo M1 integration detail (an **equal** `HostProfile` target, not a separate adapter package) |
+| [`docs/plans/dual-host-packages-plan.md`](./docs/plans/dual-host-packages-plan.md) | **Superseded** — historical dual-package sketch (out of scope) |
+| [`docs/guides/kilocode-telemetry-disable.md`](./docs/guides/kilocode-telemetry-disable.md) | Disable Kilo PostHog telemetry (config / `KILO_TELEMETRY_LEVEL`) |
+| [`docs/guides/zcode-telemetry-block.md`](./docs/guides/zcode-telemetry-block.md) | ZCode telemetry block (**docs-only** firewall/DNS) |
 
 ## Develop
 
@@ -52,12 +53,12 @@ Requires [Bun](https://bun.sh) ≥ 1.2.
 | Tier | Meaning |
 |------|---------|
 | T0 | Detect / doctor only (ZCode) |
-| T1 | Classic Hooks via facade + adapter |
+| T1 | Classic Hooks via facade + universal adapter |
 | T2 | Path / env / project-dir bridge |
 | T3 | Promise v2 aisdk via host kit |
-| TX | Host-aware; dual packages / patches |
+| TX | Host-aware risk (hardcoded paths/env); bridge may not fully cover — **fix the bridge or the plugin**, do not fork the plugin per host |
 
 ## Related
 
-- Cursor dual-host implementation: `~/Projects/cursor-opencode-provider` (see dual-host plan)
-- Research baselines: `oa-tools/mimo-review`, `oa-tools/zcode-review`
+- Example consumer plugin (must run **unchanged** via OPHP): [oakimov/cursor-opencode-provider](https://github.com/oakimov/cursor-opencode-provider)
+- Research baselines: [oa-tools/mimo-review](https://github.com/oakimov/oa-tools/tree/main/mimo-review), [oa-tools/kilo-review](https://github.com/oakimov/oa-tools/tree/main/kilo-review), [oa-tools/zcode-review](https://github.com/oakimov/oa-tools/tree/main/zcode-review)
