@@ -59,8 +59,8 @@ export function opencodeProfile(options?: DraftOptions): HostProfile {
 }
 
 /**
- * MiMo Code — classic T1 target; Promise v2 requires host-kit wiring from OCP.
- * Missing: dispose, experimental.provider.small_model (no-op + doctor).
+ * MiMo Code — classic T1 + OCP-layer Promise v2 (host-promise-v2), not native exports.
+ * Missing classic: dispose, experimental.provider.small_model (no-op + doctor).
  */
 export function mimoProfile(options?: DraftOptions): HostProfile {
   const { env, home } = baseOpts(options)
@@ -96,9 +96,10 @@ export function mimoProfile(options?: DraftOptions): HostProfile {
     envPrefix: "MIMOCODE",
     capabilities: {
       classicHooks: true,
-      promiseV2: false,
+      // OCP layer supplies Promise v2 via @opencode-compat/host-promise-v2 (not @mimo-ai exports)
+      promiseV2: true,
       effectV2: false,
-      aisdkProviderHooks: false,
+      aisdkProviderHooks: true,
       localPluginScan: true,
       scansDotOpencode: false,
     },
@@ -107,12 +108,13 @@ export function mimoProfile(options?: DraftOptions): HostProfile {
       missing: MIMO_MISSING_HOOKS,
       extensions: MIMO_EXTENSION_HOOKS,
     },
-    note: "PluginInput still types createOpencodeClient from @mimo-ai/sdk (residual name)",
+    note: "PluginInput still types createOpencodeClient from @mimo-ai/sdk (residual name); Promise v2 via OCP host kit",
   }
 }
 
 /**
  * Kilo Code — classic Hooks key-identical to OpenCode 1.18.3.
+ * Promise v2 via OCP host-promise-v2 (not native @kilocode exports).
  * No project `.opencode` scan today; close via bridge docs/doctor/operator copy-symlink.
  */
 export function kiloProfile(options?: DraftOptions): HostProfile {
@@ -146,9 +148,10 @@ export function kiloProfile(options?: DraftOptions): HostProfile {
     envPrefix: "KILO",
     capabilities: {
       classicHooks: true,
-      promiseV2: false,
+      // OCP layer supplies Promise v2 via @opencode-compat/host-promise-v2 (not @kilocode exports)
+      promiseV2: true,
       effectV2: false,
-      aisdkProviderHooks: false,
+      aisdkProviderHooks: true,
       localPluginScan: true,
       scansDotOpencode: false,
     },
@@ -157,6 +160,7 @@ export function kiloProfile(options?: DraftOptions): HostProfile {
       missing: [],
       extensions: [],
     },
+    note: "Promise v2 via OCP host kit; live host provider-resolve calls createPromiseV2Host().resolveProvider",
   }
 }
 

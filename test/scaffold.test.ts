@@ -35,7 +35,9 @@ describe("@opencode-compat/profile", () => {
   test("mimo draft declares gaps and extensions", () => {
     const p = mimoProfile({ home: "/tmp/home", env: {} })
     expect(p.nativePlugin).toBe("@mimo-ai/plugin")
-    expect(p.capabilities.promiseV2).toBe(false)
+    // OCP-layer host-promise-v2 supplies T3 (not native @mimo-ai exports)
+    expect(p.capabilities.promiseV2).toBe(true)
+    expect(p.capabilities.aisdkProviderHooks).toBe(true)
     expect(p.capabilities.scansDotOpencode).toBe(false)
     expect(p.paths.compatProjectDirs).toEqual([".opencode"])
     expect(p.hooks.missing).toContain("dispose")
@@ -57,6 +59,9 @@ describe("@opencode-compat/profile", () => {
     expect(p.paths.projectDirs).toEqual([".kilo", ".kilocode"])
     expect(p.paths.pluginInstallDir).toBe("/tmp/home/.cache/kilo/packages")
     expect(p.hooks.missing).toEqual([])
+    // OCP-layer host-promise-v2 supplies T3 (not native @kilocode exports)
+    expect(p.capabilities.promiseV2).toBe(true)
+    expect(p.capabilities.aisdkProviderHooks).toBe(true)
   })
 
   test("zcode is T0 / ocp none", () => {
@@ -254,14 +259,14 @@ describe("@opencode-compat/facade-plugin", () => {
 
   test("v2/promise loud-fails without promiseV2", async () => {
     const prev = process.env.OPENCODE_COMPAT_HOST
-    process.env.OPENCODE_COMPAT_HOST = "mimo"
+    process.env.OPENCODE_COMPAT_HOST = "zcode"
     try {
       const { define } = await import(
         "../packages/facade-plugin/src/v2/promise.ts"
       )
-      expect(() => define({ async setup() {} })).toThrow(
-        /Promise v2 not available/,
-      )
+      expect(() =>
+        define({ id: "x", async setup() {} }),
+      ).toThrow(/cannot load OCP plugins|Promise v2 not available|T0/)
     } finally {
       if (prev === undefined) delete process.env.OPENCODE_COMPAT_HOST
       else process.env.OPENCODE_COMPAT_HOST = prev
@@ -270,17 +275,20 @@ describe("@opencode-compat/facade-plugin", () => {
 
   test("v2/promise define works when host has promiseV2", async () => {
     const prev = process.env.OPENCODE_COMPAT_HOST
-    process.env.OPENCODE_COMPAT_HOST = "opencode"
+    process.env.OPENCODE_COMPAT_HOST = "mimo"
     try {
       const { define } = await import(
         "../packages/facade-plugin/src/v2/promise.ts"
       )
       const plugin = define({
+        id: "facade-demo",
         async setup(ctx) {
           expect(ctx.aisdk).toBeDefined()
+          expect(typeof ctx.aisdk.language).toBe("function")
         },
       })
       expect(typeof plugin.setup).toBe("function")
+      expect(plugin.id).toBe("facade-demo")
     } finally {
       if (prev === undefined) delete process.env.OPENCODE_COMPAT_HOST
       else process.env.OPENCODE_COMPAT_HOST = prev

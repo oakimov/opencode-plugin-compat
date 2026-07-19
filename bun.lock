@@ -21,6 +21,7 @@
       "name": "@opencode-compat/adapter",
       "version": "0.1.0",
       "dependencies": {
+        "@opencode-compat/host-promise-v2": "workspace:*",
         "@opencode-compat/profile": "workspace:*",
       },
       "devDependencies": {

@@ -30,3 +30,15 @@ export {
   type HostId,
   type HostProfile,
 } from "@opencode-compat/profile"
+
+export {
+  createPromiseV2Host,
+  definePromisePlugin,
+  runPromisePlugin,
+  wirePromiseV2,
+  type LanguageModelInput,
+  type LanguageModelV3Like,
+  type PluginContext,
+  type PromiseV2Host,
+  type PromiseV2Plugin,
+} from "@opencode-compat/adapter"

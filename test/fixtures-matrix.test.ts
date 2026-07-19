@@ -7,6 +7,7 @@ import {
 } from "../fixtures/index.ts"
 import {
   createPluginContext,
+  createPromiseV2Host,
   define,
   injectLanguageModel,
   injectSdk,
@@ -17,11 +18,12 @@ import {
 } from "../packages/host-promise-v2/src/index.ts"
 
 describe("@opencode-compat/host-promise-v2", () => {
-  test("define + language injection", async () => {
+  test("define + language injection (OpenCode aisdk shape)", async () => {
     const plugin = define({
+      id: "demo",
       async setup(ctx) {
-        ctx.aisdk.on("language", async (_input, output) => {
-          output.language = {
+        await ctx.aisdk.language(async (event) => {
+          event.language = {
             specificationVersion: "v3",
             provider: "demo",
             modelId: "m1",
@@ -29,7 +31,7 @@ describe("@opencode-compat/host-promise-v2", () => {
         })
       },
     })
-    const { ctx } = await runPromisePlugin(plugin, { plugin: { id: "demo" } })
+    const { ctx } = await runPromisePlugin(plugin)
     expect(ctx.aisdk.listenerCount("language")).toBe(1)
     expect(ctx.aisdk.events()).toEqual(["language"])
     const out = await injectLanguageModel(ctx, {
@@ -39,14 +41,16 @@ describe("@opencode-compat/host-promise-v2", () => {
     expect((out.language as LanguageModelV3Like).modelId).toBe("m1")
   })
 
-  test("sdk hook + resolveProvider", async () => {
-    const { ctx } = await runPromisePlugin({
+  test("sdk hook + resolveProvider via host", async () => {
+    const host = createPromiseV2Host()
+    await host.register({
+      id: "sdk-demo",
       async setup(pluginCtx) {
-        pluginCtx.aisdk.on("sdk", async (_input, output) => {
-          output.tagged = true
+        await pluginCtx.aisdk.sdk(async (event) => {
+          event.sdk = { tagged: true }
         })
-        pluginCtx.aisdk.on("language", async (_input, output) => {
-          output.language = {
+        await pluginCtx.aisdk.language(async (event) => {
+          event.language = {
             specificationVersion: "v3",
             provider: "p",
             modelId: "m",
@@ -54,23 +58,52 @@ describe("@opencode-compat/host-promise-v2", () => {
         })
       },
     })
-    const resolved = await resolveProvider(ctx, {
+    const resolved = await host.resolveProvider({
       providerID: "p",
       modelID: "m",
+      package: "demo-pkg",
     })
     expect((resolved.language as LanguageModelV3Like).provider).toBe("p")
-    expect(resolved.sdk.tagged).toBe(true)
-    const sdkOnly = await injectSdk(ctx, {}, { base: 1 })
-    expect(sdkOnly.base).toBe(1)
-    expect(sdkOnly.tagged).toBe(true)
+    expect((resolved.sdk as { tagged: boolean }).tagged).toBe(true)
+    expect(host.plugins()).toEqual(["sdk-demo"])
+
+    const sdkOnly = await injectSdk(host.ctx, { providerID: "p", modelID: "m" }, {
+      sdk: { base: 1 },
+    })
+    // Registered sdk hook mutates/replaces event.sdk (OpenCode mutable-event shape)
+    expect((sdkOnly.sdk as { tagged: boolean }).tagged).toBe(true)
   })
 
-  test("loud domain stubs", () => {
+  test("loud domain stubs + define validation", () => {
     const ctx = createPluginContext()
     expect(() => ctx.catalog.register("x")).toThrow(/catalog/)
-    expect(isPromisePlugin({ setup() {} })).toBe(true)
+    expect(isPromisePlugin({ id: "x", setup() {} })).toBe(true)
+    expect(isPromisePlugin({ setup() {} })).toBe(false)
     expect(isPromisePlugin({})).toBe(false)
     expect(() => define({} as never)).toThrow(/setup/)
+    expect(() =>
+      define({ id: "", async setup() {} }),
+    ).toThrow(/non-empty string id/)
+  })
+
+  test("resolveProvider on ctx mirrors host path", async () => {
+    const { ctx } = await runPromisePlugin({
+      id: "resolve-ctx",
+      async setup(pluginCtx) {
+        await pluginCtx.aisdk.language(async (event) => {
+          event.language = {
+            specificationVersion: "v3",
+            provider: event.model.providerID,
+            modelId: event.model.api.id,
+          }
+        })
+      },
+    })
+    const out = await resolveProvider(ctx, {
+      providerID: "acme",
+      modelID: "x",
+    })
+    expect((out.language as LanguageModelV3Like).modelId).toBe("x")
   })
 })
 
@@ -96,7 +129,6 @@ describe("OCP §10 fixtures", () => {
     const results = await runMatrix()
     expect(matrixOk(results)).toBe(true)
     expect(results.some((r) => r.status === "pass")).toBe(true)
-    expect(results.some((r) => r.status === "skip")).toBe(true)
     expect(results.every((r) => r.status !== "fail")).toBe(true)
     const text = formatMatrix(results)
     expect(text).toMatch(/pass=\d+ fail=0 skip=\d+/)
@@ -126,12 +158,13 @@ describe("OCP §10 fixtures", () => {
     expect(results[0]?.status).toBe("pass")
   })
 
-  test("mimo T3 aisdk language skips until OCP wires promiseV2", async () => {
+  test("mimo/kilo T3 aisdk language passes via OCP host kit", async () => {
     const results = await runMatrix({
-      hosts: ["mimo"],
+      hosts: ["mimo", "kilo"],
       fixtureIds: ["v2.aisdk.language"],
     })
-    expect(results[0]?.status).toBe("skip")
+    expect(results).toHaveLength(2)
+    expect(results.every((r) => r.status === "pass")).toBe(true)
   })
 })
 
@@ -148,5 +181,42 @@ describe("@opencode-compat/cli matrix", () => {
     expect(results[0]?.status).toBe("pass")
     const mod = await loadFixtures()
     expect(mod.matrixOk(results)).toBe(true)
+  })
+})
+
+describe("@opencode-compat/adapter wirePromiseV2", () => {
+  test("wires host kit for mimo", async () => {
+    const { wirePromiseV2 } = await import("../packages/adapter/src/index.ts")
+    const host = wirePromiseV2({
+      env: { OPENCODE_COMPAT_HOST: "mimo" },
+      home: "/tmp",
+    })
+    await host.register({
+      id: "adapter-wire",
+      async setup(ctx) {
+        await ctx.aisdk.language(async (event) => {
+          event.language = {
+            specificationVersion: "v3",
+            provider: "wire",
+            modelId: event.model.id,
+          }
+        })
+      },
+    })
+    const out = await host.resolveProvider({
+      providerID: "wire",
+      modelID: "m",
+    })
+    expect((out.language as LanguageModelV3Like).provider).toBe("wire")
+  })
+
+  test("refuses zcode", async () => {
+    const { wirePromiseV2 } = await import("../packages/adapter/src/index.ts")
+    expect(() =>
+      wirePromiseV2({
+        env: { OPENCODE_COMPAT_HOST: "zcode" },
+        home: "/tmp",
+      }),
+    ).toThrow(/not supported|T0/)
   })
 })

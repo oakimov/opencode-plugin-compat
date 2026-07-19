@@ -20,20 +20,19 @@ export const v2AisdkLanguage: Fixture = {
       )
     }
     const plugin = define({
+      id: "v2.aisdk.language",
       async setup(pluginCtx) {
-        pluginCtx.aisdk.on("language", async (_input, output) => {
+        await pluginCtx.aisdk.language(async (event) => {
           const model: LanguageModelV3Like = {
             specificationVersion: "v3",
             provider: "ocp-fixture",
             modelId: "fixture-1",
           }
-          output.language = model
+          event.language = model
         })
       },
     })
-    const { ctx: pluginCtx } = await runPromisePlugin(plugin, {
-      plugin: { id: "v2.aisdk.language" },
-    })
+    const { ctx: pluginCtx } = await runPromisePlugin(plugin)
     const out = await injectLanguageModel(pluginCtx, {
       providerID: "ocp-fixture",
       modelID: "fixture-1",

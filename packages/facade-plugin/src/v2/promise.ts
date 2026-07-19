@@ -5,6 +5,7 @@
 import { detect } from "@opencode-compat/profile"
 import {
   createPluginContext,
+  createPromiseV2Host,
   define as hostDefine,
   injectLanguageModel,
   injectSdk,
@@ -12,8 +13,10 @@ import {
   runPromisePlugin,
   type LanguageModelInput,
   type LanguageModelV3Like,
+  type Plugin,
   type PluginContext,
   type PromisePlugin,
+  type PromiseV2Host,
 } from "@opencode-compat/host-promise-v2"
 
 export const PKG_V2_PROMISE = "@opencode-compat/facade-plugin/v2/promise" as const
@@ -21,20 +24,23 @@ export const PKG_V2_PROMISE = "@opencode-compat/facade-plugin/v2/promise" as con
 export type {
   LanguageModelInput,
   LanguageModelV3Like,
+  Plugin,
   PluginContext,
   PromisePlugin,
+  PromiseV2Host,
 }
 
 /** Re-exports for hosts / tests that import through the facade path. */
 export {
   createPluginContext,
+  createPromiseV2Host,
   injectLanguageModel,
   injectSdk,
   resolveProvider,
   runPromisePlugin,
 }
 
-export function define(plugin: PromisePlugin): PromisePlugin {
+export function define(plugin: Plugin): Plugin {
   const result = detect()
   if (!result.supported) {
     throw new Error(

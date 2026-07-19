@@ -46,9 +46,22 @@ Closing path gaps is the **bridge’s** job (docs, doctor, optional operator cop
 
 ## 3. Promise v2 / `host-promise-v2` (Layer E / T3)
 
-Classic MiMo loads `@mimo-ai/plugin` ([plugin/index.ts](https://github.com/XiaomiMiMo/MiMo-Code/blob/main/packages/opencode/src/plugin/index.ts)). Promise v2 aisdk needs the shared kit (`createPluginContext` / `injectLanguageModel` from `@opencode-compat/host-promise-v2`) wired wherever provider resolve happens on the host.
+MiMo does **not** publish `@mimo-ai/plugin/v2/promise`. OCP supplies Promise v2 via `@opencode-compat/host-promise-v2`, exposed through the facade override for `@opencode-ai/plugin/v2/promise`.
 
-Until a host (or OCP sidecar) actually invokes that kit, `capabilities.promiseV2` stays `false` and the facade’s `v2/promise` export fails loud with an upgrade path. Shipping that wiring remains an OCP/product concern.
+```ts
+import { wirePromiseV2 } from "@opencode-compat/ocp"
+// or: createPromiseV2Host / runPromisePlugin from @opencode-compat/host-promise-v2
+
+const host = wirePromiseV2({ env: { OPENCODE_COMPAT_HOST: "mimo" } })
+await host.register(plugin) // plugin from define({ id, setup })
+const { language, sdk } = await host.resolveProvider({
+  providerID: "…",
+  modelID: "…",
+  package: "…",
+})
+```
+
+`HostProfile` for `mimo` sets `capabilities.promiseV2` / `aisdkProviderHooks` to **true** because the OCP layer provides the kit. Live MiMo provider-resolve still needs an operator/sidecar call into `resolveProvider` (no host source edits). Until that seam is reached in-process, plugins that only `define()` without a host calling `resolveProvider` will not inject models into MiMo’s native path.
 
 ---
 

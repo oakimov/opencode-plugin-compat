@@ -47,7 +47,17 @@ OCP’s `kilo` profile keeps `compatProjectDirs: [".opencode"]` for matrix `--co
 
 ## 3. Promise v2 / `host-promise-v2` (Layer E / T3)
 
-Wire `@opencode-compat/host-promise-v2` at provider-resolve time from the OCP layer / sidecar. Until that exists, `capabilities.promiseV2` stays `false` and `v2/promise` fails loud.
+Kilo does **not** publish a portable `@opencode-ai/plugin/v2/promise` path for arbitrary OpenCode plugins. OCP supplies Promise v2 via `@opencode-compat/host-promise-v2` + facade overrides.
+
+```ts
+import { wirePromiseV2 } from "@opencode-compat/ocp"
+
+const host = wirePromiseV2({ env: { OPENCODE_COMPAT_HOST: "kilo" } })
+await host.register(plugin)
+await host.resolveProvider({ providerID, modelID, package: pkg })
+```
+
+`HostProfile` for `kilo` sets `capabilities.promiseV2` / `aisdkProviderHooks` to **true** (OCP-layer kit). Live Kilo provider-resolve must call into `resolveProvider` from a sidecar/operator helper — host source stays read-only.
 
 Reference host files (read-only): [packages/opencode/src/provider/provider.ts](https://github.com/Kilo-Org/kilocode/blob/main/packages/opencode/src/provider/provider.ts), [packages/opencode/src/plugin/loader.ts](https://github.com/Kilo-Org/kilocode/blob/main/packages/opencode/src/plugin/loader.ts).
 

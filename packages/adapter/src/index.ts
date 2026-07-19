@@ -14,6 +14,21 @@ export {
   type HostProfile,
 } from "@opencode-compat/profile"
 
+export {
+  createPromiseV2Host,
+  define as definePromisePlugin,
+  runPromisePlugin,
+  type LanguageModelInput,
+  type LanguageModelV3Like,
+  type Plugin as PromiseV2Plugin,
+  type PluginContext,
+  type PromiseV2Host,
+} from "@opencode-compat/host-promise-v2"
+
+import {
+  createPromiseV2Host,
+  type PromiseV2Host,
+} from "@opencode-compat/host-promise-v2"
 import {
   detect,
   formatProfileSummary,
@@ -30,6 +45,24 @@ export function requireHost(options?: DetectOptions): HostProfile {
     throw new Error(result.message ?? `OCP: host ${result.id} is not supported`)
   }
   return result.profile
+}
+
+/**
+ * Wire OCP-layer Promise v2 host kit for the active profile.
+ * Call `host.register(plugin)` then `host.resolveProvider(input)` at
+ * provider-resolve time (sidecar / operator helper — no host source edits).
+ */
+export function wirePromiseV2(
+  options?: DetectOptions & { pluginOptions?: Record<string, unknown> },
+): PromiseV2Host {
+  const profile = requireHost(options)
+  if (!profile.capabilities.promiseV2) {
+    throw new Error(
+      `${PKG}: Promise v2 not available on host "${profile.id}". ` +
+        "See docs/ocp/0.1.md §7.",
+    )
+  }
+  return createPromiseV2Host(options?.pluginOptions ?? {})
 }
 
 /** Native package names for the detected (or given) profile. */
