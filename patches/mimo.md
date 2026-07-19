@@ -1,7 +1,8 @@
 # MiMo — OCP enablement notes
 
 **Host (reference only):** [XiaomiMiMo/MiMo-Code](https://github.com/XiaomiMiMo/MiMo-Code)  
-**OCP packages:** [`@opencode-compat/facade-plugin`](https://github.com/oakimov/opencode-plugin-compat/tree/main/packages/facade-plugin), [`facade-sdk`](https://github.com/oakimov/opencode-plugin-compat/tree/main/packages/facade-sdk), [`adapter`](https://github.com/oakimov/opencode-plugin-compat/tree/main/packages/adapter), [`host-promise-v2`](https://github.com/oakimov/opencode-plugin-compat/tree/main/packages/host-promise-v2)  
+**User-facing package:** [`@opencode-compat/ocp`](https://github.com/oakimov/opencode-plugin-compat/tree/main/packages/ocp) (umbrella + `ocp setup`; planned)  
+**Bridge packages (internal):** [`facade-plugin`](https://github.com/oakimov/opencode-plugin-compat/tree/main/packages/facade-plugin), [`facade-sdk`](https://github.com/oakimov/opencode-plugin-compat/tree/main/packages/facade-sdk), [`adapter`](https://github.com/oakimov/opencode-plugin-compat/tree/main/packages/adapter), [`host-promise-v2`](https://github.com/oakimov/opencode-plugin-compat/tree/main/packages/host-promise-v2)  
 **HostProfile id:** `mimo`
 
 OCP attaches as an **external compatibility layer**. Do **not** PR or fork MiMo to land OCP.
@@ -19,11 +20,15 @@ Where the host installs npm plugins into its cache (typically under the MiMo XDG
 }
 ```
 
-Generate with:
+**Preferred UX:** install `@opencode-compat/ocp`, then run **`ocp setup`** (writes the overrides into the host plugin install tree). Equivalent: `compat setup` / print-only `compat overrides` / `opencode-compat overrides`.
 
 ```bash
+ocp setup
+# or (bridge CLI):
 opencode-compat overrides
 ```
+
+Then add **consumer** plugins via MiMo config as usual. Listing OCP itself in `plugin` is optional bootstrap only — it does **not** intercept other plugins’ `@opencode-ai/plugin` imports.
 
 **npm publish of `@opencode-compat/*` is held until necessary.** Until then, pin via whatever install channel this monorepo supports without modifying MiMo source (git checkout + local override tooling, packed tarballs, etc.).
 

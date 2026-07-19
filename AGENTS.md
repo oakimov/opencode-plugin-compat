@@ -6,8 +6,9 @@ Universal **OCP** compatibility **bridge** monorepo. Ship the **complete** stack
 
 - Goal: **any OpenCode plugin runs unchanged** on cooperating hosts via facades + **one** autodetection adapter + host kit.
 - OCP is an **external compatibility layer** for MiMo/Kilo/OpenCode — **not** an upstream patch/PR track into those hosts.
+- **User delivery UX (locked):** one installable umbrella package (`@opencode-compat/ocp`) + **`ocp setup`** that writes install-tree overrides; users then add **consumer** plugins via host config (`plugin` / equivalent) unchanged. Listing OCP itself in `plugin` is optional bootstrap only — it does **not** intercept other plugins’ imports by itself.
 - Facades remapped in **plugin install trees / operator overrides** (not spoofing public `@opencode-ai` on npm; npm publish held until necessary).
-- Scope: `@opencode-compat/*` — **host bridge packages** plus named **companions** that must not redefine OCP success.
+- Scope: `@opencode-compat/*` — **host bridge packages** (internal) + umbrella UX package + named **companions** that must not redefine OCP success.
 - License: **MPL-2.0** (all packages).
 - ZCode is **T0 only** for OCP (marketplace ≠ OpenCode plugin ABI). Companion `@opencode-compat/migrate-zcode` migrates **plugin-packaged** skills/commands/marketplace manifests into `.zcode-plugin` trees (**not** host MCP; **not** unchanged `@opencode-ai/plugin` loadability).
 - **Do not** create or plan host-specific forks of consumer plugins (no `cursor-mimocode-provider`, `cursor-kilocode-provider`, ZCode variants, etc.). Dual-package tracks are **out of scope**; close gaps in the bridge.
@@ -17,6 +18,7 @@ Universal **OCP** compatibility **bridge** monorepo. Ship the **complete** stack
 ## Layout
 
 ```
+packages/ocp          # umbrella UX (+ setup) — planned / ship with product
 packages/profile|facade-*|adapter|host-promise-v2|cli|migrate-zcode
 fixtures/          # OCP conformance (migrator tests use in-memory mocks)
 patches/           # host enablement notes (NOT upstream PR patches)
@@ -43,10 +45,11 @@ docs/guides/       # companion privacy / ZCode import notes (non-OCP runtime)
 
 ## Suggested next work
 
-1. Prove unchanged plugins (classic + `v2/promise`, incl. `cursor-opencode-provider`) on MiMo/Kilo via **external** facades + adapter + host kit — operator overrides / OCP sidecar, **not** upstream host PRs or long-lived host forks.
-2. Close path/env gaps in the bridge (`HostProfile`, doctor, docs, optional operator copy/symlink into host-native project dirs). Do **not** PR dual-scan into MiMo/Kilo.
-3. Expand `facade-sdk` surface from real plugin smoke failures; keep matrix green. Wire `host-promise-v2` from the OCP layer where provider-resolve allows.
-4. Companion migrator MVP is landed (`migrate-zcode` library + `compat migrate-zcode`); keep ZCode OCP at T0; never pack host MCP. Optional Step I = marketplace polish only.
-5. Hold npm publish of `@opencode-compat/*` until necessary.
+1. Ship `@opencode-compat/ocp` umbrella + `ocp setup` (auto-write Layer A overrides into host plugin install trees); keep internal packages as implementation detail.
+2. Prove unchanged plugins (classic + `v2/promise`, incl. `cursor-opencode-provider`) on MiMo/Kilo via setup + facades + adapter + host kit — **not** upstream host PRs or long-lived host forks.
+3. Close path/env gaps in the bridge (`HostProfile`, doctor, docs, optional operator copy/symlink into host-native project dirs). Do **not** PR dual-scan into MiMo/Kilo.
+4. Expand `facade-sdk` surface from real plugin smoke failures; keep matrix green. Wire `host-promise-v2` from the OCP layer where provider-resolve allows.
+5. Companion migrator MVP is landed (`migrate-zcode` library + `compat migrate-zcode`); keep ZCode OCP at T0; never pack host MCP. Optional Step I = marketplace polish only.
+6. Hold npm publish of `@opencode-compat/*` until necessary (umbrella can ship from git/tarball first).
 
 Companion privacy guides (§7.1) are shipped under `docs/guides/` (Kilo/MiMo in-app opt-out; ZCode docs-only firewall/DNS). Doctor prints one-liner pointers; OCP never mutates telemetry.

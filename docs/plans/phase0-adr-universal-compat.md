@@ -1,6 +1,6 @@
 # ADR — Universal OpenCode / MiMo / Kilo / ZCode compat product
 
-**Date:** 2026-07-19 (revised: final-product framing)  
+**Date:** 2026-07-19 (revised: final-product framing + one-package UX)  
 **Status:** **Accepted — build the final product** (no phased MVP delivery)  
 **Filename note:** Kept as `phase0-adr-universal-compat.md` for link stability; content is the product ADR.  
 **Repo:** `opencode-plugin-compat` (`docs/plans/`; contract at `docs/ocp/0.1.md`)  
@@ -19,7 +19,7 @@ Published OpenCode plugins import `@opencode-ai/plugin` (+ optional `/v2/promise
 
 Goal: one universal **compatibility bridge** so **published OpenCode plugins run unchanged** on cooperating hosts (no republish, no per-host plugin forks). Example consumer: `cursor-opencode-provider` — must work via OCP, not via `cursor-mimocode-provider` / Kilo / ZCode variants.
 
-**Delivery rule:** No “Phase 1 T1 / Phase 2 T3 / Phase 3 …” product cuts. Research is finished. Ship the complete **external** bridge stack (facades, **one universal adapter**, host kit, doctor, fixtures, host enablement notes, matrix). Dual-host consumer packages are **out of scope**. Per-host adapter packages are **out of scope**. **Do not** open or maintain upstream PRs/forks against MiMo/Kilo for OCP.
+**Delivery rule:** No “Phase 1 T1 / Phase 2 T3 / Phase 3 …” product cuts. Research is finished. Ship the complete **external** bridge stack (facades, **one universal adapter**, host kit, doctor, fixtures, host enablement notes, matrix) behind one user-facing umbrella. Dual-host consumer packages are **out of scope**. Per-host adapter packages are **out of scope**. **Do not** open or maintain upstream PRs/forks against MiMo/Kilo for OCP.
 
 ---
 
@@ -32,8 +32,9 @@ Goal: one universal **compatibility bridge** so **published OpenCode plugins run
 | External `@opencode-compat/*` layer — install-tree overrides, doctor/matrix, host-kit helpers without patching host repos | **Chosen** |
 | In-fork embed — PR dual-scan / embed kit into XiaomiMiMo or Kilo-Org | **Rejected** for this project (hosts remain read-only references) |
 | M2 — user sidecar / manual cache patches only | Compatible with Layer A; T3 still needs reachable provider-resolve seams via OCP, not upstream PRs |
+| Host `plugin` list entry alone (no install-tree overrides) | **Rejected** as Layer A — listing a package in config cannot intercept other plugins’ `@opencode-ai/plugin` imports |
 
-**Consequences:** Ship and maintain OCP in this repo only. Path gaps → docs/doctor/operator copy-symlink. ZCode stays T0. Mistaken dual-scan upstream PRs were closed; do not reopen.
+**Consequences:** Ship and maintain OCP in this repo only. Path gaps → docs/doctor/operator copy-symlink. ZCode stays T0. Mistaken dual-scan upstream PRs were closed; do not reopen. User-facing attach is **ADR-10** (umbrella + `ocp setup`); internal bridge packages remain implementation detail.
 
 ### ADR-2 — Protocol name & product shape: **OCP 0.1 = classic T1+T2 path story + Promise v2 aisdk (T3)**
 
@@ -49,7 +50,7 @@ Use **install-time overrides** inside fork plugin install directories:
 `@opencode-ai/plugin` → `@opencode-compat/facade-plugin`  
 `@opencode-ai/sdk` → `@opencode-compat/facade-sdk` (minimal)
 
-Do **not** publish impersonating packages to the public `@opencode-ai/*` org.
+Do **not** publish impersonating packages to the public `@opencode-ai/*` org. Operators get those overrides via **`ocp setup`** (ADR-10), not by hand-editing every cache tree forever.
 
 ### ADR-4 — Repo home: **new repo** `opencode-plugin-compat`
 
@@ -94,6 +95,21 @@ MiMo and Kilo do **not** scan `.opencode` today, so T2 local OpenCode project pl
 
 Compatibility **tiers** (T0–T5, TX) remain labels for what a host/plugin combination supports. They are **not** engineering phases. Incomplete surfaces fail loud inside the shipped product; we do not withhold the host kit or doctor for a later “phase.”
 
+### ADR-10 — User delivery UX: one umbrella package + `ocp setup`
+
+| Option | Verdict |
+|--------|---------|
+| One installable umbrella `@opencode-compat/ocp` + **`ocp setup`** that writes Layer A install-tree overrides; users add **consumer** plugins via host config unchanged | **Chosen** |
+| Pure “add OCP to `plugins: []` / `plugin` and it intercepts everything” | **Rejected** — config list entries do not rewrite other plugins’ npm imports |
+| Require users to install every `@opencode-compat/{facade-*,adapter,…}` package separately | **Rejected** as primary UX — keep bridge packages internal / transitive |
+
+**Consequences:**
+
+- Primary user surface: install `@opencode-compat/ocp`, run `ocp setup` (CLI may also expose `compat setup` / reuse `overrides` generator under the hood).  
+- Listing OCP itself in host `plugin` is **optional bootstrap only** — it does **not** replace install-tree overrides.  
+- Hold npm publish until necessary; umbrella may ship from git/tarball first.  
+- Success still means **unchanged** consumer plugins (e.g. `cursor-opencode-provider`), not host-branded forks.
+
 ---
 
 ## 3. Research checklist (complete)
@@ -122,12 +138,14 @@ From discovery (artifacts under `tasks/`):
 ```
 opencode-plugin-compat/
   packages/
+    ocp/                    # umbrella UX (+ ocp setup) — user-facing
     profile/                # HostProfile + detect() + drafts
     facade-plugin/
     facade-sdk/
     adapter/                # ONE universal autodetection adapter
     host-promise-v2/
-    cli/                    # doctor + matrix
+    cli/                    # doctor + matrix (+ setup entry used by umbrella)
+    migrate-zcode/          # companion (not OCP ABI)
   fixtures/                 # conformance
   docs/ocp/0.1.md
   patches/                  # host enablement notes (NOT upstream PR patches)
@@ -139,10 +157,11 @@ opencode-plugin-compat/
 See [`patches/`](https://github.com/oakimov/opencode-plugin-compat/tree/main/patches) — operator-facing notes for MiMo/Kilo. **Not** patch series or PR sources.
 
 **MiMo / Kilo (via OCP)**
-1. Plugin install: overrides for `@opencode-ai/plugin` / `sdk` → facades  
-2. Project dirs: document native dirs; optional operator copy/symlink `.opencode` assets into `.mimocode` / `.kilo`  
-3. Wire `host-promise-v2` from the OCP layer where provider-resolve can be reached without host source changes  
-4. Facade policy for MiMo classic gaps (`dispose`, `small_model`) — accept + no-op + warn
+1. Install `@opencode-compat/ocp` → run **`ocp setup`** to write overrides for `@opencode-ai/plugin` / `sdk` → facades  
+2. Add **consumer** plugins via host config as usual (do not expect an OCP `plugin` list entry alone to intercept imports)  
+3. Project dirs: document native dirs; optional operator copy/symlink `.opencode` assets into `.mimocode` / `.kilo`  
+4. Wire `host-promise-v2` from the OCP layer where provider-resolve can be reached without host source changes  
+5. Facade policy for MiMo classic gaps (`dispose`, `small_model`) — accept + no-op + warn
 
 **ZCode**
 1. Stub adapter + doctor only  
@@ -206,8 +225,9 @@ Implement OCP §10 fixtures as part of first ship (not a later phase).
 
 1. ~~**Create repo** `opencode-plugin-compat` and move/copy OCP docs~~ **done** (scaffold + `docs/`)  
 2. ~~**Implement full product** — profile + facades + **universal adapter** (autodetect) + host kit + CLI + fixtures~~ **done** (matrix green; T3 needs OCP-layer wiring)  
-3. **Prove unchanged plugins** on MiMo/Kilo via external overrides / sidecar (classic + `v2/promise` samples, incl. `cursor-opencode-provider`) — **not** via host PRs  
-4. Close path/env gaps in bridge docs + doctor; hold npm publish until necessary  
+3. **Ship umbrella** `@opencode-compat/ocp` + **`ocp setup`** (auto-write Layer A overrides; ADR-10)  
+4. **Prove unchanged plugins** on MiMo/Kilo via setup + facades + adapter + host kit (classic + `v2/promise` samples, incl. `cursor-opencode-provider`) — **not** via host PRs  
+5. Close path/env gaps in bridge docs + doctor; hold npm publish until necessary (umbrella may ship from git/tarball first)  
 
 **Recommendation:** Keep all work in this repo. Hosts are read-only references. Do **not** implement dual-host consumer packages, per-host adapter packages, or upstream host PRs.
 

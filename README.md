@@ -2,24 +2,27 @@
 
 **OCP** — OpenCode Compatibility Protocol and a **universal compatibility bridge** for OpenCode-compatible hosts.
 
-Run **published OpenCode plugins unchanged** (`import "@opencode-ai/plugin"` / `v2/promise`) on **MiMo Code** and **Kilo Code** via an **external** `@opencode-compat/*` layer (install-tree overrides / sidecar) — **not** by patching those hosts upstream. **ZCode** stays honestly at T0 (marketplace ABI ≠ OpenCode plugin ABI). This repo does **not** ship or plan host-specific forks of individual plugins (no `cursor-mimocode-provider`, `cursor-kilocode-provider`, etc.), and does **not** maintain MiMo/Kilo upstream PRs or long-lived host forks for OCP.
+Run **published OpenCode plugins unchanged** (`import "@opencode-ai/plugin"` / `v2/promise`) on **MiMo Code** and **Kilo Code** via an **external** `@opencode-compat/*` layer — **not** by patching those hosts upstream. **ZCode** stays honestly at T0 (marketplace ABI ≠ OpenCode plugin ABI). This repo does **not** ship or plan host-specific forks of individual plugins (no `cursor-mimocode-provider`, `cursor-kilocode-provider`, etc.), and does **not** maintain MiMo/Kilo upstream PRs or long-lived host forks for OCP.
+
+**Install UX (locked):** one umbrella package **`@opencode-compat/ocp`** + **`ocp setup`** (writes install-tree overrides). Then add consumer plugins via host config as usual. A config entry for OCP itself is optional bootstrap only — Layer A still needs overrides (a `plugin` list entry cannot intercept other plugins’ `@opencode-ai/plugin` imports).
 
 **License:** [MPL-2.0](./LICENSE)
 
 ## Status
 
-Bridge packages, OCP §10 fixtures, CLI doctor/matrix, and host enablement notes are in-tree. npm publish of `@opencode-compat/*` is **held until necessary**. Prove unchanged plugins on MiMo/Kilo via facades + adapter + host kit.
+Bridge packages, OCP §10 fixtures, CLI doctor/matrix, and host enablement notes are in-tree. Umbrella `@opencode-compat/ocp` + `setup` is the next delivery surface. npm publish of `@opencode-compat/*` is **held until necessary**.
 
 ## Packages (`@opencode-compat/*`)
 
 | Package | Role |
 |---------|------|
+| [`ocp`](./packages/ocp) | **Umbrella UX** (planned): one install + `ocp setup` → Layer A overrides; re-exports / depends on bridge packages |
 | [`profile`](./packages/profile) | `HostProfile` types + host drafts (opencode / mimo / kilo / zcode) |
 | [`facade-plugin`](./packages/facade-plugin) | Install-override stand-in for `@opencode-ai/plugin` |
 | [`facade-sdk`](./packages/facade-sdk) | Stand-in for `@opencode-ai/sdk` (minimal) |
 | [`adapter`](./packages/adapter) | **One** universal host adapter — autodetects host, dispatches via `HostProfile` |
 | [`host-promise-v2`](./packages/host-promise-v2) | Shared Promise v2 aisdk host kit (wired from OCP layer) |
-| [`cli`](./packages/cli) | `compat doctor` + matrix runner |
+| [`cli`](./packages/cli) | `compat doctor` + matrix runner (+ setup entry used by umbrella) |
 | [`migrate-zcode`](./packages/migrate-zcode) | Companion: plugin-package skills/commands/manifests → `.zcode-plugin` (**not** OCP ABI; **no** host MCP — [plan](./docs/plans/zcode-asset-migrator-plan.md)) |
 
 Also: [`fixtures/`](./fixtures) (conformance), [`patches/`](./patches) (host enablement notes — **not** upstream PR patches), [`docs/ocp/0.1.md`](./docs/ocp/0.1.md).
