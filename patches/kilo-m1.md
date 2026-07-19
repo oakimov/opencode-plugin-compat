@@ -16,7 +16,7 @@ These are **reference outlines** for an upstream (or fork) PR — not a drop-in 
 
 | Layer | Status | Branch / notes |
 |-------|--------|----------------|
-| **B — opt-in `.opencode` scan** | Landed as PR candidate | `ocp/m1-opt-in-opencode-scan` on [oakimov/kilocode](https://github.com/oakimov/kilocode) |
+| **B — opt-in `.opencode` scan** | Upstream PR open | [Kilo-Org/kilocode#12390](https://github.com/Kilo-Org/kilocode/pull/12390) (`ocp/m1-opt-in-opencode-scan`) |
 | **A — install overrides** | Outline only | Needs published `@opencode-compat/*` (or git workspace install) |
 | **E — host kit embed** | Outline only | Needs provider-resolve seam + host kit |
 

@@ -15,7 +15,7 @@ These are **reference outlines** for an upstream (or fork) PR — not a drop-in 
 
 | Layer | Status | Branch / notes |
 |-------|--------|----------------|
-| **B — dual-scan `.opencode`** | Landed as PR candidate | `ocp/m1-dual-scan-opencode` on [oakimov/MiMo-Code](https://github.com/oakimov/MiMo-Code) |
+| **B — dual-scan `.opencode`** | Upstream PR open | [XiaomiMiMo/MiMo-Code#1810](https://github.com/XiaomiMiMo/MiMo-Code/pull/1810) (`ocp/m1-dual-scan-opencode`) |
 | **A — install overrides** | Outline only | Needs published `@opencode-compat/*` (or git workspace install) |
 | **E — host kit embed** | Outline only | Needs provider-resolve seam + host kit |
 

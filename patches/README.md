@@ -4,8 +4,8 @@ Reference patches / PR outlines for cooperating forks. Cite **GitHub repo paths 
 
 | Host | Outline | Upstream | PR-source fork |
 |------|---------|----------|----------------|
-| **MiMo** | [mimo-m1.md](./mimo-m1.md) | [XiaomiMiMo/MiMo-Code](https://github.com/XiaomiMiMo/MiMo-Code) | [oakimov/MiMo-Code](https://github.com/oakimov/MiMo-Code) |
-| **Kilo** | [kilo-m1.md](./kilo-m1.md) | [Kilo-Org/kilocode](https://github.com/Kilo-Org/kilocode) | [oakimov/kilocode](https://github.com/oakimov/kilocode) |
+| **MiMo** | [mimo-m1.md](./mimo-m1.md) | [XiaomiMiMo/MiMo-Code](https://github.com/XiaomiMiMo/MiMo-Code) · [PR #1810](https://github.com/XiaomiMiMo/MiMo-Code/pull/1810) | [oakimov/MiMo-Code](https://github.com/oakimov/MiMo-Code) |
+| **Kilo** | [kilo-m1.md](./kilo-m1.md) | [Kilo-Org/kilocode](https://github.com/Kilo-Org/kilocode) · [PR #12390](https://github.com/Kilo-Org/kilocode/pull/12390) | [oakimov/kilocode](https://github.com/oakimov/kilocode) |
 
 Each outline covers:
 
