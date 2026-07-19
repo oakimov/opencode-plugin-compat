@@ -1,8 +1,8 @@
 # Plan: Plugin package → ZCode `.zcode-plugin` migrator (companion)
 
-**Date:** 2026-07-19  
-**Status:** **Complete (A–I)** — library, CLI, guide, and optional multi-plugin marketplace wrap landed  
-**Repo:** [oakimov/opencode-plugin-compat](https://github.com/oakimov/opencode-plugin-compat)  
+**Date:** 2026-07-19
+**Status:** **Complete (A–I)** — library, CLI, guide, and optional multi-plugin marketplace wrap landed
+**Repo:** [oakimov/opencode-plugin-compat](https://github.com/oakimov/opencode-plugin-compat)
 **Related:**
 - Research: [oa-tools/zcode-review/ZCODE_RESEARCH.md](https://github.com/oakimov/oa-tools/blob/main/zcode-review/ZCODE_RESEARCH.md) §7–§9 (esp. §9 Option 3)
 - OCP contract: `docs/ocp/0.1.md` (ZCode remains **T0**)
@@ -185,13 +185,13 @@ Exit code (CLI): `0` if emit succeeded (even with JS skips); `1` on I/O/schema/c
 
 ## 4. Non-goals (explicit)
 
-1. OCP facades, dual-scan, or host-promise-v2 for ZCode  
-2. Host MCP migration from `opencode.json` / config dirs  
-3. Executing or sandbox-running OC plugins to extract dynamic skills/commands  
-4. Faithful OC → ZCode **hooks** translation  
-5. Importing into a live ZCode app install (user installs the emitted plugin via ZCode UI / `plugins.dirs`)  
-6. Migrating MiMo/Kilo assets (different product; revisit later)  
-7. Claiming matrix/ZCode T1 in fixtures  
+1. OCP facades, path-bridge work, or host-promise-v2 for ZCode
+2. Host MCP migration from `opencode.json` / config dirs
+3. Executing or sandbox-running OC plugins to extract dynamic skills/commands
+4. Faithful OC → ZCode **hooks** translation
+5. Importing into a live ZCode app install (user installs the emitted plugin via ZCode UI / `plugins.dirs`)
+6. Migrating MiMo/Kilo assets (different product; revisit later)
+7. Claiming matrix/ZCode T1 in fixtures
 8. Checked-in filesystem fixtures that can leak private configs — **mock/temp dirs only**
 
 ---
@@ -211,8 +211,8 @@ Exit code (CLI): `0` if emit succeeded (even with JS skips); `1` on I/O/schema/c
 
 ### 5.3 Manual acceptance (after CLI)
 
-1. `bun run migrate-zcode -- --plugin …/mock-plugin --out /tmp/zcode-plugin --dry-run`  
-2. Real emit; inspect tree  
+1. `bun run migrate-zcode -- --plugin …/mock-plugin --out /tmp/zcode-plugin --dry-run`
+2. Real emit; inspect tree
 3. Optional: install into ZCode via Import / local plugin dir (manual QA in guide)
 
 ---
@@ -285,11 +285,11 @@ Internal modules: `types.ts`, `markdown.ts`, `scan.ts`, `emit.ts`, `marketplace.
 
 ## 9. Acceptance criteria
 
-1. `@opencode-compat/migrate-zcode` builds and tests pass in CI/local `bun test` + `tsc -b`.  
-2. Library (and later CLI) produces a loadable-shaped `.zcode-plugin` tree from mocked plugin packages.  
-3. JS entrypoints always appear under `skipped` with reason `ocp-abi-not-migratable`.  
-4. Docs state ZCode OCP tier remains **T0**; matrix behavior unchanged.  
-5. Tool never reads or emits host MCP from `opencode.json`.  
+1. `@opencode-compat/migrate-zcode` builds and tests pass in CI/local `bun test` + `tsc -b`.
+2. Library (and later CLI) produces a loadable-shaped `.zcode-plugin` tree from mocked plugin packages.
+3. JS entrypoints always appear under `skipped` with reason `ocp-abi-not-migratable`.
+4. Docs state ZCode OCP tier remains **T0**; matrix behavior unchanged.
+5. Tool never reads or emits host MCP from `opencode.json`.
 6. AGENTS.md lists the companion without redefining OCP success as “unchanged OC plugins on ZCode.”
 
 ---

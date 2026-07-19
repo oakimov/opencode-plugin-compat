@@ -2,7 +2,7 @@
 
 **OCP** — OpenCode Compatibility Protocol and a **universal compatibility bridge** for OpenCode-compatible hosts.
 
-Run **published OpenCode plugins unchanged** (`import "@opencode-ai/plugin"` / `v2/promise`) on **MiMo Code** and **Kilo Code** via an **external** `@opencode-compat/*` layer — **not** by patching those hosts upstream. **ZCode** stays honestly at T0 (marketplace ABI ≠ OpenCode plugin ABI). This repo does **not** ship or plan host-specific forks of individual plugins (no `cursor-mimocode-provider`, `cursor-kilocode-provider`, etc.), and does **not** maintain MiMo/Kilo upstream PRs or long-lived host forks for OCP.
+Run **published OpenCode plugins unchanged** (`import "@opencode-ai/plugin"` / `v2/promise`) on **MiMo Code** and **Kilo Code** via an **external** `@opencode-compat/*` layer. Hosts are read-only references. **ZCode** stays honestly at T0 (marketplace ABI ≠ OpenCode plugin ABI). This repo does **not** ship or plan host-specific forks of individual plugins (no `cursor-mimocode-provider`, `cursor-kilocode-provider`, etc.).
 
 **Install UX (locked):** one umbrella package **`@opencode-compat/ocp`** + **`ocp setup`** (writes install-tree overrides). Then add consumer plugins via host config as usual. A config entry for OCP itself is optional bootstrap only — Layer A still needs overrides (a `plugin` list entry cannot intercept other plugins’ `@opencode-ai/plugin` imports).
 
@@ -25,7 +25,7 @@ Bridge packages, OCP §10 fixtures, CLI doctor/matrix, and host enablement notes
 | [`cli`](./packages/cli) | `compat doctor` + matrix runner (+ setup entry used by umbrella) |
 | [`migrate-zcode`](./packages/migrate-zcode) | Companion: plugin-package skills/commands/manifests → `.zcode-plugin` (**not** OCP ABI; **no** host MCP — [plan](./docs/plans/zcode-asset-migrator-plan.md)) |
 
-Also: [`fixtures/`](./fixtures) (conformance), [`patches/`](./patches) (host enablement notes — **not** upstream PR patches), [`docs/ocp/0.1.md`](./docs/ocp/0.1.md).
+Also: [`fixtures/`](./fixtures) (conformance), [`patches/`](./patches) (host enablement notes), [`docs/ocp/0.1.md`](./docs/ocp/0.1.md).
 
 **Not in scope:** separate publishable packages per host (`adapter-mimo`, `adapter-kilo`, …). Host differences live in `HostProfile` data + internal dispatch inside `@opencode-compat/adapter`. ZCode marketplace packing is a **companion** deliverable and does not make ZCode T1+.
 
@@ -37,8 +37,6 @@ Also: [`fixtures/`](./fixtures) (conformance), [`patches/`](./patches) (host ena
 | [`docs/plans/universal-opencode-plugin-compat-plan.md`](./docs/plans/universal-opencode-plugin-compat-plan.md) | Parent product plan |
 | [`docs/plans/phase0-adr-universal-compat.md`](./docs/plans/phase0-adr-universal-compat.md) | Product ADR |
 | [`docs/plans/phase0-hooks-parity.md`](./docs/plans/phase0-hooks-parity.md) | Hooks / path evidence |
-| [`docs/plans/mimo-opencode-compat-layer-plan.md`](./docs/plans/mimo-opencode-compat-layer-plan.md) | MiMo integration detail (an **equal** `HostProfile` target, not a separate adapter package; external layer — not an upstream PR track) |
-| [`docs/plans/dual-host-packages-plan.md`](./docs/plans/dual-host-packages-plan.md) | **Superseded** — historical dual-package sketch (out of scope) |
 | [`docs/plans/zcode-asset-migrator-plan.md`](./docs/plans/zcode-asset-migrator-plan.md) | Companion plugin-package → `.zcode-plugin` migrator (ZCode stays T0; no host MCP) |
 | [`docs/guides/kilocode-telemetry-disable.md`](./docs/guides/kilocode-telemetry-disable.md) | Disable Kilo PostHog telemetry (config / `KILO_TELEMETRY_LEVEL`) |
 | [`docs/guides/zcode-telemetry-block.md`](./docs/guides/zcode-telemetry-block.md) | ZCode telemetry block (**docs-only** firewall/DNS) |

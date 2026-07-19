@@ -1,11 +1,11 @@
 # MiMo — OCP enablement notes
 
-**Host (reference only):** [XiaomiMiMo/MiMo-Code](https://github.com/XiaomiMiMo/MiMo-Code)  
-**User-facing package:** [`@opencode-compat/ocp`](https://github.com/oakimov/opencode-plugin-compat/tree/main/packages/ocp) (umbrella + `ocp setup`; planned)  
-**Bridge packages (internal):** [`facade-plugin`](https://github.com/oakimov/opencode-plugin-compat/tree/main/packages/facade-plugin), [`facade-sdk`](https://github.com/oakimov/opencode-plugin-compat/tree/main/packages/facade-sdk), [`adapter`](https://github.com/oakimov/opencode-plugin-compat/tree/main/packages/adapter), [`host-promise-v2`](https://github.com/oakimov/opencode-plugin-compat/tree/main/packages/host-promise-v2)  
+**Host (reference only):** [XiaomiMiMo/MiMo-Code](https://github.com/XiaomiMiMo/MiMo-Code)
+**User-facing package:** [`@opencode-compat/ocp`](https://github.com/oakimov/opencode-plugin-compat/tree/main/packages/ocp) (umbrella + `ocp setup`; planned)
+**Bridge packages (internal):** [`facade-plugin`](https://github.com/oakimov/opencode-plugin-compat/tree/main/packages/facade-plugin), [`facade-sdk`](https://github.com/oakimov/opencode-plugin-compat/tree/main/packages/facade-sdk), [`adapter`](https://github.com/oakimov/opencode-plugin-compat/tree/main/packages/adapter), [`host-promise-v2`](https://github.com/oakimov/opencode-plugin-compat/tree/main/packages/host-promise-v2)
 **HostProfile id:** `mimo`
 
-OCP attaches as an **external compatibility layer**. Do **not** PR or fork MiMo to land OCP.
+OCP attaches as an **external compatibility layer**. MiMo is a read-only host reference.
 
 ---
 
@@ -40,7 +40,7 @@ Do **not** override `@opencode-ai/plugin` straight to `@mimo-ai/plugin` — that
 
 MiMo today walks **`.mimocode`** in [ConfigPaths.directories](https://github.com/XiaomiMiMo/MiMo-Code/blob/main/packages/opencode/src/config/paths.ts). OCP’s `HostProfile` for `mimo` records `compatProjectDirs: [".opencode"]` for matrix / doctor honesty.
 
-Closing path gaps is the **bridge’s** job (docs, doctor, optional operator copy/symlink into `.mimocode`) — **not** an upstream MiMo PR from this project.
+Closing path gaps is the **bridge’s** job (docs, doctor, optional operator copy/symlink into `.mimocode`).
 
 ---
 
@@ -48,7 +48,7 @@ Closing path gaps is the **bridge’s** job (docs, doctor, optional operator cop
 
 Classic MiMo loads `@mimo-ai/plugin` ([plugin/index.ts](https://github.com/XiaomiMiMo/MiMo-Code/blob/main/packages/opencode/src/plugin/index.ts)). Promise v2 aisdk needs the shared kit (`createPluginContext` / `injectLanguageModel` from `@opencode-compat/host-promise-v2`) wired wherever provider resolve happens on the host.
 
-Until a host (or OCP sidecar) actually invokes that kit, `capabilities.promiseV2` stays `false` and the facade’s `v2/promise` export fails loud with an upgrade path. Shipping that wiring remains an OCP/product concern — **not** a MiMo upstream PR track.
+Until a host (or OCP sidecar) actually invokes that kit, `capabilities.promiseV2` stays `false` and the facade’s `v2/promise` export fails loud with an upgrade path. Shipping that wiring remains an OCP/product concern.
 
 ---
 

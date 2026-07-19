@@ -19,7 +19,7 @@ export type HostPaths = {
   cacheDir: string
   /** Project dirs the host actually scans today */
   projectDirs: string[]
-  /** Recommended compat project dirs for matrix/doctor (e.g. `.opencode`); not an upstream dual-scan PR */
+  /** Recommended compat project dirs for matrix/doctor (e.g. `.opencode`) */
   compatProjectDirs?: string[]
   /** npm plugin install cache, when distinct from cacheDir */
   pluginInstallDir?: string

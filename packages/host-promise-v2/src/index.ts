@@ -1,6 +1,6 @@
 /**
  * Shared Promise v2 aisdk host kit — wired from the OCP layer
- * (operator overrides / sidecar / host-kit helpers), not via host PRs.
+ * (operator overrides / sidecar / host-kit helpers).
  * OCP 0.1 T3 bar: `ctx.aisdk` language (+ ideally sdk) hooks.
  * Other domains loud-stub in the same ship.
  */

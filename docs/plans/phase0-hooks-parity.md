@@ -1,8 +1,8 @@
 # Phase 0 — Classic Hooks parity matrix
 
-**Date:** 2026-07-19  
-**Status:** Research / discovery artifact (evidence for OCP product)  
-**Repo:** `opencode-plugin-compat` (`docs/plans/`)  
+**Date:** 2026-07-19
+**Status:** Research / discovery artifact (evidence for OCP product)
+**Repo:** `opencode-plugin-compat` (`docs/plans/`)
 **Sources (pinned):**
 | Host | Plugin package | Version / pin | Source |
 |------|----------------|---------------|--------|
@@ -11,7 +11,7 @@
 | Kilo | `@kilocode/plugin` | **7.4.11** (npm); fork pin `.opencode-version` = **v1.17.4** | npm pack + [Kilo-Org/kilocode](https://github.com/Kilo-Org/kilocode) checkout |
 | ZCode | *(no `@*-plugin` OpenCode ABI)* | Desktop **3.3.6** | DMG/`app.asar` exam — marketplace only |
 
-Related: `universal-opencode-plugin-compat-plan.md`, `ocp-0.1-spec.md`, `phase0-adr-universal-compat.md`.
+Related: `universal-opencode-plugin-compat-plan.md`, `../ocp/0.1.md`, `phase0-adr-universal-compat.md`.
 
 ---
 
@@ -98,7 +98,7 @@ MiMo extension hooks pull in MiMo-only types (`ActorPreStopRegistration`, `Traje
 | Config dir | `~/.config/opencode` (`OPENCODE_CONFIG_DIR`) | `~/.config/mimocode` or `$MIMOCODE_HOME/config` | `~/.config/kilo` (`KILO_CONFIG_DIR`) | `~/.zcode/v2/setting.json` etc. |
 | Cache / npm plugins | `~/.cache/opencode` (packages under cache) | `~/.cache/mimocode` or `$MIMOCODE_HOME/cache` | `~/.cache/kilo/packages/<pkg>` | marketplace, not OC npm cache |
 | Project dirs scanned | `.opencode` | `.mimocode` **only** (docs mention `.opencode` — bug #1151) | `.kilo`, `.kilocode` **only** (deliberately dropped `.opencode`) | not OC plugin dirs |
-| Compat dual-scan `.opencode` | native | **bridge/docs/operator** (not upstream PR) | **bridge/docs/operator** (not upstream PR) | N/A |
+| Compat `.opencode` expectation | native | **bridge/docs/operator** | **bridge/docs/operator** | N/A |
 | Config basenames | `opencode.json(c)` | `mimocode.json(c)` | `kilo.json(c)`, also merges leftover global `opencode.json(c)` in kilo config dir | ZCode settings / marketplace |
 | `scansDotOpencode` | true | false today | false today | false |
 
@@ -133,19 +133,19 @@ Static import scan of npm tarballs (2026-07-19). Not exhaustive; enough to size 
 
 ## 6. Conformance implications (prep only)
 
-1. **Core suite (T1):** exercise the 19 shared hooks + document MiMo gaps for `dispose` / `experimental.provider.small_model`.  
-2. **Extension suite (MiMo-only):** optional; never block portable plugins.  
-3. **Alias suite:** resolve `@opencode-ai/plugin` → facade → `@mimo-ai/plugin` / `@kilocode/plugin`.  
-4. **Negative suite:** importing `@opencode-ai/plugin/v2/promise` on MiMo/Kilo without host kit → loud error.  
+1. **Core suite (T1):** exercise the 19 shared hooks + document MiMo gaps for `dispose` / `experimental.provider.small_model`.
+2. **Extension suite (MiMo-only):** optional; never block portable plugins.
+3. **Alias suite:** resolve `@opencode-ai/plugin` → facade → `@mimo-ai/plugin` / `@kilocode/plugin`.
+4. **Negative suite:** importing `@opencode-ai/plugin/v2/promise` on MiMo/Kilo without host kit → loud error.
 5. **ZCode doctor:** any OCP probe on ZCode → T0 message (marketplace ≠ OCP).
 
 ---
 
 ## 7. Evidence pointers
 
-- OpenCode Hooks: [anomalyco/opencode](https://github.com/anomalyco/opencode) `packages/plugin/src/index.ts`; npm `@opencode-ai/plugin@1.18.3` `dist/index.d.ts`  
-- MiMo Hooks: npm `@mimo-ai/plugin@0.1.6` `dist/index.d.ts`; GitHub [`XiaomiMiMo/MiMo-Code`](https://github.com/XiaomiMiMo/MiMo-Code) `packages/plugin/src/index.ts`  
-- Kilo Hooks: npm `@kilocode/plugin@7.4.11` `dist/index.d.ts`; [Kilo-Org/kilocode](https://github.com/Kilo-Org/kilocode) `packages/plugin/src/index.ts`  
-- MiMo paths: `packages/shared/src/global.ts` (`APP = "mimocode"`, `MIMOCODE_HOME`); `packages/opencode/src/config/paths.ts` (`.mimocode` only)  
-- Kilo paths: [Kilo-Org/kilocode](https://github.com/Kilo-Org/kilocode) `packages/core/src/global.ts`, `packages/opencode/src/config/paths.ts`  
+- OpenCode Hooks: [anomalyco/opencode](https://github.com/anomalyco/opencode) `packages/plugin/src/index.ts`; npm `@opencode-ai/plugin@1.18.3` `dist/index.d.ts`
+- MiMo Hooks: npm `@mimo-ai/plugin@0.1.6` `dist/index.d.ts`; GitHub [`XiaomiMiMo/MiMo-Code`](https://github.com/XiaomiMiMo/MiMo-Code) `packages/plugin/src/index.ts`
+- Kilo Hooks: npm `@kilocode/plugin@7.4.11` `dist/index.d.ts`; [Kilo-Org/kilocode](https://github.com/Kilo-Org/kilocode) `packages/plugin/src/index.ts`
+- MiMo paths: `packages/shared/src/global.ts` (`APP = "mimocode"`, `MIMOCODE_HOME`); `packages/opencode/src/config/paths.ts` (`.mimocode` only)
+- Kilo paths: [Kilo-Org/kilocode](https://github.com/Kilo-Org/kilocode) `packages/core/src/global.ts`, `packages/opencode/src/config/paths.ts`
 - Pack artifacts: npm packs of the pinned plugin versions above
