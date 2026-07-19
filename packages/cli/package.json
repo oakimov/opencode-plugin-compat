@@ -1,6 +1,6 @@
 {
   "name": "@opencode-compat/cli",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "OCP compat doctor, Plugin×Host×Tier matrix runner, Layer A setup/overrides, and migrate-zcode companion CLI",
   "type": "module",
   "license": "MPL-2.0",

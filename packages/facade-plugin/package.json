@@ -1,6 +1,6 @@
 {
   "name": "@opencode-compat/facade-plugin",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Install-override stand-in for @opencode-ai/plugin (classic + v2/promise)",
   "type": "module",
   "license": "MPL-2.0",

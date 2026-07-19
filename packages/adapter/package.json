@@ -1,6 +1,6 @@
 {
   "name": "@opencode-compat/adapter",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Universal OCP host adapter — autodetection HostProfile, one runtime for all cooperating hosts",
   "type": "module",
   "license": "MPL-2.0",
