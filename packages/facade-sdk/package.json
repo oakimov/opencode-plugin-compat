@@ -31,6 +31,7 @@
     "typecheck": "bunx tsc -p tsconfig.json --noEmit"
   },
   "dependencies": {
+    "@opencode-compat/adapter": "workspace:*",
     "@opencode-compat/profile": "workspace:*"
   },
   "devDependencies": {

@@ -41,8 +41,8 @@ docs/guides/       # companion privacy notes (non-runtime)
 
 ## Suggested next work
 
-1. Implement `@opencode-compat/profile` HostProfile + drafts + detect().
-2. Classic exports on `facade-plugin` / `facade-sdk`.
-3. `@opencode-compat/adapter` — one runtime: detect host, dispatch to native SDK (opencode / mimo / kilo; zcode → T0 doctor).
-4. `host-promise-v2` aisdk kit + CLI doctor + fixtures.
-5. Prove unchanged plugins (incl. classic + `v2/promise` samples) on MiMo/Kilo via the bridge — not via republished host forks.
+1. Land MiMo/Kilo M1 PRs from `patches/` (overrides, dual-scan, embed `host-promise-v2`).
+2. Prove unchanged plugins (classic + `v2/promise`, incl. `cursor-opencode-provider`) on MiMo/Kilo via the bridge — not via republished host forks.
+3. Expand `facade-sdk` surface from real plugin smoke failures; keep matrix green.
+
+Companion privacy guides (§7.1) are shipped under `docs/guides/` (Kilo/MiMo in-app opt-out; ZCode docs-only firewall/DNS). Doctor prints one-liner pointers; OCP never mutates telemetry.

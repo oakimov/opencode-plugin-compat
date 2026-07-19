@@ -441,7 +441,7 @@ Publish public **compat matrix**: Plugin × Host × OCP tier × last pass.
 | Host | In-app opt-out? | Deliverable |
 |------|-----------------|-------------|
 | **Kilo** | **Yes** — PostHog via config / env | [`docs/guides/kilocode-telemetry-disable.md`](../guides/kilocode-telemetry-disable.md) |
-| **MiMo** | **Yes** — `MIMOCODE_ENABLE_ANALYSIS=false` | Cross-link from guides (no separate long guide required yet) |
+| **MiMo** | **Yes** — Xiaomi metrics via env | [`docs/guides/mimocode-telemetry-disable.md`](../guides/mimocode-telemetry-disable.md) |
 | **ZCode** | **No** — docs-only firewall/DNS | [`docs/guides/zcode-telemetry-block.md`](../guides/zcode-telemetry-block.md) |
 
 #### Kilo — disable PostHog (shipped guide)
@@ -449,6 +449,21 @@ Publish public **compat matrix**: Plugin × Host × OCP tier × last pass.
 **Evidence:** `@kilocode/kilo-telemetry` → `https://us.i.posthog.com`; CLI bootstrap `Telemetry.init({ enabled: cfg.experimental?.openTelemetry !== false })`; if `KILO_TELEMETRY_LEVEL` is set, only `all` enables. VS Code respects `vscode.env.isTelemetryEnabled` and `POST /telemetry/setEnabled`.
 
 **Must cover (done in guide):** config `experimental.openTelemetry: false`; env `KILO_TELEMETRY_LEVEL=off`; VS Code consent path; optional `us.i.posthog.com` sinkhole; naming caveat (key name says OpenTelemetry but gates PostHog); not an OCP plugin feature.
+
+#### MiMo — disable Xiaomi usage analytics (shipped guide)
+
+**Evidence:** MiMo `packages/opencode/src/metrics` → `https://tracking.miui.com/track/v4/o`; analytics **on by default**; documented env opt-out `MIMOCODE_ENABLE_ANALYSIS=false`. See [oa-tools/mimo-review/MIMO_RESEARCH.md](https://github.com/oakimov/oa-tools/blob/main/mimo-review/MIMO_RESEARCH.md) §6–§7.
+
+**Must cover (done in guide):**
+1. Primary disable — `export MIMOCODE_ENABLE_ANALYSIS=false` (shell / IDE / spawn env)
+2. Default-on honesty — unset ⇒ analytics enabled
+3. Endpoint — `tracking.miui.com` (+ optional DNS/firewall sinkhole for defense in depth)
+4. Scope caveat — flag gates **usage analysis**, not Xiaomi-hosted inference / OAuth / install CDN; MiMo Auto can still send code to Xiaomi models
+5. Verification — no POSTs to `tracking.miui.com` after restart
+6. Honesty — MiMo **host** feature, not an OCP plugin kill; re-check after upgrades
+7. Cross-links — Kilo guide; ZCode firewall/DNS guide (ZCode has no equivalent env opt-out)
+
+**Doctor/CLI:** optional one-liner pointer from `mimo` doctor text to the guide — **no** automated env mutation from OCP.
 
 #### ZCode — thorough telemetry block (incl. `zcode.z.ai`) — **documentation only**
 
@@ -468,7 +483,7 @@ Publish public **compat matrix**: Plugin × Host × OCP tier × last pass.
    - Keeps (typical): local UI; API-key BYO inference to non-`zcode.z.ai` catalog hosts
 5. **Verification** — Console.app / `lsof -i` / packet filter logs; confirm ARMS + `event/report` fail while optional BYO chat still works
 6. **Honesty** — not an OCP feature; not a marketplace plugin; do not claim silent perfect privacy if CDN/IP ranges change; re-check after ZCode upgrades
-7. **Cross-links** — Kilo guide (in-app opt-out); MiMo `MIMOCODE_ENABLE_ANALYSIS=false` (ZCode has no equivalent)
+7. **Cross-links** — Kilo + MiMo in-app opt-out guides (ZCode has no equivalent env/config kill)
 
 **Doctor/CLI:** optional one-liner pointers from host doctor text — **no** automated firewall mutation from OCP; **no** ZCode in-process kill.
 
@@ -501,7 +516,7 @@ Completed 2026-07-19; see `phase0-hooks-parity.md`, `ocp-0.1-spec.md`, `phase0-a
 | **Fixtures** | Full conformance set from OCP §10 (T0–T3 + unsupported-domain) |
 | **M1 patches** | Reference patches/PRs for MiMo + Kilo: install overrides, `.opencode` dual-scan (MiMo always / Kilo opt-in), embed host kit |
 | **Docs** | Per-host enablement, public Plugin×Host×Tier matrix, ZCode T0 honesty |
-| **Companion (non-runtime)** | Kilo telemetry **disable** guide + ZCode telemetry **block** guide — §7.1 / `docs/guides/kilocode-telemetry-disable.md` + `docs/guides/zcode-telemetry-block.md` (ZCode = firewall/DNS docs only; **not** an OCP plugin kill) |
+| **Companion (non-runtime)** | Kilo + **MiMo** telemetry **disable** guides + ZCode telemetry **block** guide — §7.1 / `docs/guides/kilocode-telemetry-disable.md` + `docs/guides/mimocode-telemetry-disable.md` + `docs/guides/zcode-telemetry-block.md` (ZCode = firewall/DNS docs only; **not** an OCP plugin kill) |
 | **Out of scope** | Cursor dual-host packages (`dual-host-packages-plan.md`) — historical only; close TX/path gaps in the bridge instead |
 
 ### 8.3 Repo skeleton (create when building)
@@ -626,12 +641,12 @@ Build sequencing (dependency only):
 
 ## 15. Immediate next actions
 
-1. Create repo `opencode-plugin-compat`; copy OCP docs; scaffold packages (§8.3).  
-2. Implement profile + facade + **one** universal adapter + host kit + CLI + fixtures as **one product**.  
-3. Land/draft M1 patches: install overrides → facade + `.opencode` dual-scan + host kit embed.  
+1. ~~Create repo `opencode-plugin-compat`; copy OCP docs; scaffold packages (§8.3).~~ **Done.**  
+2. ~~Implement profile + facade + **one** universal adapter + host kit + CLI + fixtures as **one product**.~~ **Done** (matrix green; T3 needs host embed).  
+3. Land M1 patches from `patches/`: install overrides → facade + `.opencode` dual-scan + host kit embed (MiMo + Kilo).  
 4. Prove unchanged plugins (incl. `cursor-opencode-provider`) via the bridge — **no** dual-host consumer forks.  
 5. ZCode remains T0 stub/doctor only.  
-6. **Write** §7.1 companion guides: `docs/guides/kilocode-telemetry-disable.md` (config/env opt-out) + `docs/guides/zcode-telemetry-block.md` (ARMS + optional `zcode.z.ai` block tiers; docs only). Link from doctor/docs.
+6. ~~**Write** §7.1 companion guides~~ **Done:** `docs/guides/kilocode-telemetry-disable.md` + `docs/guides/mimocode-telemetry-disable.md` (in-app opt-out) + `docs/guides/zcode-telemetry-block.md` (ARMS + optional `zcode.z.ai` block tiers; docs only). Linked from `docs/README.md`, cross-guides, `patches/*-m1.md`, and doctor one-liners.
 
 ---
 

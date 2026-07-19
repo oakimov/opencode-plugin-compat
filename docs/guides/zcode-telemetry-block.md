@@ -9,7 +9,7 @@ ZCode has **no first-party telemetry opt-out**. OCP cannot disable ARMS / produc
 Related (hosts **with** in-app opt-out):
 
 - Kilo: [`kilocode-telemetry-disable.md`](./kilocode-telemetry-disable.md)
-- MiMo: `MIMOCODE_ENABLE_ANALYSIS=false`
+- MiMo: [`mimocode-telemetry-disable.md`](./mimocode-telemetry-disable.md) (`MIMOCODE_ENABLE_ANALYSIS=false`)
 
 ---
 

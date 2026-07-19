@@ -30,9 +30,6 @@
     "build": "bunx tsc -p tsconfig.json",
     "typecheck": "bunx tsc -p tsconfig.json --noEmit"
   },
-  "dependencies": {
-    "@opencode-compat/profile": "workspace:*"
-  },
   "devDependencies": {
     "typescript": "^5.8.3"
   }

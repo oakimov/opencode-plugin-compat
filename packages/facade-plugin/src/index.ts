@@ -1,9 +1,40 @@
 /**
- * @opencode-compat/facade-plugin — classic entry scaffold.
- * Install overrides map `@opencode-ai/plugin` → this package inside fork caches.
+ * @opencode-compat/facade-plugin — install-override stand-in for `@opencode-ai/plugin`.
+ *
+ * Classic surface: Hooks types + `tool` re-export.
+ * Subpaths: `./tool`, `./tui`, `./v2/promise`, `./v2/effect`.
  */
 export const PKG = "@opencode-compat/facade-plugin" as const
 export const VERSION = "0.1.0" as const
 
-/** Placeholder classic plugin surface — implement against OCP 0.1 core Hooks. */
-export type Hooks = Record<string, unknown>
+export * from "./tool"
+export type {
+  AuthHook,
+  AuthOAuthResult,
+  AuthOuathResult,
+  AuthPrompt,
+  BunShell,
+  Config,
+  Event,
+  HostClient,
+  Hooks,
+  Message,
+  Model,
+  ModelV2,
+  Part,
+  Permission,
+  Plugin,
+  PluginInput,
+  PluginModule,
+  PluginOptions,
+  Project,
+  Provider,
+  ProviderContext,
+  ProviderHook,
+  ProviderHookContext,
+  ProviderV2,
+  UserMessage,
+  WorkspaceAdapter,
+  WorkspaceInfo,
+  WorkspaceTarget,
+} from "./types"

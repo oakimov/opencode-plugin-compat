@@ -6,7 +6,7 @@
 
 Kilo ships **PostHog product analytics on by default**. Unlike ZCode, Kilo has **first-party opt-out** knobs. Prefer those over firewalling.
 
-Related: [ZCode telemetry block (docs-only)](./zcode-telemetry-block.md) · MiMo: `MIMOCODE_ENABLE_ANALYSIS=false`
+Related: [MiMo telemetry disable](./mimocode-telemetry-disable.md) · [ZCode telemetry block (docs-only)](./zcode-telemetry-block.md)
 
 ---
 

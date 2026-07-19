@@ -8,7 +8,7 @@ Run **published OpenCode plugins unchanged** (`import "@opencode-ai/plugin"` / `
 
 ## Status
 
-Final-product monorepo scaffold. Research and ADRs live under [`docs/`](./docs/). Implementation of packages is next.
+Bridge packages, OCP §10 fixtures, CLI doctor/matrix, and M1 patch outlines are in-tree. Pin hosts to exact `@opencode-compat/*` versions; prove unchanged plugins on MiMo/Kilo via facades + host kit.
 
 ## Packages (`@opencode-compat/*`)
 
@@ -44,6 +44,8 @@ Also: [`fixtures/`](./fixtures) (conformance), [`patches/`](./patches) (referenc
 bun install
 bun run typecheck
 bun test
+bun run matrix
+bun run doctor -- --host mimo
 ```
 
 Requires [Bun](https://bun.sh) ≥ 1.2.
