@@ -124,6 +124,7 @@ setup options:
   --version <ver>                npm: facade version (default 0.1.0)
   --dry-run                      Print plan only; do not write
   --deep / --no-deep             Also patch child package.json (default: deep)
+  --reify / --no-reify           npm install after patch when node_modules exists (default: auto)
 
 migrate-zcode options:
   --plugin <dir>                 Plugin package root (repeatable; required)
@@ -200,13 +201,15 @@ export async function runSetupCli(rest: string[]): Promise<number> {
       mode: opts.mode,
       dryRun: opts.dryRun,
       deep: opts.deep,
+      reify: opts.reify,
     })
     console.log(result.message)
     if (opts.dryRun || !result.ok) {
       console.log(JSON.stringify(result.overrides, null, 2))
     }
-    for (const t of result.targets.filter((x) => x.changed)) {
-      console.log(`  ${t.created ? "+" : "~"} ${t.path}`)
+    for (const t of result.targets.filter((x) => x.changed || x.reified || x.reifyError)) {
+      const mark = t.reifyError ? "!" : t.reified ? "*" : t.created ? "+" : "~"
+      console.log(`  ${mark} ${t.path}`)
     }
     return result.ok ? 0 : 1
   } catch (err) {

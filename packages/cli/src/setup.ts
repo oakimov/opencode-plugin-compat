@@ -8,6 +8,7 @@ import {
   type DetectOptions,
   type HostId,
 } from "@opencode-compat/profile"
+import { spawnSync } from "node:child_process"
 import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from "node:fs"
 import { dirname, join, resolve } from "node:path"
 import { fileURLToPath } from "node:url"
@@ -27,6 +28,12 @@ export type SetupOptions = {
   dryRun?: boolean
   /** Also patch immediate child package.json trees (installed plugins). */
   deep?: boolean
+  /**
+   * After writing overrides, reify install trees that already have
+   * `node_modules` (or always when `"force"`) so facade overrides link.
+   * Default: `"auto"`.
+   */
+  reify?: boolean | "auto" | "force"
   /** Detect options (tests). */
   detectOptions?: DetectOptions
 }
@@ -35,6 +42,8 @@ export type SetupTarget = {
   path: string
   created: boolean
   changed: boolean
+  reified?: boolean
+  reifyError?: string
 }
 
 export type SetupResult = {
@@ -147,11 +156,46 @@ function listChildPackageJson(dir: string): string[] {
   return out
 }
 
+function shouldReify(
+  pkgDir: string,
+  target: SetupTarget,
+  reify: boolean | "auto" | "force",
+): boolean {
+  if (reify === false) return false
+  if (!target.changed) return false
+  if (reify === "force" || reify === true) return true
+  // auto: only when the tree was already installed (common after `mimo plugin` / `kilo plugin`)
+  return existsSync(join(pkgDir, "node_modules"))
+}
+
+function reifyInstallTree(pkgDir: string, dryRun: boolean): { ok: boolean; error?: string } {
+  if (dryRun) return { ok: true }
+  const result = spawnSync(
+    "npm",
+    ["install", "--ignore-scripts", "--no-fund", "--no-audit"],
+    {
+      cwd: pkgDir,
+      encoding: "utf8",
+      env: process.env,
+    },
+  )
+  if (result.status === 0) return { ok: true }
+  const detail = [result.stderr, result.stdout]
+    .filter(Boolean)
+    .join("\n")
+    .trim()
+  return {
+    ok: false,
+    error: detail || `npm install exited ${result.status ?? "unknown"}`,
+  }
+}
+
 /** Apply Layer A overrides into one or more package.json files under an install tree. */
 export function setup(options: SetupOptions = {}): SetupResult {
   const version = options.version ?? "0.1.0"
   const dryRun = options.dryRun ?? false
   const deep = options.deep ?? true
+  const reify = options.reify ?? "auto"
 
   const env = options.host
     ? {
@@ -238,17 +282,48 @@ export function setup(options: SetupOptions = {}): SetupResult {
     }
   }
 
+  // MiMo/Kilo install each npm plugin in an isolated child dir
+  // (`name@version/`). Parent overrides alone do not apply — reify children
+  // after patching so `@opencode-ai/*` links to facades.
+  for (const target of targets) {
+    const pkgDir = dirname(target.path)
+    if (!shouldReify(pkgDir, target, reify)) continue
+    // Skip empty root marker trees with no dependencies to install.
+    const pkg = readPackageJson(target.path)
+    const hasDeps =
+      pkg &&
+      Object.keys({
+        ...(pkg.dependencies as Record<string, string> | undefined),
+        ...(pkg.devDependencies as Record<string, string> | undefined),
+        ...(pkg.optionalDependencies as Record<string, string> | undefined),
+        ...(pkg.peerDependencies as Record<string, string> | undefined),
+      }).length > 0
+    if (!hasDeps && !existsSync(join(pkgDir, "node_modules"))) continue
+
+    const outcome = reifyInstallTree(pkgDir, dryRun)
+    target.reified = outcome.ok
+    if (!outcome.ok) target.reifyError = outcome.error
+  }
+
   const changed = targets.filter((t) => t.changed).length
+  const reified = targets.filter((t) => t.reified).length
+  const reifyFailed = targets.filter((t) => t.reifyError)
   const action = dryRun ? "dry-run" : "wrote"
   const message = [
     `setup ${action}: host=${detected.id} mode=${mode} dir=${resolvedDir}`,
     `overrides: ${Object.keys(overrides).join(", ")}`,
-    `targets: ${changed} changed / ${targets.length} scanned`,
+    `targets: ${changed} changed / ${targets.length} scanned` +
+      (reified || reifyFailed.length
+        ? `; reified ${reified}` +
+          (reifyFailed.length ? `, ${reifyFailed.length} reify failed` : "")
+        : ""),
     "Note: listing OCP in host plugin config alone does not intercept @opencode-ai/* imports.",
+    "Note: on MiMo/Kilo, re-run `ocp setup` after installing plugins (isolated per-plugin trees).",
+    ...reifyFailed.map((t) => `reify failed: ${dirname(t.path)} — ${t.reifyError}`),
   ].join("\n")
 
   return {
-    ok: true,
+    ok: reifyFailed.length === 0,
     host: detected.id,
     source: detected.source,
     dir: resolvedDir,
@@ -266,6 +341,7 @@ export function parseSetupArgs(rest: string[]): {
   mode?: SetupMode | "auto"
   dryRun: boolean
   deep: boolean
+  reify: boolean | "auto" | "force"
   help: boolean
 } {
   const opts: {
@@ -275,10 +351,12 @@ export function parseSetupArgs(rest: string[]): {
     mode?: SetupMode | "auto"
     dryRun: boolean
     deep: boolean
+    reify: boolean | "auto" | "force"
     help: boolean
   } = {
     dryRun: false,
     deep: true,
+    reify: "auto",
     help: false,
   }
   for (let i = 0; i < rest.length; i++) {
@@ -300,6 +378,14 @@ export function parseSetupArgs(rest: string[]): {
     } else if (arg === "--dry-run") opts.dryRun = true
     else if (arg === "--deep") opts.deep = true
     else if (arg === "--no-deep") opts.deep = false
+    else if (arg === "--reify") opts.reify = "force"
+    else if (arg === "--no-reify") opts.reify = false
+    else if (arg?.startsWith("--reify=")) {
+      const value = arg.slice("--reify=".length)
+      if (value === "auto" || value === "force") opts.reify = value
+      else if (value === "false" || value === "0" || value === "no") opts.reify = false
+      else if (value === "true" || value === "1" || value === "yes") opts.reify = "force"
+    }
   }
   return opts
 }

@@ -366,6 +366,12 @@ describe("@opencode-compat/cli", () => {
     expect(parsed.dryRun).toBe(true)
     expect(parsed.mode).toBe("npm")
     expect(parsed.deep).toBe(false)
+    expect(parsed.reify).toBe("auto")
+
+    const noReify = parseSetupArgs(["--no-reify"])
+    expect(noReify.reify).toBe(false)
+    const forceReify = parseSetupArgs(["--reify"])
+    expect(forceReify.reify).toBe("force")
 
     const dir = await mkdtemp(join(tmpdir(), "ocp-setup-"))
     try {
@@ -378,6 +384,7 @@ describe("@opencode-compat/cli", () => {
         host: "mimo",
         mode: "npm",
         version: "0.1.0",
+        reify: false,
         detectOptions: { home: "/tmp" },
       })
       expect(result.ok).toBe(true)
@@ -407,10 +414,67 @@ describe("@opencode-compat/cli", () => {
         host: "mimo",
         mode: "npm",
         version: "0.1.0",
+        reify: false,
         detectOptions: { home: "/tmp" },
       })
       expect(again.ok).toBe(true)
       expect(again.targets.every((t) => !t.changed)).toBe(true)
+    } finally {
+      await rm(dir, { recursive: true, force: true })
+    }
+  })
+
+  test("setup auto-reify dry-run marks trees with node_modules", async () => {
+    const { mkdtemp, mkdir, rm } = await import("node:fs/promises")
+    const { tmpdir } = await import("node:os")
+    const { join } = await import("node:path")
+    const { setup, parseSetupArgs } = await import("../packages/cli/src/index.ts")
+
+    expect(parseSetupArgs(["--reify=auto"]).reify).toBe("auto")
+    expect(parseSetupArgs(["--reify=false"]).reify).toBe(false)
+
+    const dir = await mkdtemp(join(tmpdir(), "ocp-setup-reify-"))
+    try {
+      const childDir = join(dir, "demo-plugin@1.0.0")
+      await mkdir(join(childDir, "node_modules"), { recursive: true })
+      await Bun.write(
+        join(childDir, "package.json"),
+        JSON.stringify(
+          {
+            name: "demo-plugin",
+            version: "1.0.0",
+            dependencies: { leftpad: "0.0.0" },
+          },
+          null,
+          2,
+        ),
+      )
+
+      const dry = setup({
+        dir,
+        host: "mimo",
+        mode: "npm",
+        version: "0.1.0",
+        dryRun: true,
+        reify: "auto",
+        detectOptions: { home: "/tmp" },
+      })
+      expect(dry.ok).toBe(true)
+      const child = dry.targets.find((t) => t.path.includes("demo-plugin@1.0.0"))
+      expect(child?.changed).toBe(true)
+      expect(child?.reified).toBe(true)
+      expect(dry.message).toContain("reified")
+
+      const skipped = setup({
+        dir,
+        host: "mimo",
+        mode: "npm",
+        version: "0.1.0",
+        dryRun: true,
+        reify: false,
+        detectOptions: { home: "/tmp" },
+      })
+      expect(skipped.targets.every((t) => !t.reified)).toBe(true)
     } finally {
       await rm(dir, { recursive: true, force: true })
     }

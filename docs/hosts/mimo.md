@@ -20,17 +20,23 @@ Where the host installs npm plugins into its cache (typically under the MiMo XDG
 }
 ```
 
-**Preferred UX:** install `@opencode-compat/ocp`, then run **`ocp setup`** (writes the overrides into the host plugin install tree). Equivalent: `compat setup` / print-only `compat overrides` / `opencode-compat overrides`.
+**Preferred UX:** install consumer plugins, then run **`ocp setup`** (writes the overrides into each plugin install tree and reifies when `node_modules` already exists). Equivalent: `compat setup` / print-only `compat overrides` / `opencode-compat overrides`.
 
 ```bash
-ocp setup
-# or (bridge CLI):
-opencode-compat overrides
+# 1) install an unchanged OpenCode plugin into MiMo
+mimo plugin -g cursor-opencode-provider
+
+# 2) Layer A — patch + reify isolated install trees under ~/.cache/mimocode/packages/
+ocp setup --host mimo
+# or from this checkout:
+# bun packages/ocp/bin/ocp.ts setup --host mimo
 ```
 
-Then add **consumer** plugins via MiMo config as usual. Listing OCP itself in `plugin` is optional bootstrap only — it does **not** intercept other plugins’ `@opencode-ai/plugin` imports.
+MiMo installs each npm plugin into an **isolated** child dir (`~/.cache/mimocode/packages/<name>@<version>/`). A root-level `packages/package.json` override alone is **not** enough — `ocp setup --deep` (default) patches those children and auto-reifies when they already have `node_modules`. **Re-run `ocp setup` after installing or upgrading plugins.**
 
-**npm publish of `@opencode-compat/*` is held until necessary.** Until then, pin via whatever install channel this monorepo supports without modifying MiMo source (git checkout + local override tooling, packed tarballs, etc.).
+Listing OCP itself in `plugin` is optional bootstrap only — it does **not** intercept other plugins’ `@opencode-ai/plugin` imports.
+
+**npm publish of `@opencode-compat/*` is held until necessary.** Until then, `--mode file` (auto from this checkout) points overrides at local `packages/facade-*` paths.
 
 Do **not** override `@opencode-ai/plugin` straight to `@mimo-ai/plugin` — that skips OCP (v2 surface, doctor, shared host kit).
 
@@ -84,3 +90,7 @@ OPENCODE_COMPAT_HOST=mimo opencode-compat doctor
 opencode-compat matrix --host mimo
 opencode-compat matrix --host mimo --compat-scan
 ```
+
+**Live smoke (classic):** after `mimo plugin -g cursor-opencode-provider` + `ocp setup --host mimo`, `mimo models` should list `cursor/*` when Cursor auth/cache is available (classic Hooks path; no host source edits).
+
+**Live smoke (Promise v2):** import the unchanged `plugin/v2` entry from the MiMo install tree, then `wirePromiseV2({ env: { OPENCODE_COMPAT_HOST: "mimo" } })` → `register` → `resolveProvider`. Native MiMo provider-resolve still needs that external sidecar/operator call (see §3).

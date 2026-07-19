@@ -21,17 +21,23 @@ Where the host installs npm plugins ([packages/core/src/npm.ts](https://github.c
 }
 ```
 
-**Preferred UX:** install `@opencode-compat/ocp`, then run **`ocp setup`** (writes the overrides into the host plugin install tree). Equivalent: `compat setup` / print-only `compat overrides` / `opencode-compat overrides`.
+**Preferred UX:** install consumer plugins, then run **`ocp setup`** (writes the overrides into each plugin install tree and reifies when `node_modules` already exists). Equivalent: `compat setup` / print-only `compat overrides` / `opencode-compat overrides`.
 
 ```bash
-ocp setup
-# or (bridge CLI):
-opencode-compat overrides
+# 1) install an unchanged OpenCode plugin into Kilo
+kilo plugin -g cursor-opencode-provider
+
+# 2) Layer A — patch + reify isolated install trees under the Kilo packages cache
+ocp setup --host kilo
+# or from this checkout:
+# bun packages/ocp/bin/ocp.ts setup --host kilo
 ```
 
-Then add **consumer** plugins via Kilo config as usual. Listing OCP itself in `plugin` is optional bootstrap only — it does **not** intercept other plugins’ `@opencode-ai/plugin` imports.
+Kilo installs each npm plugin into an **isolated** child dir (same OpenCode-style `packages/<name>@<version>/` layout as MiMo). A root-level `packages/package.json` override alone is **not** enough — `ocp setup --deep` (default) patches those children and auto-reifies when they already have `node_modules`. **Re-run `ocp setup` after installing or upgrading plugins.**
 
-**npm publish of `@opencode-compat/*` is held until necessary.**
+Listing OCP itself in `plugin` is optional bootstrap only — it does **not** intercept other plugins’ `@opencode-ai/plugin` imports.
+
+**npm publish of `@opencode-compat/*` is held until necessary.** Until then, `--mode file` (auto from this checkout) points overrides at local `packages/facade-*` paths.
 
 Classic Hooks keys already match OpenCode 1.18.3 core — T1 is primarily override + adapter dispatch to `@kilocode/plugin`.
 
@@ -76,3 +82,7 @@ OPENCODE_COMPAT_HOST=kilo opencode-compat doctor
 opencode-compat matrix --host kilo
 opencode-compat matrix --host kilo --compat-scan
 ```
+
+**Live smoke (classic):** after installing an unchanged OpenCode plugin + `ocp setup --host kilo`, host model/provider listing should surface plugin models when auth/cache is available (classic Hooks path; no host source edits).
+
+**Live smoke (Promise v2):** import the unchanged `plugin/v2` entry from the Kilo install tree, then `wirePromiseV2({ env: { OPENCODE_COMPAT_HOST: "kilo" } })` → `register` → `resolveProvider`. Native Kilo provider-resolve still needs that external sidecar/operator call (see §3).

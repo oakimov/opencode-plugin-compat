@@ -19,7 +19,9 @@ ocp doctor --host kilo
 | `ocp matrix` | OCP §10 fixtures (checkout-rooted) |
 | `ocp migrate-zcode` | Companion migrator (not OCP ABI) |
 
-`setup` options: `--dir`, `--host`, `--mode auto|npm|file`, `--version`, `--dry-run`, `--deep` / `--no-deep`.
+`setup` options: `--dir`, `--host`, `--mode auto|npm|file`, `--version`, `--dry-run`, `--deep` / `--no-deep`, `--reify` / `--no-reify` (default auto-reify when a patched tree already has `node_modules`).
+
+On MiMo/Kilo, install consumer plugins first, then run `ocp setup` (and re-run after plugin upgrades) — hosts use isolated per-plugin install dirs.
 
 Listing this package in a host `plugin` config entry is **optional bootstrap only** — it does **not** intercept other plugins’ `@opencode-ai/plugin` imports. Layer A requires the overrides that `ocp setup` writes.
 
