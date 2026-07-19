@@ -329,4 +329,81 @@ describe("@opencode-compat/cli", () => {
     expect(result.ok).toBe(true)
     expect(result.host).toBe("kilo")
   })
+
+  test("doctor zcode mentions migrate-zcode companion", async () => {
+    const { doctor } = await import("../packages/cli/src/index.ts")
+    const result = doctor({
+      env: { OPENCODE_COMPAT_HOST: "zcode" },
+      home: "/tmp",
+    })
+    expect(result.message).toContain("migrate-zcode")
+    expect(result.message).toContain("host MCP")
+  })
+
+  test("migrate-zcode CLI dry-run on mock plugin", async () => {
+    const { mkdtemp, rm } = await import("node:fs/promises")
+    const { tmpdir } = await import("node:os")
+    const { join } = await import("node:path")
+    const {
+      runMigrateZcodeCli,
+      parseMigrateZcodeArgs,
+      migrateZcodeExitCode,
+    } = await import("../packages/cli/src/index.ts")
+
+    const parsed = parseMigrateZcodeArgs([
+      "--plugin",
+      "/tmp/x",
+      "--dry-run",
+      "--format=json",
+    ])
+    expect(parsed.dryRun).toBe(true)
+    expect(parsed.format).toBe("json")
+    expect(parsed.plugins).toEqual(["/tmp/x"])
+
+    const multi = parseMigrateZcodeArgs([
+      "--plugin",
+      "/tmp/a",
+      "--plugin",
+      "/tmp/b",
+      "--marketplace-name",
+      "fleet",
+      "--owner-name",
+      "tester",
+    ])
+    expect(multi.plugins).toEqual(["/tmp/a", "/tmp/b"])
+    expect(multi.marketplaceName).toBe("fleet")
+    expect(multi.ownerName).toBe("tester")
+
+    const pluginDir = await mkdtemp(join(tmpdir(), "ocp-cli-mig-"))
+    try {
+      await Bun.write(
+        join(pluginDir, "skills", "gamma", "SKILL.md"),
+        `---
+name: gamma
+description: Gamma
+---
+Body
+`,
+      )
+      const code = await runMigrateZcodeCli([
+        "--plugin",
+        pluginDir,
+        "--dry-run",
+        "--format",
+        "json",
+      ])
+      expect(code).toBe(0)
+      expect(
+        migrateZcodeExitCode({
+          ok: false,
+          pluginDir,
+          included: { skills: [], commands: [], manifests: [] },
+          skipped: [],
+          warnings: ["empty-migration: none"],
+        }),
+      ).toBe(2)
+    } finally {
+      await rm(pluginDir, { recursive: true, force: true })
+    }
+  })
 })

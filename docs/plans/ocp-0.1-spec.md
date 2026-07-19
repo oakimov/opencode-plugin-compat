@@ -229,7 +229,8 @@ Kilo and MiMo **do not** scan `.opencode` today → dual-scan is an **upstream P
 2. Doctor text MUST state: ZCode Agent Mode marketplace (`.zcode-plugin` / Claude-/Codex-style) ≠ `@opencode-ai/plugin`.  
 3. External “OpenCode” agent tile (runs OpenCode CLI / reads `~/.config/opencode`) is **not** OCP plugin compatibility.  
 4. Future Z.AI loader cooperation would mint a real adapter; until then stub only.  
-5. **Evidence (2026-07-19):** public plugins (`tmdgusya/glm-hammer`, marketplace `jhlee0409/zcode-glm-fleet`) use `.zcode-plugin/plugin.json`, Claude-compatible subprocess hooks (`SessionStart`…`Stop`), skills/commands/MCP — see [oa-tools/zcode-review/ZCODE_RESEARCH.md](https://github.com/oakimov/oa-tools/blob/main/zcode-review/ZCODE_RESEARCH.md) §7. Doctor may cite these as examples of the **other** ABI.
+5. **Evidence (2026-07-19):** public plugins (`tmdgusya/glm-hammer`, marketplace `jhlee0409/zcode-glm-fleet`) use `.zcode-plugin/plugin.json`, Claude-compatible subprocess hooks (`SessionStart`…`Stop`), skills/commands/MCP — see [oa-tools/zcode-review/ZCODE_RESEARCH.md](https://github.com/oakimov/oa-tools/blob/main/zcode-review/ZCODE_RESEARCH.md) §7. Doctor may cite these as examples of the **other** ABI.  
+6. **Companion (optional, non-OCP):** `@opencode-compat/migrate-zcode` / `compat migrate-zcode` may pack **plugin-packaged** skills/commands/marketplace manifests into a `.zcode-plugin` tree. It does **not** change this host’s OCP tier, does **not** load `@opencode-ai/plugin` hooks, and does **not** migrate host MCP from `opencode.json`.
 
 ---
 
@@ -260,7 +261,8 @@ Publish a public matrix: **Plugin × Host × Tier × last pass**. All fixtures a
 | `@opencode-compat/facade-sdk` | Stand-in for `@opencode-ai/sdk` (minimal surface) |
 | `@opencode-compat/adapter` | **Universal** host adapter — one runtime; autodetect + dispatch (ZCode → T0 doctor) |
 | `@opencode-compat/host-promise-v2` | Shared aisdk host kit |
-| `@opencode-compat/cli` | `compat doctor` + matrix runner |
+| `@opencode-compat/cli` | `compat doctor` + matrix runner + `migrate-zcode` companion CLI |
+| `@opencode-compat/migrate-zcode` | Companion library: plugin-package → `.zcode-plugin` (not OCP; no host MCP) |
 
 **Not shipped:** `@opencode-compat/adapter-{opencode,mimo,kilo,zcode}` — host variance is data inside `profile` + `adapter`, not separate publishable packages.
 

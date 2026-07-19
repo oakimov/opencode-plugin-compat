@@ -20,10 +20,11 @@ Bridge packages, OCP §10 fixtures, CLI doctor/matrix, and M1 patch outlines are
 | [`adapter`](./packages/adapter) | **One** universal host adapter — autodetects host, dispatches via `HostProfile` |
 | [`host-promise-v2`](./packages/host-promise-v2) | Shared Promise v2 aisdk host kit (M1 embed) |
 | [`cli`](./packages/cli) | `compat doctor` + matrix runner |
+| [`migrate-zcode`](./packages/migrate-zcode) | Companion: plugin-package skills/commands/manifests → `.zcode-plugin` (**not** OCP ABI; **no** host MCP — [plan](./docs/plans/zcode-asset-migrator-plan.md)) |
 
 Also: [`fixtures/`](./fixtures) (conformance), [`patches/`](./patches) (reference M1 patches), [`docs/ocp/0.1.md`](./docs/ocp/0.1.md).
 
-**Not in scope:** separate publishable packages per host (`adapter-mimo`, `adapter-kilo`, …). Host differences live in `HostProfile` data + internal dispatch inside `@opencode-compat/adapter`.
+**Not in scope:** separate publishable packages per host (`adapter-mimo`, `adapter-kilo`, …). Host differences live in `HostProfile` data + internal dispatch inside `@opencode-compat/adapter`. ZCode marketplace packing is a **companion** deliverable and does not make ZCode T1+.
 
 ## Docs
 
@@ -35,6 +36,7 @@ Also: [`fixtures/`](./fixtures) (conformance), [`patches/`](./patches) (referenc
 | [`docs/plans/phase0-hooks-parity.md`](./docs/plans/phase0-hooks-parity.md) | Hooks / path evidence |
 | [`docs/plans/mimo-opencode-compat-layer-plan.md`](./docs/plans/mimo-opencode-compat-layer-plan.md) | MiMo M1 integration detail (an **equal** `HostProfile` target, not a separate adapter package) |
 | [`docs/plans/dual-host-packages-plan.md`](./docs/plans/dual-host-packages-plan.md) | **Superseded** — historical dual-package sketch (out of scope) |
+| [`docs/plans/zcode-asset-migrator-plan.md`](./docs/plans/zcode-asset-migrator-plan.md) | Companion plugin-package → `.zcode-plugin` migrator (ZCode stays T0; no host MCP) |
 | [`docs/guides/kilocode-telemetry-disable.md`](./docs/guides/kilocode-telemetry-disable.md) | Disable Kilo PostHog telemetry (config / `KILO_TELEMETRY_LEVEL`) |
 | [`docs/guides/zcode-telemetry-block.md`](./docs/guides/zcode-telemetry-block.md) | ZCode telemetry block (**docs-only** firewall/DNS) |
 

@@ -8,6 +8,7 @@ export function zcodeDoctorMessage(): string {
     "External OpenCode agent tiles that spawn the OpenCode CLI are also not OCP plugin compatibility.",
     "Public marketplace examples (glm-hammer, zcode-glm-fleet) use .zcode-plugin/plugin.json — a different protocol.",
     "Until Z.AI ships an OpenCode-plugin loader, OCP will not load plugins on this host.",
+    "Companion (not OCP): pack plugin-package skills/commands/manifests with `compat migrate-zcode` (does not migrate host MCP; see docs/plans/zcode-asset-migrator-plan.md).",
   ].join(" ")
 }
 

@@ -10,6 +10,7 @@
         "@opencode-compat/facade-plugin": "workspace:*",
         "@opencode-compat/facade-sdk": "workspace:*",
         "@opencode-compat/host-promise-v2": "workspace:*",
+        "@opencode-compat/migrate-zcode": "workspace:*",
         "@opencode-compat/profile": "workspace:*",
         "@types/bun": "latest",
         "typescript": "^5.8.3",
@@ -34,6 +35,7 @@
       },
       "dependencies": {
         "@opencode-compat/adapter": "workspace:*",
+        "@opencode-compat/migrate-zcode": "workspace:*",
         "@opencode-compat/profile": "workspace:*",
       },
       "devDependencies": {
@@ -72,6 +74,13 @@
         "typescript": "^5.8.3",
       },
     },
+    "packages/migrate-zcode": {
+      "name": "@opencode-compat/migrate-zcode",
+      "version": "0.1.0",
+      "devDependencies": {
+        "typescript": "^5.8.3",
+      },
+    },
     "packages/profile": {
       "name": "@opencode-compat/profile",
       "version": "0.1.0",
@@ -90,6 +99,8 @@
     "@opencode-compat/facade-sdk": ["@opencode-compat/facade-sdk@workspace:packages/facade-sdk"],
 
     "@opencode-compat/host-promise-v2": ["@opencode-compat/host-promise-v2@workspace:packages/host-promise-v2"],
+
+    "@opencode-compat/migrate-zcode": ["@opencode-compat/migrate-zcode@workspace:packages/migrate-zcode"],
 
     "@opencode-compat/profile": ["@opencode-compat/profile@workspace:packages/profile"],
 

@@ -23,6 +23,7 @@
     "test": "bun test ./test",
     "matrix": "bun packages/cli/bin/compat.ts matrix",
     "doctor": "bun packages/cli/bin/compat.ts doctor",
+    "migrate-zcode": "bun packages/cli/bin/compat.ts migrate-zcode",
     "clean": "rm -rf packages/*/dist packages/*/tsconfig.tsbuildinfo"
   },
   "devDependencies": {
@@ -31,6 +32,7 @@
     "@opencode-compat/facade-plugin": "workspace:*",
     "@opencode-compat/facade-sdk": "workspace:*",
     "@opencode-compat/host-promise-v2": "workspace:*",
+    "@opencode-compat/migrate-zcode": "workspace:*",
     "@opencode-compat/profile": "workspace:*",
     "@types/bun": "latest",
     "typescript": "^5.8.3"

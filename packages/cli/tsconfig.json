@@ -8,6 +8,7 @@
   "include": ["src/**/*.ts"],
   "references": [
     { "path": "../profile" },
-    { "path": "../adapter" }
+    { "path": "../adapter" },
+    { "path": "../migrate-zcode" }
   ]
 }

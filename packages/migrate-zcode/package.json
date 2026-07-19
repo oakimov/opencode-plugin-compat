@@ -1,24 +1,20 @@
 {
-  "name": "@opencode-compat/cli",
+  "name": "@opencode-compat/migrate-zcode",
   "version": "0.1.0",
-  "description": "OCP compat doctor, Plugin×Host×Tier matrix runner, and migrate-zcode companion CLI",
+  "description": "Companion: migrate plugin-packaged skills/commands/marketplace manifests into a .zcode-plugin tree (not OCP ABI; ZCode stays T0; no host MCP migration)",
   "type": "module",
   "license": "MPL-2.0",
   "author": "oakimov",
   "repository": {
     "type": "git",
     "url": "git+https://github.com/oakimov/opencode-plugin-compat.git",
-    "directory": "packages/cli"
+    "directory": "packages/migrate-zcode"
   },
   "publishConfig": {
     "access": "public"
   },
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
-  "bin": {
-    "opencode-compat": "./bin/compat.ts",
-    "compat": "./bin/compat.ts"
-  },
   "exports": {
     ".": {
       "types": "./dist/index.d.ts",
@@ -26,7 +22,6 @@
     }
   },
   "files": [
-    "bin",
     "dist",
     "LICENSE",
     "README.md"
@@ -35,11 +30,7 @@
     "build": "bunx tsc -p tsconfig.json",
     "typecheck": "bunx tsc -p tsconfig.json --noEmit"
   },
-  "dependencies": {
-    "@opencode-compat/profile": "workspace:*",
-    "@opencode-compat/adapter": "workspace:*",
-    "@opencode-compat/migrate-zcode": "workspace:*"
-  },
+  "dependencies": {},
   "devDependencies": {
     "typescript": "^5.8.3"
   }
