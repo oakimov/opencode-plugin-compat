@@ -1,6 +1,6 @@
 # Disable Kilo Code product telemetry
 
-**Status:** companion privacy guide (not an OPHP runtime feature)  
+**Status:** companion privacy guide (not an OCP runtime feature)  
 **Host:** Kilo CLI / VS Code (`@kilocode/cli`, `@kilocode/kilo-telemetry`)  
 **Evidence baseline:** [Kilo-Org/kilocode](https://github.com/Kilo-Org/kilocode) (`@kilocode/kilo-telemetry`, CLI bootstrap) + [oa-tools/kilo-review/KILO_RESEARCH.md](https://github.com/oakimov/oa-tools/blob/main/kilo-review/KILO_RESEARCH.md) §7
 
@@ -93,6 +93,6 @@ Do **not** block `api.kilo.ai` / `app.kilo.ai` for telemetry alone — those are
 
 ## Honesty
 
-- Opt-out is a **Kilo host** feature, not something OPHP plugins implement or guarantee.
+- Opt-out is a **Kilo host** feature, not something OCP plugins implement or guarantee.
 - Companion apps (mobile, etc.) may use other vendors (Sentry, AppsFlyer, …) outside this CLI PostHog path — see Kilo product privacy pages.
 - Re-check after Kilo upgrades; key names and defaults can drift.

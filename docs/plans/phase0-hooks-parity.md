@@ -1,7 +1,7 @@
 # Phase 0 — Classic Hooks parity matrix
 
 **Date:** 2026-07-19  
-**Status:** Research / discovery artifact (evidence for OPHP product)  
+**Status:** Research / discovery artifact (evidence for OCP product)  
 **Repo:** `opencode-plugin-compat` (`docs/plans/`)  
 **Sources (pinned):**
 | Host | Plugin package | Version / pin | Source |
@@ -11,7 +11,7 @@
 | Kilo | `@kilocode/plugin` | **7.4.11** (npm); fork pin `.opencode-version` = **v1.17.4** | npm pack + [Kilo-Org/kilocode](https://github.com/Kilo-Org/kilocode) checkout |
 | ZCode | *(no `@*-plugin` OpenCode ABI)* | Desktop **3.3.6** | DMG/`app.asar` exam — marketplace only |
 
-Related: `universal-opencode-plugin-compat-plan.md`, `ophp-0.1-spec.md`, `phase0-adr-universal-compat.md`.
+Related: `universal-opencode-plugin-compat-plan.md`, `ocp-0.1-spec.md`, `phase0-adr-universal-compat.md`.
 
 ---
 
@@ -22,9 +22,9 @@ Related: `universal-opencode-plugin-compat-plan.md`, `ophp-0.1-spec.md`, `phase0
 | **OpenCode 1.18.3 ↔ Kilo 7.4.11 classic `Hooks` keys** | **Identical** (21 hooks). Normalized `index.d.ts` differs only by SDK import / `create*Client` name. |
 | **OpenCode 1.18.3 ↔ MiMo 0.1.6 classic `Hooks`** | **Near-superset conflict.** MiMo **adds 6** host-specific hooks; MiMo **lacks 2** OpenCode hooks. |
 | **v2 exports** | OpenCode: yes (`./v2/promise`, `./v2/effect`, …). MiMo/Kilo published exports: **classic only** (`.`, `./tool`, `./tui`). |
-| **ZCode** | **Not an OPHP host.** Marketplace ABI (`.zcode-plugin/plugin.json`, Claude-style hooks). Public examples: `tmdgusya/glm-hammer`, marketplace `jhlee0409/zcode-glm-fleet`. See [oa-tools/zcode-review/ZCODE_RESEARCH.md](https://github.com/oakimov/oa-tools/blob/main/zcode-review/ZCODE_RESEARCH.md) §7. |
+| **ZCode** | **Not an OCP host.** Marketplace ABI (`.zcode-plugin/plugin.json`, Claude-style hooks). Public examples: `tmdgusya/glm-hammer`, marketplace `jhlee0409/zcode-glm-fleet`. See [oa-tools/zcode-review/ZCODE_RESEARCH.md](https://github.com/oakimov/oa-tools/blob/main/zcode-review/ZCODE_RESEARCH.md) §7. |
 
-**Implication for OPHP 0.1:** Classic facade can treat **OpenCode ∩ Kilo** as the portable core. MiMo extras are **host-extension hooks** (optional, never required for T1). Missing MiMo hooks must be documented as **compat gaps** (no-op or polyfill policy).
+**Implication for OCP 0.1:** Classic facade can treat **OpenCode ∩ Kilo** as the portable core. MiMo extras are **host-extension hooks** (optional, never required for T1). Missing MiMo hooks must be documented as **compat gaps** (no-op or polyfill policy).
 
 ---
 
@@ -51,7 +51,7 @@ Related: `universal-opencode-plugin-compat-plan.md`, `ophp-0.1-spec.md`, `phase0
 
 Legend: **Y** = present on published types · **-** = absent · **Ext** = host extension (not portable)
 
-| Hook | OpenCode | Kilo | MiMo | OPHP 0.1 portable? | Notes |
+| Hook | OpenCode | Kilo | MiMo | OCP 0.1 portable? | Notes |
 |------|----------|------|------|--------------------|-------|
 | `dispose` | Y | Y | **-** | **Core (gap on MiMo)** | Facade should accept; MiMo adapter may no-op with doctor warning |
 | `event` | Y | Y | Y | Core | |
@@ -83,9 +83,9 @@ Legend: **Y** = present on published types · **-** = absent · **Ext** = host e
 
 ### Signature drift (spot-check)
 
-For the **shared 19 hooks**, published `Hooks` method shapes on OpenCode / Kilo / MiMo appear aligned (same input/output field names in `.d.ts`). Deep runtime drift (when host *invokes* hooks, part schemas, SDK `Event` unions) is **out of this research static diff** — the shipped OPHP conformance suite must cover invocation.
+For the **shared 19 hooks**, published `Hooks` method shapes on OpenCode / Kilo / MiMo appear aligned (same input/output field names in `.d.ts`). Deep runtime drift (when host *invokes* hooks, part schemas, SDK `Event` unions) is **out of this research static diff** — the shipped OCP conformance suite must cover invocation.
 
-MiMo extension hooks pull in MiMo-only types (`ActorPreStopRegistration`, `TrajectoryMessage`, …). OPHP must **not** require these for portable plugins.
+MiMo extension hooks pull in MiMo-only types (`ActorPreStopRegistration`, `TrajectoryMessage`, …). OCP must **not** require these for portable plugins.
 
 ---
 
@@ -106,7 +106,7 @@ MiMo extension hooks pull in MiMo-only types (`ActorPreStopRegistration`, `Traje
 
 ## 5. Plugin inventory sample (classic vs v2)
 
-Static import scan of npm tarballs (2026-07-19). Not exhaustive; enough to size OPHP MVP.
+Static import scan of npm tarballs (2026-07-19). Not exhaustive; enough to size OCP MVP.
 
 | Package | Tier (static) | Notes |
 |---------|---------------|-------|
@@ -123,7 +123,7 @@ Static import scan of npm tarballs (2026-07-19). Not exhaustive; enough to size 
 | `@tarquinen/opencode-dcp@3.1.14` | classic+v2 | uses `@opencode-ai/sdk/v2` |
 | `oh-my-opencode-slim@2.2.4` | classic+v2 | |
 | `@cortexkit/opencode-magic-context@0.32.3` | classic+v2 | |
-| **[`cursor-opencode-provider`](https://github.com/oakimov/cursor-opencode-provider)** | **classic+v2** | `@opencode-ai/plugin` + `/v2/promise` + sdk — **TX / path-sensitive**; must run **unchanged** via OPHP (no host-specific fork) |
+| **[`cursor-opencode-provider`](https://github.com/oakimov/cursor-opencode-provider)** | **classic+v2** | `@opencode-ai/plugin` + `/v2/promise` + sdk — **TX / path-sensitive**; must run **unchanged** via OCP (no host-specific fork) |
 | `orca-opencode-plugin@1.2.8` | unclear | no direct `@opencode-ai/plugin` import in pack |
 | `@webpresso/opencode-plugin@3.1.22` | unclear | adapter wrapper |
 
@@ -137,7 +137,7 @@ Static import scan of npm tarballs (2026-07-19). Not exhaustive; enough to size 
 2. **Extension suite (MiMo-only):** optional; never block portable plugins.  
 3. **Alias suite:** resolve `@opencode-ai/plugin` → facade → `@mimo-ai/plugin` / `@kilocode/plugin`.  
 4. **Negative suite:** importing `@opencode-ai/plugin/v2/promise` on MiMo/Kilo without host kit → loud error.  
-5. **ZCode doctor:** any OPHP probe on ZCode → T0 message (marketplace ≠ OPHP).
+5. **ZCode doctor:** any OCP probe on ZCode → T0 message (marketplace ≠ OCP).
 
 ---
 

@@ -3,7 +3,7 @@
 **Date:** 2026-07-19 (revised: **superseded**)  
 **Plan home:** `opencode-plugin-compat/docs/plans/` (historical)  
 **Status:** **SUPERSEDED / OUT OF SCOPE** — do **not** build `cursor-mimocode-provider`, `cursor-kilocode-provider`, ZCode variants, or any host-specific fork of a consumer plugin.  
-**Replacement:** Universal OPHP bridge in this repo — [oakimov/cursor-opencode-provider](https://github.com/oakimov/cursor-opencode-provider) (and every other OpenCode plugin) must run **unchanged** via facades + adapters + host kit.  
+**Replacement:** Universal OCP bridge in this repo — [oakimov/cursor-opencode-provider](https://github.com/oakimov/cursor-opencode-provider) (and every other OpenCode plugin) must run **unchanged** via facades + adapters + host kit.  
 **Related:** `universal-opencode-plugin-compat-plan.md`, `phase0-adr-universal-compat.md` (ADR-6)  
 **Original goal (obsolete):** Maintain one Cursor-provider repo; publish **two npm packages** (OpenCode host + MiMoCode host). Kept below for archaeology only.
 
@@ -160,7 +160,7 @@ Host packages construct `AgentHost` at plugin load and pass it into `createCurso
 **Total: ~3–6 engineer-days** for a usable dual-package monorepo with CI.  
 (Hardening + dual live smoke may push toward the upper end.)
 
-Build **all** of the following as the Cursor TX slice of the OPHP product (parallel with facades/adapters — not deferred):
+Build **all** of the following as the Cursor TX slice of the OCP product (parallel with facades/adapters — not deferred):
 
 | Workstream | Work | Estimate |
 |------------|------|----------|
@@ -259,7 +259,7 @@ Exact npm vs bun publish CLI should match current `publish.yml` patterns in-repo
 - Porting MiMo long-horizon features (checkpoints, `/goal`, workflows) into OpenCode.
 - Automatic rewrite of arbitrary third-party OpenCode plugins.
 - Runtime detection of host inside a **single** published package (explicitly rejected in favor of two packages).
-- Deferring dual packages “until OPHP finishes first” — they ship in parallel as the TX path.
+- Deferring dual packages “until OCP finishes first” — they ship in parallel as the TX path.
 
 ---
 

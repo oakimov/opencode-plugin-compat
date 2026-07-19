@@ -7,7 +7,7 @@ export const VERSION = "0.1.0" as const
 export function doctor(): { ok: boolean; message: string } {
   return {
     ok: false,
-    message: "compat doctor not implemented yet — see docs/ophp/0.1.md",
+    message: "compat doctor not implemented yet — see docs/ocp/0.1.md",
   }
 }
 

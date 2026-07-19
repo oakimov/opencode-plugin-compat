@@ -1,7 +1,7 @@
 {
   "name": "@opencode-compat/cli",
   "version": "0.1.0",
-  "description": "OPHP compat doctor and Plugin×Host×Tier matrix runner",
+  "description": "OCP compat doctor and Plugin×Host×Tier matrix runner",
   "type": "module",
   "license": "MPL-2.0",
   "author": "oakimov",

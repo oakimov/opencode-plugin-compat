@@ -3,9 +3,9 @@
 **Date:** 2026-07-19 (revised: final-product framing)  
 **Status:** **Accepted — build the final product** (no phased MVP delivery)  
 **Filename note:** Kept as `phase0-adr-universal-compat.md` for link stability; content is the product ADR.  
-**Repo:** `opencode-plugin-compat` (`docs/plans/`; contract at `docs/ophp/0.1.md`)  
+**Repo:** `opencode-plugin-compat` (`docs/plans/`; contract at `docs/ocp/0.1.md`)  
 **Scope:** Ship a truly universal compat layer across OpenCode, MiMo, Kilo, with ZCode at T0  
-**Inputs:** `universal-opencode-plugin-compat-plan.md`, `phase0-hooks-parity.md`, `ophp-0.1-spec.md`, prior MiMo/dual-host plans, ZCode 3.3.6 exam, Kilo spike, public ZCode plugins (`glm-hammer`, `zcode-glm-fleet`; see [oa-tools/zcode-review/ZCODE_RESEARCH.md](https://github.com/oakimov/oa-tools/blob/main/zcode-review/ZCODE_RESEARCH.md) §7)
+**Inputs:** `universal-opencode-plugin-compat-plan.md`, `phase0-hooks-parity.md`, `ocp-0.1-spec.md`, prior MiMo/dual-host plans, ZCode 3.3.6 exam, Kilo spike, public ZCode plugins (`glm-hammer`, `zcode-glm-fleet`; see [oa-tools/zcode-review/ZCODE_RESEARCH.md](https://github.com/oakimov/oa-tools/blob/main/zcode-review/ZCODE_RESEARCH.md) §7)
 
 ---
 
@@ -17,7 +17,7 @@ Published OpenCode plugins import `@opencode-ai/plugin` (+ optional `/v2/promise
 - **Kilo** → `@kilocode/*`, `.kilo`/`.kilocode`, `KILO_*`, classic Hooks **= OpenCode 1.18.3 key-identical**, **no** v2 exports, **no** project `.opencode` scan  
 - **ZCode** → marketplace / Electron loader (`.zcode-plugin` + Claude-style hooks; public ecosystem exists); **not** the OpenCode npm plugin ABI  
 
-Goal: one universal **compatibility bridge** so **published OpenCode plugins run unchanged** on cooperating hosts (no republish, no per-host plugin forks). Example consumer: `cursor-opencode-provider` — must work via OPHP, not via `cursor-mimocode-provider` / Kilo / ZCode variants.
+Goal: one universal **compatibility bridge** so **published OpenCode plugins run unchanged** on cooperating hosts (no republish, no per-host plugin forks). Example consumer: `cursor-opencode-provider` — must work via OCP, not via `cursor-mimocode-provider` / Kilo / ZCode variants.
 
 **Delivery rule:** No “Phase 1 T1 / Phase 2 T3 / Phase 3 …” product cuts. Research is finished. Ship the complete bridge stack (facades, **one universal adapter**, host kit, doctor, fixtures, M1 patches, matrix). Dual-host consumer packages are **out of scope**. Per-host adapter packages are **out of scope**.
 
@@ -34,9 +34,9 @@ Goal: one universal **compatibility bridge** so **published OpenCode plugins run
 
 **Consequences:** Ship PRs/patches for MiMo + Kilo. ZCode requires vendor M1 (unlikely short-term) → T0 stub.
 
-### ADR-2 — Protocol name & product shape: **OPHP 0.1 = classic T1+T2 path story + Promise v2 aisdk (T3)**
+### ADR-2 — Protocol name & product shape: **OCP 0.1 = classic T1+T2 path story + Promise v2 aisdk (T3)**
 
-- Spec: `ophp-0.1-spec.md`  
+- Spec: `ocp-0.1-spec.md`  
 - Classic core hooks from research parity; MiMo gaps explicit  
 - Effect v2: export + loud fail unless host capable (not a deferred product phase)  
 - Other Promise domains: loud stub in the **same** host kit release  
@@ -60,9 +60,9 @@ Do **not** publish impersonating packages to the public `@opencode-ai/*` org.
 
 ### ADR-5 — ZCode is **first-class in the matrix as T0**, not “ignored”
 
-- Universal `@opencode-compat/adapter` detects `zcode` and refuses OPHP load with doctor text  
-- Document marketplace ≠ OPHP  
-- Optional future research: skills/commands bridge — **separate** from OPHP  
+- Universal `@opencode-compat/adapter` detects `zcode` and refuses OCP load with doctor text  
+- Document marketplace ≠ OCP  
+- Optional future research: skills/commands bridge — **separate** from OCP  
 - Do not block MiMo/Kilo progress on Z.AI politics  
 - Do **not** ship a separate `adapter-zcode` package  
 
@@ -70,7 +70,7 @@ Do **not** publish impersonating packages to the public `@opencode-ai/*` org.
 
 | Track | Role |
 |-------|------|
-| Universal OPHP bridge | **Chosen** — facades + **one** autodetection adapter + host kit so plugins run **unchanged** |
+| Universal OCP bridge | **Chosen** — facades + **one** autodetection adapter + host kit so plugins run **unchanged** |
 | Per-host `@opencode-compat/adapter-*` packages | **Rejected** — host variance is `HostProfile` + internal dispatch |
 | `dual-host-packages-plan.md` (`cursor-mimocode-provider`, etc.) | **Rejected / superseded** — multiplying host-specific Cursor (or other) provider packages is not this product |
 
@@ -104,7 +104,7 @@ From discovery (artifacts under `tasks/`):
 | Examine ZCode 3.3.6 plugin ABI | ✅ T0 |
 | Diff classic Hooks OC × MiMo × Kilo | ✅ `phase0-hooks-parity.md` |
 | Inventory top OpenCode plugins classic vs v2 | ✅ sample in parity doc |
-| ADR: M1 / facade / OPHP 0.1 | ✅ this document |
+| ADR: M1 / facade / OCP 0.1 | ✅ this document |
 | Decide repo home | ✅ `opencode-plugin-compat` |
 
 ---
@@ -112,8 +112,8 @@ From discovery (artifacts under `tasks/`):
 ## 4. Final product prep (build now)
 
 ### P1 — Spec in repo
-- Keep `ophp-0.1-spec.md` as the working contract  
-- On repo create: copy to `docs/ophp/0.1.md`
+- Keep `ocp-0.1-spec.md` as the working contract  
+- On repo create: copy to `docs/ocp/0.1.md`
 
 ### P2 — Repo skeleton
 ```
@@ -126,7 +126,7 @@ opencode-plugin-compat/
     host-promise-v2/
     cli/                    # doctor + matrix
   fixtures/                 # conformance
-  docs/ophp/0.1.md
+  docs/ocp/0.1.md
   patches/                  # reference M1 patches for MiMo/Kilo
 ```
 
@@ -150,7 +150,7 @@ opencode-plugin-compat/
 2. Partner one-pager (optional): what an Electron OpenCode-plugin loader would need
 
 ### P4 — Conformance fixtures
-Implement OPHP §10 fixtures as part of first ship (not a later phase).
+Implement OCP §10 fixtures as part of first ship (not a later phase).
 
 ### P5 — Public matrix template
 
@@ -166,7 +166,7 @@ Implement OPHP §10 fixtures as part of first ship (not a later phase).
 
 | Rule | Action |
 |------|--------|
-| Any OpenCode plugin | Run **unchanged** through OPHP on MiMo/Kilo |
+| Any OpenCode plugin | Run **unchanged** through OCP on MiMo/Kilo |
 | Host path/env gaps (TX) | Fix in bridge (`HostProfile`, path dual-scan, env mapping) or document residual limits |
 | ZCode | T0 only without vendor OpenCode-plugin loader |
 | `dual-host-packages-plan.md` | Historical only — do not implement |
@@ -189,7 +189,7 @@ Implement OPHP §10 fixtures as part of first ship (not a later phase).
 
 ## 6. What “truly universal” means (honest ceiling)
 
-**In scope for universal OPHP product:**
+**In scope for universal OCP product:**
 - OpenCode (reference)  
 - MiMo + Kilo as **cooperating open CLI forks** (M1)  
 - ZCode as **explicit T0 cell** in the same matrix/docs/CLI doctor  
@@ -204,7 +204,7 @@ Implement OPHP §10 fixtures as part of first ship (not a later phase).
 
 ## 7. Next actions (build)
 
-1. ~~**Create repo** `opencode-plugin-compat` and move/copy OPHP docs~~ **done** (scaffold + `docs/`)  
+1. ~~**Create repo** `opencode-plugin-compat` and move/copy OCP docs~~ **done** (scaffold + `docs/`)  
 2. **Implement full product** — profile + facades + **universal adapter** (autodetect) + host kit + CLI + fixtures  
 3. **M1 patches** against MiMo/Kilo (overrides, dual-scan, host kit embed)  
 4. **Prove unchanged plugins** on MiMo/Kilo (classic + `v2/promise` samples, incl. `cursor-opencode-provider` as a matrix subject)  
@@ -220,7 +220,7 @@ Implement OPHP §10 fixtures as part of first ship (not a later phase).
 |-----|------|
 | `universal-opencode-plugin-compat-plan.md` | Master product plan |
 | `phase0-hooks-parity.md` | Research evidence (Hooks / path / inventory) |
-| `ophp-0.1-spec.md` | Protocol / product contract |
+| `ocp-0.1-spec.md` | Protocol / product contract |
 | `phase0-adr-universal-compat.md` | This ADR |
 | `mimo-opencode-compat-layer-plan.md` | MiMo M1 integration detail — MiMo is an **equal** `HostProfile` target, not a separate adapter package |
 | `dual-host-packages-plan.md` | **Superseded** historical sketch |

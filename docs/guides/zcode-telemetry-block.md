@@ -1,10 +1,10 @@
 # Block ZCode telemetry (host firewall / DNS)
 
-**Status:** documentation only — **not** an OPHP feature, marketplace plugin, or in-app kill switch  
+**Status:** documentation only — **not** an OCP feature, marketplace plugin, or in-app kill switch  
 **Host:** ZCode desktop (verified against **3.3.6** arm64)  
 **Evidence:** [oa-tools/zcode-review/ZCODE_RESEARCH.md](https://github.com/oakimov/oa-tools/blob/main/zcode-review/ZCODE_RESEARCH.md); plan notes in [`universal-opencode-plugin-compat-plan.md`](../plans/universal-opencode-plugin-compat-plan.md) §7.1
 
-ZCode has **no first-party telemetry opt-out**. OPHP cannot disable ARMS / product events from inside a plugin. This guide is host-level mitigation only.
+ZCode has **no first-party telemetry opt-out**. OCP cannot disable ARMS / product events from inside a plugin. This guide is host-level mitigation only.
 
 Related (hosts **with** in-app opt-out):
 
@@ -73,6 +73,6 @@ Do **not** block whole `zcode.z.ai` “for telemetry alone” without accepting 
 
 ## Honesty
 
-- **Not** deliverable via OPHP, `.zcode-plugin`, ASAR patch, or `NODE_OPTIONS` (packaged Electron rejects useful injection paths; resign rejected as product path).
+- **Not** deliverable via OCP, `.zcode-plugin`, ASAR patch, or `NODE_OPTIONS` (packaged Electron rejects useful injection paths; resign rejected as product path).
 - Soft-fail telemetry ≠ “silent perfect privacy.” CDN / project hosts can change; re-check after ZCode upgrades.
 - ZCode remains **T0** for OpenCode plugin compatibility (marketplace ABI ≠ `@opencode-ai/plugin`).

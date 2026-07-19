@@ -2,7 +2,7 @@
 
 ## Product
 
-Universal **OPHP** compatibility **bridge** monorepo. Ship the **complete** stack — no phased MVP cuts.
+Universal **OCP** compatibility **bridge** monorepo. Ship the **complete** stack — no phased MVP cuts.
 
 - Goal: **any OpenCode plugin runs unchanged** on cooperating hosts via facades + **one** autodetection adapter + host kit.
 - Facades remapped **inside fork install trees** (not spoofing public `@opencode-ai` on npm).
@@ -18,7 +18,7 @@ Universal **OPHP** compatibility **bridge** monorepo. Ship the **complete** stac
 packages/profile|facade-*|adapter|host-promise-v2|cli
 fixtures/          # conformance
 patches/           # reference M1 MiMo/Kilo patches
-docs/ophp/0.1.md   # contract
+docs/ocp/0.1.md   # contract
 docs/plans/        # ADRs + plans
 docs/guides/       # companion privacy notes (non-runtime)
 ```
@@ -31,11 +31,11 @@ docs/guides/       # companion privacy notes (non-runtime)
 - Facade `v2/effect` may loud-fail unless host declares capability; `v2/promise` + aisdk is the T3 bar.
 - Do not claim ZCode drop-in without a Z.AI vendor loader.
 - Consumer plugins (e.g. `cursor-opencode-provider`) are **test/matrix subjects**, not deliverables of this repo.
-- Privacy companions: Kilo/MiMo document **in-app** telemetry opt-out; ZCode telemetry is **docs-only** firewall/DNS — never claim an OPHP plugin kill.
+- Privacy companions: Kilo/MiMo document **in-app** telemetry opt-out; ZCode telemetry is **docs-only** firewall/DNS — never claim an OCP plugin kill.
 
 ## Docs source of truth
 
-1. `docs/ophp/0.1.md` — protocol
+1. `docs/ocp/0.1.md` — protocol
 2. `docs/plans/phase0-adr-universal-compat.md` — decisions
 3. `docs/plans/universal-opencode-plugin-compat-plan.md` — product plan
 

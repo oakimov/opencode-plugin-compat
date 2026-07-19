@@ -1,6 +1,6 @@
 # opencode-plugin-compat
 
-**OPHP** — OpenCode Plugin Host Protocol and a **universal compatibility bridge** for OpenCode forks.
+**OCP** — OpenCode Compatibility Protocol and a **universal compatibility bridge** for OpenCode forks.
 
 Run **published OpenCode plugins unchanged** (`import "@opencode-ai/plugin"` / `v2/promise`) on cooperating forks (**MiMo Code**, **Kilo Code**). **ZCode** stays honestly at T0 (marketplace ABI ≠ OpenCode plugin ABI). This repo does **not** ship or plan host-specific forks of individual plugins (no `cursor-mimocode-provider`, `cursor-kilocode-provider`, etc.).
 
@@ -21,7 +21,7 @@ Final-product monorepo scaffold. Research and ADRs live under [`docs/`](./docs/)
 | [`host-promise-v2`](./packages/host-promise-v2) | Shared Promise v2 aisdk host kit (M1 embed) |
 | [`cli`](./packages/cli) | `compat doctor` + matrix runner |
 
-Also: [`fixtures/`](./fixtures) (conformance), [`patches/`](./patches) (reference M1 patches), [`docs/ophp/0.1.md`](./docs/ophp/0.1.md).
+Also: [`fixtures/`](./fixtures) (conformance), [`patches/`](./patches) (reference M1 patches), [`docs/ocp/0.1.md`](./docs/ocp/0.1.md).
 
 **Not in scope:** separate publishable packages per host (`adapter-mimo`, `adapter-kilo`, …). Host differences live in `HostProfile` data + internal dispatch inside `@opencode-compat/adapter`.
 
@@ -29,7 +29,7 @@ Also: [`fixtures/`](./fixtures) (conformance), [`patches/`](./patches) (referenc
 
 | Doc | Purpose |
 |-----|---------|
-| [`docs/ophp/0.1.md`](./docs/ophp/0.1.md) | OPHP 0.1 contract |
+| [`docs/ocp/0.1.md`](./docs/ocp/0.1.md) | OCP 0.1 contract |
 | [`docs/plans/universal-opencode-plugin-compat-plan.md`](./docs/plans/universal-opencode-plugin-compat-plan.md) | Parent product plan |
 | [`docs/plans/phase0-adr-universal-compat.md`](./docs/plans/phase0-adr-universal-compat.md) | Product ADR |
 | [`docs/plans/phase0-hooks-parity.md`](./docs/plans/phase0-hooks-parity.md) | Hooks / path evidence |
@@ -60,5 +60,5 @@ Requires [Bun](https://bun.sh) ≥ 1.2.
 
 ## Related
 
-- Example consumer plugin (must run **unchanged** via OPHP): [oakimov/cursor-opencode-provider](https://github.com/oakimov/cursor-opencode-provider)
+- Example consumer plugin (must run **unchanged** via OCP): [oakimov/cursor-opencode-provider](https://github.com/oakimov/cursor-opencode-provider)
 - Research baselines: [oa-tools/mimo-review](https://github.com/oakimov/oa-tools/tree/main/mimo-review), [oa-tools/kilo-review](https://github.com/oakimov/oa-tools/tree/main/kilo-review), [oa-tools/zcode-review](https://github.com/oakimov/oa-tools/tree/main/zcode-review)

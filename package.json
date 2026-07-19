@@ -2,7 +2,7 @@
   "name": "opencode-plugin-compat",
   "private": true,
   "version": "0.1.0",
-  "description": "Universal OpenCode plugin compatibility (OPHP) — facades, one autodetection adapter, host kit, and doctor for OpenCode forks",
+  "description": "Universal OpenCode plugin compatibility (OCP) — facades, one autodetection adapter, host kit, and doctor for OpenCode forks",
   "type": "module",
   "license": "MPL-2.0",
   "author": "oakimov",

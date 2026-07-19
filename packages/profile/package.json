@@ -1,7 +1,7 @@
 {
   "name": "@opencode-compat/profile",
   "version": "0.1.0",
-  "description": "HostProfile types and draft profiles for OPHP hosts",
+  "description": "HostProfile types and draft profiles for OCP hosts",
   "type": "module",
   "license": "MPL-2.0",
   "author": "oakimov",
