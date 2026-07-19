@@ -52,22 +52,95 @@ Closing path gaps is the **bridge’s** job (docs, doctor, optional operator cop
 
 ## 3. Promise v2 / `host-promise-v2` (Layer E / T3)
 
-MiMo does **not** publish `@mimo-ai/plugin/v2/promise`. OCP supplies Promise v2 via `@opencode-compat/host-promise-v2`, exposed through the facade override for `@opencode-ai/plugin/v2/promise`.
+### 3.1 Gap vs classic Hooks
 
-```ts
-import { wirePromiseV2 } from "@opencode-compat/ocp"
-// or: createPromiseV2Host / runPromisePlugin from @opencode-compat/host-promise-v2
+| Path | What works on MiMo today |
+|------|--------------------------|
+| **Classic Hooks** (`@opencode-ai/plugin`) | After Layer A (`ocp setup` + reify), MiMo loads the plugin and can surface models (e.g. `cursor/*` via `mimo models`) through the classic provider/auth hooks. |
+| **Promise v2** (`@opencode-ai/plugin/v2/promise`) | Plugin `define()` + `setup` can register `ctx.aisdk.sdk` / `ctx.aisdk.language` listeners, but **MiMo never calls those hooks** during native provider-resolve. There is **no** `@mimo-ai/plugin/v2/promise` and **no** in-process aisdk emit in [packages/opencode/src/provider/provider.ts](https://github.com/XiaomiMiMo/MiMo-Code/blob/main/packages/opencode/src/provider/provider.ts). |
 
-const host = wirePromiseV2({ env: { OPENCODE_COMPAT_HOST: "mimo" } })
-await host.register(plugin) // plugin from define({ id, setup })
-const { language, sdk } = await host.resolveProvider({
-  providerID: "…",
-  modelID: "…",
-  package: "…",
+So: **classic prove-out ≠ Promise v2 prove-out.** A `v2/promise` plugin that only sits in MiMo’s plugin list will **not** inject `LanguageModelV3` into MiMo’s native model path by itself.
+
+### 3.2 What OCP supplies (no host source edits)
+
+OCP ships the missing host kit externally:
+
+- Facade: `@opencode-ai/plugin/v2/promise` → [`packages/facade-plugin/src/v2/promise.ts`](https://github.com/oakimov/opencode-plugin-compat/tree/main/packages/facade-plugin/src/v2/promise.ts) (requires Layer A overrides)
+- Kit: [`@opencode-compat/host-promise-v2`](https://github.com/oakimov/opencode-plugin-compat/tree/main/packages/host-promise-v2) — OpenCode-shaped `await ctx.aisdk.sdk(cb)` / `await ctx.aisdk.language(cb)` (mutable events)
+- Operator entry: `wirePromiseV2()` from [`@opencode-compat/ocp`](https://github.com/oakimov/opencode-plugin-compat/tree/main/packages/ocp) / adapter
+
+`HostProfile` for `mimo` sets `capabilities.promiseV2` / `aisdkProviderHooks` to **true** because **this OCP kit** is the provider — not because MiMo exports a native v2 surface.
+
+### 3.3 Operator sidecar — call `resolveProvider` yourself
+
+Until MiMo gains an in-process seam, T3 live proof is an **external sidecar** (operator script / helper process) that:
+
+1. Loads the **unchanged** consumer `plugin/v2` entry from the MiMo install tree  
+2. `wirePromiseV2({ env: { OPENCODE_COMPAT_HOST: "mimo" } })`  
+3. `await host.register(plugin)` — runs `setup`, attaches aisdk listeners  
+4. `await host.resolveProvider({ providerID, modelID, package })` — emits `sdk` then `language`, returns mutated `{ language, sdk, model }`
+
+**Prerequisites**
+
+1. Consumer plugin installed into MiMo (`mimo plugin -g …`)  
+2. `ocp setup --host mimo` (deep overrides + reify) so `@opencode-ai/plugin` inside that tree is the OCP facade  
+3. `OPENCODE_COMPAT_HOST=mimo` (or pass `env` into `wirePromiseV2`)
+
+**Copy-paste smoke** (from this checkout; adjust plugin path if the cache layout differs):
+
+```bash
+# Layer A first (once per plugin install/upgrade)
+bun packages/ocp/bin/ocp.ts setup --host mimo
+
+# Sidecar: register + resolveProvider (does not edit MiMo)
+OPENCODE_COMPAT_HOST=mimo bun -e '
+import { wirePromiseV2 } from "./packages/adapter/src/index.ts"
+
+const pluginPath =
+  `${process.env.HOME}/.cache/mimocode/packages/cursor-opencode-provider@latest/node_modules/cursor-opencode-provider/dist/plugin-v2.js`
+const plugin = (await import(pluginPath)).default
+const host = wirePromiseV2({
+  env: { ...process.env, OPENCODE_COMPAT_HOST: "mimo" },
 })
+await host.register(plugin)
+
+const { language, sdk } = await host.resolveProvider({
+  providerID: "cursor",
+  modelID: "grok-4.5",
+  // package string must match what the plugin’s sdk hook expects
+  package: pluginPath,
+})
+
+if (!language?.specificationVersion || language.specificationVersion !== "v3") {
+  throw new Error("resolveProvider did not return LanguageModelV3")
+}
+console.log({
+  pluginIds: host.plugins(),          // e.g. ["cursor.provider"]
+  provider: language.provider,        // "cursor"
+  modelId: language.modelId,          // "grok-4.5"
+  hasSdkFactory: typeof sdk?.languageModel === "function",
+})
+'
 ```
 
-`HostProfile` for `mimo` sets `capabilities.promiseV2` / `aisdkProviderHooks` to **true** because the OCP layer provides the kit. Live MiMo provider-resolve still needs an operator/sidecar call into `resolveProvider` (no host source edits). Until that seam is reached in-process, plugins that only `define()` without a host calling `resolveProvider` will not inject models into MiMo’s native path.
+**Success criteria:** `language.specificationVersion === "v3"`, `language.provider` / `language.modelId` match the request, and `sdk.languageModel` is present when the plugin’s sdk hook ran. That is the T3 bar for the OCP kit on MiMo.
+
+**What this does *not* do**
+
+- It does **not** patch MiMo source or add a native `v2/promise` export.  
+- It does **not** automatically feed `language` into `mimo models` / the running TUI. Native listing still uses classic Hooks (or built-in providers).  
+- A future in-process seam would be: wherever MiMo builds a language model for `providerID`/`modelID`, call the same `resolveProvider` (or `injectLanguageModel`) and use the returned `language`. Until then, keep the sidecar as the operator bridge.
+
+**`resolveProvider` input tips**
+
+| Field | Role |
+|-------|------|
+| `providerID` | Matched by plugin `language` hooks (e.g. `"cursor"`) |
+| `modelID` | Becomes `event.model.id` / `event.model.api.id` |
+| `package` | String passed to `event.package` — many plugins (incl. `cursor-opencode-provider`) gate the **sdk** hook on this containing their package name or install path |
+| `options` / `sdk` / `model` | Optional seeds; hooks mutate `event.sdk` / `event.language` in place |
+
+API reference: [`packages/host-promise-v2`](https://github.com/oakimov/opencode-plugin-compat/tree/main/packages/host-promise-v2), contract [`docs/ocp/0.1.md`](https://github.com/oakimov/opencode-plugin-compat/blob/main/docs/ocp/0.1.md) §7.
 
 ---
 
@@ -93,4 +166,4 @@ opencode-compat matrix --host mimo --compat-scan
 
 **Live smoke (classic):** after `mimo plugin -g cursor-opencode-provider` + `ocp setup --host mimo`, `mimo models` should list `cursor/*` when Cursor auth/cache is available (classic Hooks path; no host source edits).
 
-**Live smoke (Promise v2):** import the unchanged `plugin/v2` entry from the MiMo install tree, then `wirePromiseV2({ env: { OPENCODE_COMPAT_HOST: "mimo" } })` → `register` → `resolveProvider`. Native MiMo provider-resolve still needs that external sidecar/operator call (see §3).
+**Live smoke (Promise v2):** run the §3.3 sidecar. Expect `language.specificationVersion === "v3"` for `cursor` / `grok-4.5`. Do **not** expect `mimo models` to change from the sidecar alone — native listing is still classic Hooks until an in-process `resolveProvider` seam exists.
