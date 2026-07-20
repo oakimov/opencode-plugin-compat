@@ -132,20 +132,28 @@ ocp setup --host kilo
 ## Later releases (OIDC / no OTP)
 
 ```bash
-# 1. Bump the whole train (package.json + VERSION constants)
-bun scripts/bump-version.ts 0.1.1
+# 1. Bump the whole train (package.json + VERSION constants + bun.lock)
+bun scripts/bump-version.ts 0.1.2
 
-# 2. Verify
+# 2. Verify (fails closed if bun.lock or packed deps drift from the train)
 bun run pack:check
 
-# 3. Commit + push main
-git add -A && git commit -m "chore: release 0.1.1"
+# 3. Commit + push main (include bun.lock)
+git add -A && git commit -m "chore: release 0.1.2"
 git push origin main
 
 # 4. Tag must match package version (v-prefix)
-git tag v0.1.1
-git push origin v0.1.1
+git tag v0.1.2
+git push origin v0.1.2
 ```
+
+`bump-version.ts` rewrites **`bun.lock` workspace package versions** to match the train (plain `bun install` alone will not), then runs `bun install` to validate. Bun’s `pm pack` rewrites `workspace:*` **from the lockfile**, not from `package.json` — a stale lock publishes wrong transitive pins (what happened on `0.1.1`).
+
+`pack:check` / publish always:
+
+1. Assert all package.json versions are equal (the train)  
+2. Assert `bun.lock` workspace versions equal that train  
+3. Pack tarballs and assert every packed `@opencode-compat/*` dependency is an **exact** train pin  
 
 GitHub Actions workflow **Publish** then:
 
@@ -161,12 +169,12 @@ No `NPM_TOKEN` secret. Publisher identity will look like `GitHub Actions <npm-oi
 
 | Script | Purpose |
 |---|---|
-| `bun run pack:check` / `publish:dry` | Build + test + pack dry-run |
-| `bun run pack` | Also write `.tmp/npm-pack/*.tgz` |
+| `bun run pack:check` / `publish:dry` | Build + test + pack + **train gates** (lockfile + packed deps) |
+| `bun run pack` | Same (tarballs under `.tmp/npm-pack`) |
 | `bun run publish:npm` | Local/first-time publish (public) |
 | `bun scripts/publish.ts --publish --oidc` | CI Trusted Publishing |
 | `bun scripts/publish.ts --publish --skip-existing` | Resume after partial publish |
-| `bun scripts/bump-version.ts <ver>` | Sync train version across packages |
+| `bun scripts/bump-version.ts <ver>` | Sync train version across packages **and refresh bun.lock** |
 
 ---
 
@@ -176,5 +184,6 @@ No `NPM_TOKEN` secret. Publisher identity will look like `GitHub Actions <npm-oi
 - **Do not** publish impersonating `@opencode-ai/plugin` / `@opencode-ai/sdk`. Layer A overrides remap those names to `@opencode-compat/facade-*` inside host install trees only.
 - Re-run `ocp setup` after host plugin install/upgrade.
 - Keep all eight package versions equal for a train release.
+- Always commit the refreshed **`bun.lock`** with a version bump. Publish CI will fail if lockfile or packed deps disagree with the train.
 - `prepack` runs `tsc` per package; root scripts still build the project-references graph first.
 - Bun shebang CLIs (`ocp`, `compat`, `opencode-compat`) require Bun on `PATH` after global install.

@@ -3,14 +3,20 @@
  * Prepare / dry-run / publish public `@opencode-compat/*` in dependency order.
  *
  * Usage:
- *   bun scripts/publish.ts                 # build + test + pack dry-run
- *   bun scripts/publish.ts --pack           # also write tarballs under .tmp/npm-pack
+ *   bun scripts/publish.ts                 # build + test + pack + train gates
+ *   bun scripts/publish.ts --pack           # same (tarballs under .tmp/npm-pack)
  *   bun scripts/publish.ts --publish        # first-time / local (OTP-friendly)
  *   bun scripts/publish.ts --publish --oidc # CI Trusted Publishing (npm + OIDC)
  *
  * Always packs with Bun (rewrites workspace:* → concrete versions), then
  * publishes via `npm publish <tarball> --access public` so packages stay public
  * and CI can use npm OIDC provenance (Bun alone does not drive Trusted Publishing).
+ *
+ * Train gates (fail closed):
+ *   1. All package.json versions equal
+ *   2. bun.lock workspace package versions equal that train
+ *      (Bun `pm pack` rewrites workspace:* from the lockfile)
+ *   3. Packed tarball dependency pins for @opencode-compat/* equal the train
  */
 import { spawnSync } from "node:child_process"
 import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync } from "node:fs"
@@ -77,6 +83,126 @@ function trainVersion(): string {
   return [...versions][0]!
 }
 
+/** bun.lock is JSONC (trailing commas). */
+function readBunLock(): {
+  workspaces?: Record<string, { name?: string; version?: string }>
+} {
+  const path = join(ROOT, "bun.lock")
+  if (!existsSync(path)) {
+    throw new Error("Missing bun.lock — run bun install")
+  }
+  const text = readFileSync(path, "utf8")
+  try {
+    return JSON.parse(text.replace(/,\s*([\]}])/g, "$1")) as {
+      workspaces?: Record<string, { name?: string; version?: string }>
+    }
+  } catch (err) {
+    throw new Error(
+      `Failed to parse bun.lock: ${err instanceof Error ? err.message : err}`,
+    )
+  }
+}
+
+/**
+ * Bun `pm pack` rewrites workspace:* using bun.lock workspace versions.
+ * If lockfile lags package.json, published transitive deps pin the old train.
+ */
+function assertLockfileTrainVersions(version: string): void {
+  const lock = readBunLock()
+  const workspaces = lock.workspaces ?? {}
+  const mismatches: string[] = []
+
+  for (const dir of PACKAGES) {
+    const key = `packages/${dir}`
+    const entry = workspaces[key]
+    if (!entry) {
+      mismatches.push(`${key}: missing from bun.lock workspaces`)
+      continue
+    }
+    if (entry.version !== version) {
+      mismatches.push(
+        `${key} (${entry.name ?? readPkg(dir).name}): lock=${entry.version ?? "(none)"} package.json=${version}`,
+      )
+    }
+  }
+
+  if (mismatches.length) {
+    throw new Error(
+      [
+        `bun.lock workspace versions are stale (Bun pack would pin wrong @opencode-compat/* deps):`,
+        ...mismatches.map((line) => `  - ${line}`),
+        `Fix: bun install   (or re-run bun scripts/bump-version.ts ${version})`,
+      ].join("\n"),
+    )
+  }
+}
+
+function readPackedPackageJson(tarball: string): PkgJson {
+  const r = run("tar", ["-xOf", tarball, "package/package.json"])
+  if (!r.ok) {
+    throw new Error(
+      `Cannot read package/package.json from ${tarball}: ${r.stderr || r.stdout}`,
+    )
+  }
+  return JSON.parse(r.stdout) as PkgJson
+}
+
+/**
+ * Inspect packed tarballs: every @opencode-compat/* dependency must equal the
+ * train version (exact pin). Catches Bun lockfile rewrite bugs before publish.
+ */
+function assertPackedTrainDeps(packDir: string, version: string): void {
+  const errors: string[] = []
+
+  for (const dir of PACKAGES) {
+    const pkg = readPkg(dir)
+    const tarball = join(packDir, packedTarballName(pkg))
+    if (!existsSync(tarball)) {
+      errors.push(`${pkg.name}: missing tarball ${tarball}`)
+      continue
+    }
+
+    let packed: PkgJson
+    try {
+      packed = readPackedPackageJson(tarball)
+    } catch (err) {
+      errors.push(
+        `${pkg.name}: ${err instanceof Error ? err.message : String(err)}`,
+      )
+      continue
+    }
+
+    if (packed.version !== version) {
+      errors.push(
+        `${pkg.name}: packed version ${packed.version} != train ${version}`,
+      )
+    }
+
+    for (const [dep, spec] of Object.entries(packed.dependencies ?? {})) {
+      if (!dep.startsWith("@opencode-compat/")) continue
+      if (spec !== version) {
+        errors.push(
+          `${pkg.name}: dependency ${dep}@${spec} must be exact train ${version}`,
+        )
+      }
+    }
+  }
+
+  if (errors.length) {
+    throw new Error(
+      [
+        `Packed tarball train-dep gate failed:`,
+        ...errors.map((line) => `  - ${line}`),
+        `Usually means bun.lock was stale during pack. Run: bun install && bun run pack:check`,
+      ].join("\n"),
+    )
+  }
+
+  console.log(
+    `packed-deps-ok: ${PACKAGES.length} tarballs pin @opencode-compat/* @ ${version}`,
+  )
+}
+
 function assertTagMatches(version: string): void {
   const refType = process.env.GITHUB_REF_TYPE
   const refName = process.env.GITHUB_REF_NAME
@@ -107,6 +233,7 @@ function assertTagMatches(version: string): void {
 function assertPublishReady(): string {
   const version = trainVersion()
   assertTagMatches(version)
+  assertLockfileTrainVersions(version)
 
   for (const dir of PACKAGES) {
     const pkg = readPkg(dir)
@@ -172,19 +299,16 @@ function registryHasVersion(name: string, version: string): boolean {
   return r.ok && r.stdout.trim() === version
 }
 
-function packAll(packDir: string, write: boolean): number {
-  if (write) {
-    rmSync(packDir, { recursive: true, force: true })
-    mkdirSync(packDir, { recursive: true })
-  }
+function packAll(packDir: string): number {
+  // Always write tarballs so we can inspect rewritten dependency pins.
+  rmSync(packDir, { recursive: true, force: true })
+  mkdirSync(packDir, { recursive: true })
 
   for (const dir of PACKAGES) {
     const pkg = readPkg(dir)
     const cwd = join(ROOT, "packages", dir)
     console.log(`→ pack ${pkg.name}@${pkg.version}`)
-    const r = write
-      ? run("bun", ["pm", "pack", "--destination", packDir], cwd)
-      : run("bun", ["pm", "pack", "--dry-run"], cwd)
+    const r = run("bun", ["pm", "pack", "--destination", packDir], cwd)
     if (!r.ok) {
       console.error(r.stderr || r.stdout)
       return r.status ?? 1
@@ -261,7 +385,6 @@ function publishFromTarballs(
 function main(): number {
   const args = process.argv.slice(2)
   const doPublish = args.includes("--publish")
-  const writePack = args.includes("--pack") || doPublish
   const skipTests = args.includes("--skip-tests")
   const oidc =
     args.includes("--oidc") ||
@@ -300,21 +423,28 @@ function main(): number {
   }
 
   const packDir = join(ROOT, ".tmp", "npm-pack")
-  const packStatus = packAll(packDir, writePack)
+  const packStatus = packAll(packDir)
   if (packStatus !== 0) return packStatus
+
+  try {
+    assertPackedTrainDeps(packDir, version)
+  } catch (err) {
+    console.error(err instanceof Error ? err.message : err)
+    return 1
+  }
 
   if (!doPublish) {
     console.log(
       [
         "",
-        "Dry-run complete (public packages).",
+        "Dry-run complete (public packages; tarballs in .tmp/npm-pack).",
         "First-time publishing: see docs/guides/npm-publish.md",
         "  bun run publish:npm",
         "Later (after Trusted Publisher): push tag v" + version,
         "",
         "Consumers:",
         "  bun add -g @opencode-compat/ocp",
-        "  ocp setup --host mimo",
+        "  ocp setup --host mimo --mode npm --version " + version,
       ].join("\n"),
     )
     return 0
