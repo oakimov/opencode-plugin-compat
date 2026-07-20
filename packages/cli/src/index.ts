@@ -2,7 +2,7 @@
  * @opencode-compat/cli — `compat doctor` + matrix + setup + migrate-zcode companion.
  */
 export const PKG = "@opencode-compat/cli" as const
-export const VERSION = "0.1.1" as const
+export const VERSION = "0.1.2" as const
 
 import { doctorReport } from "@opencode-compat/adapter"
 import {
@@ -122,7 +122,7 @@ setup options:
   --dir <path>                   Install tree root (default: host pluginInstallDir)
   --host opencode|mimo|kilo|...  Force host detection
   --mode auto|npm|file           Override spec form (auto prefers local file:)
-  --version <ver>                npm: facade version (default 0.1.0)
+  --version <ver>                npm: facade version (default: current OCP train)
   --dry-run                      Print plan only; do not write
   --deep / --no-deep             Also patch child package.json (default: deep)
   --reify / --no-reify           npm install after patch when node_modules exists (default: auto)

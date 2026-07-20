@@ -1,4 +1,5 @@
 import { join } from "node:path"
+import { OCP_VERSION } from "./version"
 
 /** T0 doctor copy for ZCode — marketplace ABI ≠ OCP. */
 export function zcodeDoctorMessage(): string {
@@ -98,7 +99,7 @@ export function formatProfileSummary(
 }
 
 /** Layer A override map: `@opencode-ai/*` → `@opencode-compat/facade-*` (npm: form). */
-export function facadeOverrides(version = "0.1.0"): Record<string, string> {
+export function facadeOverrides(version: string = OCP_VERSION): Record<string, string> {
   return {
     "@opencode-ai/plugin": `npm:@opencode-compat/facade-plugin@${version}`,
     "@opencode-ai/sdk": `npm:@opencode-compat/facade-sdk@${version}`,
@@ -106,7 +107,7 @@ export function facadeOverrides(version = "0.1.0"): Record<string, string> {
 }
 
 /** Suggested override map snippet for plugin install trees / operator overrides. */
-export function facadeOverrideSnippet(version = "0.1.0"): string {
+export function facadeOverrideSnippet(version: string = OCP_VERSION): string {
   return JSON.stringify(facadeOverrides(version), null, 2)
 }
 

@@ -3,8 +3,7 @@
  * Contract: docs/ocp/0.1.md §5
  */
 export const PKG = "@opencode-compat/profile" as const
-export const VERSION = "0.1.1" as const
-export const OCP_VERSION = "0.1.1" as const
+export { VERSION, OCP_VERSION } from "./version"
 
 export type {
   DetectOptions,

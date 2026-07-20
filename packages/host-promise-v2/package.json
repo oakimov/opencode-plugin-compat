@@ -1,6 +1,6 @@
 {
   "name": "@opencode-compat/host-promise-v2",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "description": "Shared Promise v2 aisdk host kit wired from the OCP layer",
   "type": "module",
   "license": "MPL-2.0",

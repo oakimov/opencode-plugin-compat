@@ -6,7 +6,7 @@
  * Does not run `@opencode-ai/plugin` hooks on ZCode (remains T0).
  */
 export const PKG = "@opencode-compat/migrate-zcode" as const
-export const VERSION = "0.1.1" as const
+export const VERSION = "0.1.2" as const
 export const EMITTER_VERSION = "0.3.0-marketplace" as const
 
 export type {

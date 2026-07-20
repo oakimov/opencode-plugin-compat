@@ -7,7 +7,7 @@
  *
  * Updates:
  *   1. packages/<name>/package.json version
- *   2. export const VERSION (and profile OCP_VERSION) in src/index.ts
+ *   2. export const VERSION in src/index.ts (profile: src/version.ts + OCP_VERSION)
  *   3. bun.lock workspaces["packages/<name>"].version
  *
  * Bun's `pm pack` rewrites workspace:* from the **lockfile**, not package.json.
@@ -43,18 +43,25 @@ for (const dir of PACKAGES) {
   console.log(`${pkg.name}: ${prev} → ${next}`)
 
   const indexPath = join(ROOT, "packages", dir, "src", "index.ts")
-  let src = readFileSync(indexPath, "utf8")
-  src = src.replace(
-    /export const VERSION = "[^"]+" as const/,
-    `export const VERSION = "${next}" as const`,
-  )
   if (dir === "profile") {
-    src = src.replace(
-      /export const OCP_VERSION = "[^"]+" as const/,
-      `export const OCP_VERSION = "${next}" as const`,
+    const versionPath = join(ROOT, "packages", dir, "src", "version.ts")
+    writeFileSync(
+      versionPath,
+      [
+        `/** Package / OCP train version — kept in sync by \`bun scripts/bump-version.ts\`. */`,
+        `export const VERSION = "${next}" as const`,
+        `export const OCP_VERSION = "${next}" as const`,
+        ``,
+      ].join("\n"),
     )
+  } else {
+    let src = readFileSync(indexPath, "utf8")
+    src = src.replace(
+      /export const VERSION = "[^"]+" as const/,
+      `export const VERSION = "${next}" as const`,
+    )
+    writeFileSync(indexPath, src)
   }
-  writeFileSync(indexPath, src)
 }
 
 const lockPath = join(ROOT, "bun.lock")

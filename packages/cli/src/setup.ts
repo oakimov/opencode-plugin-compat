@@ -5,6 +5,7 @@
 import {
   detect,
   facadeOverrides,
+  OCP_VERSION,
   type DetectOptions,
   type HostId,
 } from "@opencode-compat/profile"
@@ -24,7 +25,7 @@ export type SetupOptions = {
   dir?: string
   /** Force host id (sets OPENCODE_COMPAT_HOST for detect). */
   host?: HostId | string
-  /** Override map version for npm: specs (default 0.1.0). */
+  /** Override map version for npm: specs (default: current OCP train). */
   version?: string
   /** Prefer npm: specs or local file: paths. Auto when omitted. */
   mode?: SetupMode | "auto"
@@ -202,7 +203,7 @@ function reifyInstallTree(pkgDir: string, dryRun: boolean): { ok: boolean; error
 
 /** Apply Layer A overrides into one or more package.json files under an install tree. */
 export function setup(options: SetupOptions = {}): SetupResult {
-  const version = options.version ?? "0.1.0"
+  const version = options.version ?? OCP_VERSION
   const dryRun = options.dryRun ?? false
   const deep = options.deep ?? true
   const reify = options.reify ?? "auto"

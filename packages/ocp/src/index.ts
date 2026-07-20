@@ -5,7 +5,7 @@
  * config. Bridge packages remain implementation detail / transitive deps.
  */
 export const PKG = "@opencode-compat/ocp" as const
-export const VERSION = "0.1.1" as const
+export const VERSION = "0.1.2" as const
 
 export {
   doctor,
