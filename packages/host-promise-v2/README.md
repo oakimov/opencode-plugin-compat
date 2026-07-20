@@ -37,4 +37,6 @@ On MiMo/Kilo there is **no** native in-process aisdk emit yet — operators call
 
 **License:** MPL-2.0
 
+**End-user Layer A / Option B install:** [INSTALL.md](../../INSTALL.md) (Promise v2 still needs operator/sidecar `resolveProvider` on MiMo/Kilo).
+
 See the monorepo [README](../../README.md) and [OCP 0.1](../../docs/ocp/0.1.md).

@@ -1,6 +1,6 @@
 # @opencode-compat/ocp
 
-User-facing **OCP umbrella**: one install + **`ocp setup`** writes Layer A install-tree overrides so published OpenCode plugins resolve `@opencode-ai/plugin` / `@opencode-ai/sdk` through the compatibility facades.
+User-facing **OCP umbrella**: one install + **`ocp setup`** writes Layer A install-tree overrides (and default Option B provider entry shims) so published OpenCode plugins resolve `@opencode-ai/plugin` / `@opencode-ai/sdk` through the compatibility facades.
 
 **End-user install (MiMo / Kilo + npm):** see the monorepo [**INSTALL.md**](../../INSTALL.md).
 

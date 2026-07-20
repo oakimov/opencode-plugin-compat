@@ -9,6 +9,6 @@ OCP is an **external compatibility layer** for OpenCode-compatible hosts.
 
 These notes document how operators / this repo’s packages attach to a host (install-tree overrides via **`ocp setup`**, path expectations, Promise v2 kit). Hosts remain read-only references.
 
-**User delivery UX (locked):** see [**INSTALL.md**](../../INSTALL.md) — install `@opencode-compat/ocp` → install consumer plugins → run **`ocp setup --mode npm`**. A host `plugin` list entry for OCP alone is not Layer A.
+**User delivery UX (locked):** see [**INSTALL.md**](../../INSTALL.md) — install `@opencode-compat/ocp` → install consumer plugins → run **`ocp setup --mode npm`** (Layer A overrides + default Option B provider shims). A host `plugin` list entry for OCP alone is not Layer A.
 
 **Promise v2 on MiMo/Kilo:** Layer A alone is not enough for T3 live — operators must call `resolveProvider` from an external sidecar until the host emits aisdk hooks in-process. Start with [mimo.md §3](./mimo.md).

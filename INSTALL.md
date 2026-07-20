@@ -135,9 +135,11 @@ Useful flags:
 
 ```bash
 ocp setup --host mimo --mode npm --dry-run   # preview only
-ocp setup --host kilo --mode npm --version 0.1.0   # pin facade versions
+ocp setup --host kilo --mode npm --version 0.1.0   # pin facade train (default today)
 ocp setup --dir ~/.cache/mimocode/packages --mode npm   # explicit install root
 ```
+
+`--version` pins the `@opencode-compat/facade-*` specs written into overrides. The CLI default remains the **currently published** train on npm (today **`0.1.0`**). After a newer public release (e.g. `0.1.1`), pass `--version 0.1.1` or update the default when documenting that train.
 
 Outside this monorepo, always prefer **`--mode npm`** so overrides resolve from the public registry (not local `file:` paths).
 

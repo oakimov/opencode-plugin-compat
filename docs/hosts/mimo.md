@@ -15,12 +15,14 @@ Where the host installs npm plugins into its cache (typically under the MiMo XDG
 
 ```json
 {
-  "@opencode-ai/plugin": "npm:@opencode-compat/facade-plugin@0.1.0",
-  "@opencode-ai/sdk": "npm:@opencode-compat/facade-sdk@0.1.0"
+  "@opencode-ai/plugin": "npm:@opencode-compat/facade-plugin@0.1.x",
+  "@opencode-ai/sdk": "npm:@opencode-compat/facade-sdk@0.1.x"
 }
 ```
 
-**Preferred UX:** follow the step-by-step guide in [**INSTALL.md**](../INSTALL.md) (install `@opencode-compat/ocp` from npm → install consumer plugins → `ocp setup --mode npm`). Equivalent CLI names: `compat setup` / print-only `compat overrides` / `opencode-compat overrides`.
+(`ocp setup --mode npm` writes the concrete published train version.)
+
+**Preferred UX:** follow the step-by-step guide in [**INSTALL.md**](../../INSTALL.md) (install `@opencode-compat/ocp` from npm → install consumer plugins → `ocp setup --mode npm`). Equivalent CLI names: `compat setup` / print-only `compat overrides` / `opencode-compat overrides`.
 
 ```bash
 # summary — full steps in INSTALL.md
@@ -33,7 +35,7 @@ MiMo installs each npm plugin into an **isolated** child dir (`~/.cache/mimocode
 
 Listing OCP itself in `plugin` is optional bootstrap only — it does **not** intercept other plugins’ `@opencode-ai/plugin` imports.
 
-From this checkout, `--mode auto` may use local `file:` facade paths; published installs use `--mode npm`. See [`INSTALL.md`](../INSTALL.md) and [`docs/guides/npm-publish.md`](../guides/npm-publish.md).
+From this checkout, `--mode auto` may use local `file:` facade paths; published installs use `--mode npm`. See [`INSTALL.md`](../../INSTALL.md) and [`npm-publish.md`](../guides/npm-publish.md).
 
 Do **not** override `@opencode-ai/plugin` straight to `@mimo-ai/plugin` — that skips OCP (v2 surface, doctor, shared host kit).
 
