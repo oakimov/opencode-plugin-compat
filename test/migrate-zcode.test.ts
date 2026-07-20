@@ -32,7 +32,7 @@ afterEach(async () => {
 describe("@opencode-compat/migrate-zcode identity", () => {
   test("package constants", () => {
     expect(PKG).toBe("@opencode-compat/migrate-zcode")
-    expect(VERSION).toBe("0.1.0")
+    expect(VERSION).toMatch(/^\d+\.\d+\.\d+$/)
     expect(EMITTER_VERSION).toContain("marketplace")
   })
 })

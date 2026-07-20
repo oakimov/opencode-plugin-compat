@@ -12,9 +12,9 @@
 #   Publisher on each `@opencode-compat/*` package (same file + repo for all).
 #
 # Later releases:
-#   1. Bump the train version: bun scripts/bump-version.ts 0.1.1
+#   1. Bump the train version: bun scripts/bump-version.ts 0.1.2
 #   2. Commit to main, push.
-#   3. Tag matching package.json: git tag v0.1.1 && git push origin v0.1.1
+#   3. Tag matching package.json: git tag v0.1.2 && git push origin v0.1.2
 #   4. This workflow: install → typecheck → test → build → publish (OIDC).
 #
 # If OIDC fails with ENEEDAUTH, check that workflow filename (publish.yml),
@@ -27,6 +27,12 @@ on:
   push:
     tags:
       - "v*"
+  workflow_dispatch:
+    inputs:
+      confirm:
+        description: "Type publish to run a manual OIDC publish from this ref"
+        required: true
+        default: ""
 
 permissions:
   id-token: write # OIDC trusted publishing
@@ -36,6 +42,7 @@ jobs:
   publish:
     name: Publish @opencode-compat/* (public)
     runs-on: ubuntu-latest
+    if: github.event_name == 'push' || inputs.confirm == 'publish'
 
     steps:
       - name: Checkout
@@ -43,8 +50,6 @@ jobs:
 
       - name: Setup Bun
         uses: oven-sh/setup-bun@v2
-        with:
-          bun-version: "1.3.14"
 
       - name: Setup Node + npm registry (OIDC)
         uses: actions/setup-node@v6

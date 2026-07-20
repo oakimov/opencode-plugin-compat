@@ -13,7 +13,7 @@ import {
 describe("@opencode-compat/profile", () => {
   test("package identity", () => {
     expect(PKG).toBe("@opencode-compat/profile")
-    expect(VERSION).toBe("0.1.0")
+    expect(VERSION).toMatch(/^\d+\.\d+\.\d+$/)
   })
 
   test("CORE_HOOKS has 21 portable hooks", () => {
@@ -585,7 +585,7 @@ describe("@opencode-compat/ocp", () => {
   test("umbrella identity and re-exports", async () => {
     const ocp = await import("../packages/ocp/src/index.ts")
     expect(ocp.PKG).toBe("@opencode-compat/ocp")
-    expect(ocp.VERSION).toBe("0.1.0")
+    expect(ocp.VERSION).toMatch(/^\d+\.\d+\.\d+$/)
     expect(typeof ocp.setup).toBe("function")
     expect(typeof ocp.doctor).toBe("function")
     expect(typeof ocp.facadeOverrides).toBe("function")
