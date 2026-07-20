@@ -32,7 +32,7 @@ permissions:
 
 jobs:
   publish:
-    name: Publish @opencode-compat/* (public)
+    name: Publish public opencode-compat packages
     runs-on: ubuntu-latest
 
     steps:
