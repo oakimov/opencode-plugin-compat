@@ -4,7 +4,7 @@
 
 Run **published OpenCode plugins unchanged** (`import "@opencode-ai/plugin"` / `v2/promise`) on **MiMo Code** and **Kilo Code** via an **external** `@opencode-compat/*` layer. Hosts are read-only references. **ZCode** stays honestly at T0 (marketplace ABI ≠ OpenCode plugin ABI). This repo does **not** ship or plan host-specific forks of individual plugins (no `cursor-mimocode-provider`, `cursor-kilocode-provider`, etc.).
 
-**Install UX (locked):** one umbrella package **`@opencode-compat/ocp`** + **`ocp setup`** (writes install-tree overrides). Then add consumer plugins via host config as usual. A config entry for OCP itself is optional bootstrap only — Layer A still needs overrides (a `plugin` list entry cannot intercept other plugins’ `@opencode-ai/plugin` imports).
+**Install:** see [**INSTALL.md**](./INSTALL.md) — npm install of `@opencode-compat/ocp`, then `ocp setup` on MiMo/Kilo (includes a `cursor-opencode-provider` example).
 
 **License:** [MPL-2.0](./LICENSE)
 
@@ -33,6 +33,7 @@ Also: [`fixtures/`](./fixtures) (conformance), [`docs/hosts/`](./docs/hosts) (ho
 
 | Doc | Purpose |
 |-----|---------|
+| [`INSTALL.md`](./INSTALL.md) | **User install** — npm OCP on MiMo/Kilo (+ `cursor-opencode-provider` example) |
 | [`docs/ocp/0.1.md`](./docs/ocp/0.1.md) | OCP 0.1 contract |
 | [`docs/plans/universal-opencode-plugin-compat-plan.md`](./docs/plans/universal-opencode-plugin-compat-plan.md) | Parent product plan |
 | [`docs/plans/phase0-adr-universal-compat.md`](./docs/plans/phase0-adr-universal-compat.md) | Product ADR |

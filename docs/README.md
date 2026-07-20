@@ -2,6 +2,7 @@
 
 | Path | Role |
 |------|------|
+| [`../INSTALL.md`](../INSTALL.md) | **User install** — npm `@opencode-compat/ocp` on MiMo/Kilo |
 | [`ocp/0.1.md`](./ocp/0.1.md) | **Canonical** OCP 0.1 contract |
 | [`hosts/`](./hosts/) | Host enablement notes (MiMo/Kilo operator attach via OCP) |
 | [`plans/`](./plans/) | Product plan, ADR, evidence, companion migrator plan |

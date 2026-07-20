@@ -20,26 +20,20 @@ Where the host installs npm plugins into its cache (typically under the MiMo XDG
 }
 ```
 
-**Preferred UX:** install `@opencode-compat/ocp`, install consumer plugins, then run **`ocp setup`** (writes the overrides into each plugin install tree and reifies when `node_modules` already exists). Equivalent: `compat setup` / print-only `compat overrides` / `opencode-compat overrides`.
+**Preferred UX:** follow the step-by-step guide in [**INSTALL.md**](../INSTALL.md) (install `@opencode-compat/ocp` from npm → install consumer plugins → `ocp setup --mode npm`). Equivalent CLI names: `compat setup` / print-only `compat overrides` / `opencode-compat overrides`.
 
 ```bash
-# 0) once — umbrella CLI (npm)
+# summary — full steps in INSTALL.md
 bun add -g @opencode-compat/ocp
-
-# 1) install an unchanged OpenCode plugin into MiMo
 mimo plugin -g cursor-opencode-provider
-
-# 2) Layer A — patch + reify isolated install trees under ~/.cache/mimocode/packages/
-ocp setup --host mimo
-# or from this checkout:
-# bun packages/ocp/bin/ocp.ts setup --host mimo
+ocp setup --host mimo --mode npm
 ```
 
 MiMo installs each npm plugin into an **isolated** child dir (`~/.cache/mimocode/packages/<name>@<version>/`). A root-level `packages/package.json` override alone is **not** enough — `ocp setup --deep` (default) patches those children and auto-reifies when they already have `node_modules`. **Re-run `ocp setup` after installing or upgrading plugins.**
 
 Listing OCP itself in `plugin` is optional bootstrap only — it does **not** intercept other plugins’ `@opencode-ai/plugin` imports.
 
-From this checkout, `--mode auto` may use local `file:` facade paths; published installs use `--mode npm` (`npm:@opencode-compat/facade-*@0.1.0`). See [`docs/guides/npm-publish.md`](https://github.com/oakimov/opencode-plugin-compat/blob/main/docs/guides/npm-publish.md).
+From this checkout, `--mode auto` may use local `file:` facade paths; published installs use `--mode npm`. See [`INSTALL.md`](../INSTALL.md) and [`docs/guides/npm-publish.md`](../guides/npm-publish.md).
 
 Do **not** override `@opencode-ai/plugin` straight to `@mimo-ai/plugin` — that skips OCP (v2 surface, doctor, shared host kit).
 
