@@ -8,13 +8,11 @@
 #
 # First-time bootstrap (packages must exist before Trusted Publisher works):
 #   See docs/guides/npm-publish.md → "First-time publishing".
-#   After the local 0.1.0 create-publish, register this workflow as Trusted
-#   Publisher on each `@opencode-compat/*` package (same file + repo for all).
 #
 # Later releases:
-#   1. Bump the train version: bun scripts/bump-version.ts 0.1.2
+#   1. Bump the train version: bun scripts/bump-version.ts X.Y.Z
 #   2. Commit to main, push.
-#   3. Tag matching package.json: git tag v0.1.2 && git push origin v0.1.2
+#   3. Tag matching package.json: git tag vX.Y.Z && git push origin vX.Y.Z
 #   4. This workflow: install → typecheck → test → build → publish (OIDC).
 #
 # If OIDC fails with ENEEDAUTH, check that workflow filename (publish.yml),
@@ -27,12 +25,6 @@ on:
   push:
     tags:
       - "v*"
-  workflow_dispatch:
-    inputs:
-      confirm:
-        description: "Type publish to run a manual OIDC publish from this ref"
-        required: true
-        default: ""
 
 permissions:
   id-token: write # OIDC trusted publishing
@@ -42,7 +34,6 @@ jobs:
   publish:
     name: Publish @opencode-compat/* (public)
     runs-on: ubuntu-latest
-    if: github.event_name == 'push' || inputs.confirm == 'publish'
 
     steps:
       - name: Checkout
