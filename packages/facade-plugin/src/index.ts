@@ -5,7 +5,7 @@
  * Subpaths: `./tool`, `./tui`, `./v2/promise`, `./v2/effect`.
  */
 export const PKG = "@opencode-compat/facade-plugin" as const
-export const VERSION = "0.1.2" as const
+export const VERSION = "0.1.3" as const
 
 export * from "./tool"
 export type {

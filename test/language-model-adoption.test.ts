@@ -8,7 +8,9 @@ import { describe, expect, test } from "bun:test"
 import {
   adaptLanguageModel,
   adoptStreamPart,
+  canonicalToolKey,
   defaultBashDescription,
+  normalizeToolInputForSchema,
   ORIGINAL_SUFFIX,
   policyForHostId,
   policyFromProfile,
@@ -202,13 +204,152 @@ describe("adoptStreamPart — MiMo vs Kilo", () => {
   })
 })
 
+describe("schema-driven argument key adoption", () => {
+  test("canonicalizes casing and separators without a host-specific table", () => {
+    expect(canonicalToolKey("filePath")).toBe("filepath")
+    expect(canonicalToolKey("file_path")).toBe("filepath")
+    expect(canonicalToolKey("request-id")).toBe("requestid")
+  })
+
+  test("normalizes future-fork keys recursively from the advertised schema", () => {
+    const schema = {
+      type: "object",
+      properties: {
+        file_path: { type: "string" },
+        options: {
+          type: "object",
+          properties: {
+            request_id: { type: "string" },
+            replacements: {
+              type: "array",
+              items: {
+                type: "object",
+                properties: { old_string: { type: "string" } },
+              },
+            },
+          },
+        },
+      },
+    }
+    expect(
+      normalizeToolInputForSchema(
+        {
+          filePath: "/tmp/a",
+          options: {
+            requestID: "r1",
+            replacements: [{ oldString: "before" }],
+          },
+        },
+        schema,
+      ),
+    ).toEqual({
+      file_path: "/tmp/a",
+      options: {
+        request_id: "r1",
+        replacements: [{ old_string: "before" }],
+      },
+    })
+  })
+
+  test("follows local refs and schema composition", () => {
+    expect(
+      normalizeToolInputForSchema(
+        { payload: { requestID: "r1", newValue: "after" } },
+        {
+          type: "object",
+          properties: {
+            payload: { $ref: "#/$defs/payload" },
+          },
+          $defs: {
+            payload: {
+              allOf: [
+                {
+                  type: "object",
+                  properties: { request_id: { type: "string" } },
+                },
+                {
+                  type: "object",
+                  properties: { new_value: { type: "string" } },
+                },
+              ],
+            },
+          },
+        },
+      ),
+    ).toEqual({ payload: { request_id: "r1", new_value: "after" } })
+  })
+
+  test("preserves exact MCP keys and refuses ambiguous canonical matches", () => {
+    expect(
+      normalizeToolInputForSchema(
+        { filePath: "/tmp/a" },
+        { type: "object", properties: { filePath: { type: "string" } } },
+      ),
+    ).toEqual({ filePath: "/tmp/a" })
+    expect(
+      normalizeToolInputForSchema(
+        { fooBar: 1 },
+        {
+          type: "object",
+          properties: {
+            foo_bar: { type: "number" },
+            foobar: { type: "number" },
+          },
+        },
+      ),
+    ).toEqual({ fooBar: 1 })
+    expect(
+      normalizeToolInputForSchema(
+        { path: "/tmp/a" },
+        { type: "object", properties: { file_path: { type: "string" } } },
+      ),
+    ).toEqual({ path: "/tmp/a" })
+  })
+})
+
 describe("adaptLanguageModel / wrapProvider*", () => {
-  test("Kilo identity — adaptLanguageModel returns same object", () => {
+  test("pass-through hosts still wrap for schema adoption", async () => {
     const model = {
-      doStream: async () => ({ stream: new ReadableStream() }),
+      async doStream(_options?: unknown) {
+        return {
+          stream: new ReadableStream({
+            start(controller) {
+              controller.enqueue({
+                type: "tool-call",
+                toolCallId: "read-1",
+                toolName: "read",
+                input: JSON.stringify({ filePath: "/tmp/a" }),
+              })
+              controller.close()
+            },
+          }),
+        }
+      },
     }
     const adapted = adaptLanguageModel(model, policyForHostId("kilo"))
-    expect(adapted).toBe(model)
+    expect(adapted).not.toBe(model)
+    const result = await adapted.doStream({
+      tools: [
+        {
+          name: "read",
+          inputSchema: {
+            type: "object",
+            properties: { file_path: { type: "string" } },
+          },
+        },
+      ],
+    })
+    const parts: unknown[] = []
+    const reader = result.stream.getReader()
+    for (;;) {
+      const { done, value } = await reader.read()
+      if (done) break
+      parts.push(value)
+    }
+    expect(parts).toHaveLength(1)
+    expect(JSON.parse((parts[0] as { input: string }).input)).toEqual({
+      file_path: "/tmp/a",
+    })
   })
 
   test("MiMo doStream inserts preamble + bash description", async () => {
@@ -250,7 +391,7 @@ describe("adaptLanguageModel / wrapProvider*", () => {
     )
   })
 
-  test("MiMo doGenerate expands content array", async () => {
+  test("MiMo doGenerate expands content array and adopts schema keys", async () => {
     const model = {
       async doGenerate() {
         return {
@@ -258,20 +399,39 @@ describe("adaptLanguageModel / wrapProvider*", () => {
             {
               type: "tool-call",
               toolCallId: "g1",
-              toolName: "bash",
-              input: { command: "true" },
+              toolName: "edit",
+              input: { filePath: "/tmp/a", oldString: "a", newString: "b" },
             },
           ],
         }
       },
     }
     const adapted = adaptLanguageModel(model, policyForHostId("mimo"))
-    const result = await adapted.doGenerate()
+    const result = await adapted.doGenerate({
+      tools: [
+        {
+          name: "edit",
+          inputSchema: {
+            type: "object",
+            properties: {
+              file_path: { type: "string" },
+              old_string: { type: "string" },
+              new_string: { type: "string" },
+            },
+          },
+        },
+      ],
+    })
     expect(result.content).toHaveLength(2)
     expect(result.content[0].type).toBe("tool-input-start")
+    expect(result.content[1].input).toEqual({
+      file_path: "/tmp/a",
+      old_string: "a",
+      new_string: "b",
+    })
   })
 
-  test("wrapProviderSdk adapts languageModel() for MiMo; identity for Kilo", () => {
+  test("wrapProviderSdk adapts languageModel() for every schema-owning host", () => {
     const sdk = {
       languageModel(id: string) {
         return {
@@ -291,7 +451,7 @@ describe("adaptLanguageModel / wrapProvider*", () => {
         }
       },
     }
-    expect(wrapProviderSdk(sdk, policyForHostId("kilo"))).toBe(sdk)
+    expect(wrapProviderSdk(sdk, policyForHostId("kilo"))).not.toBe(sdk)
     const wrapped = wrapProviderSdk(sdk, policyForHostId("mimo"))
     expect(wrapped).not.toBe(sdk)
   })
@@ -336,13 +496,65 @@ describe("adaptLanguageModel / wrapProvider*", () => {
 })
 
 describe("provider shim source + install-tree setup", () => {
-  test("runtime source encodes MiMo/Kilo policies", () => {
+  test("runtime source detects worker markers and falls back to its install-tree host", async () => {
     const src = providerShimRuntimeSource()
     expect(src).toContain(SHIM_MARKER)
     expect(src).toContain('case "mimo"')
     expect(src).toContain("streamToolCallEnsure: false")
     expect(src).toContain("bashDescriptionRequired: true")
     expect(src).toContain("tool-input-start")
+
+    const { mkdtemp, rm } = await import("node:fs/promises")
+    const { tmpdir } = await import("node:os")
+    const { join } = await import("node:path")
+    const { pathToFileURL } = await import("node:url")
+    const dir = await mkdtemp(join(tmpdir(), "ocp-runtime-"))
+    try {
+      const runtimePath = join(dir, "ocp-lm-runtime.mjs")
+      await Bun.write(runtimePath, src)
+      const runtime = (await import(pathToFileURL(runtimePath).href)) as {
+        detectHostId: (
+          env: Record<string, string>,
+          argv: string[],
+          execPath: string,
+          hostHint?: string,
+        ) => string
+        normalizeToolInputForSchema: (input: unknown, schema: unknown) => unknown
+      }
+      expect(
+        runtime.detectHostId(
+          { MIMOCODE: "1" },
+          ["node", "worker.js"],
+          "/usr/bin/node",
+          "kilo",
+        ),
+      ).toBe("mimo")
+      expect(
+        runtime.detectHostId(
+          {},
+          ["node", "/tmp/opencode-plugin-compat/worker.js"],
+          "/usr/bin/node",
+          "mimo",
+        ),
+      ).toBe("mimo")
+      expect(
+        runtime.detectHostId({}, ["/usr/bin/opencode"], "/usr/bin/node", "mimo"),
+      ).toBe("opencode")
+      expect(
+        runtime.normalizeToolInputForSchema(
+          { filePath: "/tmp/a", oldString: "a" },
+          {
+            type: "object",
+            properties: {
+              file_path: { type: "string" },
+              old_string: { type: "string" },
+            },
+          },
+        ),
+      ).toEqual({ file_path: "/tmp/a", old_string: "a" })
+    } finally {
+      await rm(dir, { recursive: true, force: true })
+    }
   })
 
   test("renderProviderShimSource re-exports create* via wrapProviderModule", () => {
@@ -356,6 +568,7 @@ describe("provider shim source + install-tree setup", () => {
     expect(src).toContain(SHIM_MARKER)
     expect(src).toContain("./ocp-lm-runtime.js")
     expect(src).toContain('from "./index.ocp-original.js"')
+    expect(src).toContain('process.execPath, "mimo"')
     expect(src).toContain("export const createCursor")
     expect(src).toContain("export const VERSION")
   })
@@ -411,9 +624,33 @@ export const VERSION = "1.0.0"
 `
       await Bun.write(join(pkgDir, "dist", "index.js"), original)
 
+      const utilityDir = join(
+        root,
+        "fast-check@1.0.0",
+        "node_modules",
+        "fast-check",
+      )
+      await mkdir(join(utilityDir, "lib"), { recursive: true })
+      await Bun.write(
+        join(utilityDir, "package.json"),
+        JSON.stringify({
+          name: "fast-check",
+          version: "1.0.0",
+          main: "lib/fast-check.js",
+        }),
+      )
+      const utilitySource = "export function createDepthIdentifier() {}\n"
+      await Bun.write(join(utilityDir, "lib", "fast-check.js"), utilitySource)
+
       const result = setupProviderShims({ dir: root, hostHint: "mimo" })
       expect(result.ok).toBe(true)
       expect(result.targets.some((t) => t.changed)).toBe(true)
+      expect(result.targets.some((t) => t.packageName === "fast-check")).toBe(
+        false,
+      )
+      expect(await readFile(join(utilityDir, "lib", "fast-check.js"), "utf8")).toBe(
+        utilitySource,
+      )
 
       const entry = join(pkgDir, "dist", "index.js")
       const backup = join(pkgDir, "dist", `index${ORIGINAL_SUFFIX}`)

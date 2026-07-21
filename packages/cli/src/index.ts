@@ -2,7 +2,7 @@
  * @opencode-compat/cli — `compat doctor` + matrix + setup + migrate-zcode companion.
  */
 export const PKG = "@opencode-compat/cli" as const
-export const VERSION = "0.1.2" as const
+export const VERSION = "0.1.3" as const
 
 import { doctorReport } from "@opencode-compat/adapter"
 import {

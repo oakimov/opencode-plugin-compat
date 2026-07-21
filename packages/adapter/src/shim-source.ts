@@ -47,16 +47,37 @@ export function policyForHostId(id) {
   }
 }
 
-export function detectHostId(env = process.env, argv = process.argv, execPath = process.execPath) {
+function hasEnvMarker(env, name) {
+  if (env[name]) return true
+  const prefix = name + "_"
+  return Object.keys(env).some((key) => key.startsWith(prefix) && env[key])
+}
+
+function binaryTokens(argv, execPath) {
+  return [...argv, execPath || ""]
+    .map((value) => String(value).split(/[\\\\/]/).pop().toLowerCase())
+}
+
+export function detectHostId(
+  env = process.env,
+  argv = process.argv,
+  execPath = process.execPath,
+  hostHint = "",
+) {
   const forced = env.OPENCODE_COMPAT_HOST
   if (typeof forced === "string" && forced.trim()) return forced.trim().toLowerCase()
-  const blob = \`\${argv.join(" ")} \${execPath || ""}\`.toLowerCase()
-  if (blob.includes("mimo")) return "mimo"
-  if (blob.includes("kilocode") || /(?:^|[\\\\/])kilo(?:$|[\\\\s.])/.test(blob)) return "kilo"
-  if (blob.includes("opencode")) return "opencode"
-  if (env.MIMOCODE_HOME || env.MIMOCODE_CONFIG_DIR) return "mimo"
-  if (env.KILO_CONFIG_DIR || env.KILO_HOME) return "kilo"
+
+  const tokens = binaryTokens(argv, execPath)
+  if (tokens.some((token) => token === "mimo" || token === "mimocode" || token.startsWith("mimo-") || token.includes("mimocode"))) return "mimo"
+  if (tokens.some((token) => token === "kilo" || token === "kilocode" || token.startsWith("kilo-") || token.includes("kilocode"))) return "kilo"
+  if (tokens.some((token) => token === "opencode" || token.startsWith("opencode-") || token.includes("opencode"))) return "opencode"
+
+  if (hasEnvMarker(env, "MIMOCODE")) return "mimo"
+  if (hasEnvMarker(env, "KILO")) return "kilo"
   if (env.OPENCODE_CONFIG_DIR) return "opencode"
+
+  const fallback = typeof hostHint === "string" ? hostHint.trim().toLowerCase() : ""
+  if (fallback === "mimo" || fallback === "kilo" || fallback === "opencode") return fallback
   return "unknown"
 }
 
@@ -92,6 +113,153 @@ function parseToolInput(input) {
   return undefined
 }
 
+function isRecord(value) {
+  return !!value && typeof value === "object" && !Array.isArray(value)
+}
+
+export function canonicalToolKey(key) {
+  return String(key).replace(/[^a-zA-Z0-9]/g, "").toLowerCase()
+}
+
+function resolveLocalRef(root, ref) {
+  if (typeof ref !== "string" || !ref.startsWith("#/")) return undefined
+  let current = root
+  for (const raw of ref.slice(2).split("/")) {
+    if (!isRecord(current)) return undefined
+    const key = raw.replace(/~1/g, "/").replace(/~0/g, "~")
+    current = current[key]
+  }
+  return current
+}
+
+function schemaVariants(schema, root) {
+  const out = []
+  const seen = new Set()
+  const visit = (candidate) => {
+    if (!isRecord(candidate) || seen.has(candidate)) return
+    seen.add(candidate)
+    out.push(candidate)
+    visit(resolveLocalRef(root, candidate.$ref))
+    for (const key of ["allOf", "anyOf", "oneOf"]) {
+      const branches = candidate[key]
+      if (Array.isArray(branches)) branches.forEach(visit)
+    }
+  }
+  visit(schema)
+  return out
+}
+
+function propertySchemas(schema, root) {
+  const found = new Map()
+  for (const variant of schemaVariants(schema, root)) {
+    if (!isRecord(variant.properties)) continue
+    for (const [name, propertySchema] of Object.entries(variant.properties)) {
+      const entries = found.get(name) || []
+      entries.push(propertySchema)
+      found.set(name, entries)
+    }
+  }
+  const out = new Map()
+  for (const [name, entries] of found) {
+    out.set(name, entries.length === 1 ? entries[0] : { anyOf: entries })
+  }
+  return out
+}
+
+function itemSchema(schema, root) {
+  const items = schemaVariants(schema, root)
+    .map((variant) => variant.items)
+    .filter((value) => value !== undefined)
+  if (items.length === 0) return undefined
+  return items.length === 1 ? items[0] : { anyOf: items }
+}
+
+function additionalPropertySchema(schema, root) {
+  const candidates = schemaVariants(schema, root)
+    .map((variant) => variant.additionalProperties)
+    .filter(isRecord)
+  if (candidates.length === 0) return undefined
+  return candidates.length === 1 ? candidates[0] : { anyOf: candidates }
+}
+
+function normalizeValueForSchema(value, schema, root) {
+  if (Array.isArray(value)) {
+    const items = itemSchema(schema, root)
+    return items === undefined
+      ? value
+      : value.map((entry) => normalizeValueForSchema(entry, items, root))
+  }
+  if (!isRecord(value)) return value
+
+  const properties = propertySchemas(schema, root)
+  const additional = additionalPropertySchema(schema, root)
+  if (properties.size === 0) {
+    if (additional === undefined) return value
+    return Object.fromEntries(
+      Object.entries(value).map(([key, entry]) => [
+        key,
+        normalizeValueForSchema(entry, additional, root),
+      ]),
+    )
+  }
+
+  const canonicalTargets = new Map()
+  for (const name of properties.keys()) {
+    const canonical = canonicalToolKey(name)
+    const names = canonicalTargets.get(canonical) || []
+    names.push(name)
+    canonicalTargets.set(canonical, names)
+  }
+
+  const out = {}
+  for (const [sourceKey, sourceValue] of Object.entries(value)) {
+    let targetKey = sourceKey
+    if (!properties.has(sourceKey)) {
+      const matches = canonicalTargets.get(canonicalToolKey(sourceKey)) ?? []
+      if (matches.length === 1 && !(matches[0] in value) && !(matches[0] in out)) {
+        targetKey = matches[0]
+      }
+    }
+    const childSchema = properties.get(targetKey) ?? additional
+    out[targetKey] = childSchema === undefined
+      ? sourceValue
+      : normalizeValueForSchema(sourceValue, childSchema, root)
+  }
+  return out
+}
+
+export function normalizeToolInputForSchema(input, schema) {
+  if (!isRecord(schema)) return input
+  return normalizeValueForSchema(input, schema, schema)
+}
+
+function toolSchemasFromCall(call) {
+  const out = new Map()
+  if (!isRecord(call) || !Array.isArray(call.tools)) return out
+  for (const candidate of call.tools) {
+    if (!isRecord(candidate)) continue
+    const name = typeof candidate.name === "string"
+      ? candidate.name
+      : typeof candidate.toolName === "string"
+        ? candidate.toolName
+        : undefined
+    const schema = candidate.inputSchema ?? candidate.parameters ?? candidate.schema
+    if (name && isRecord(schema)) out.set(name, schema)
+  }
+  return out
+}
+
+function withSchemaKeys(part, toolSchemas) {
+  const name = toolNameOf(part)
+  const schema = name ? toolSchemas.get(name) : undefined
+  const input = parseToolInput(part.input)
+  if (!schema || !input) return part
+  const normalized = normalizeToolInputForSchema(input, schema)
+  const next = { ...part }
+  next.input = typeof part.input === "string" ? JSON.stringify(normalized) : normalized
+  return next
+}
+
 function withBashDescription(part, policy) {
   if (!policy.bashDescriptionRequired) return part
   if (toolNameOf(part) !== "bash") return part
@@ -104,7 +272,7 @@ function withBashDescription(part, policy) {
   return next
 }
 
-export function adoptStreamPart(part, policy, seenStarts) {
+export function adoptStreamPart(part, policy, seenStarts, toolSchemas = new Map()) {
   if (!part || typeof part !== "object") return [part]
   if (part.type === "tool-input-start") {
     const id = toolCallIdOf(part)
@@ -112,7 +280,7 @@ export function adoptStreamPart(part, policy, seenStarts) {
     return [part]
   }
   if (part.type !== "tool-call") return [part]
-  const adopted = withBashDescription(part, policy)
+  const adopted = withSchemaKeys(withBashDescription(part, policy), toolSchemas)
   const id = toolCallIdOf(adopted)
   const name = toolNameOf(adopted) || "unknown"
   if (policy.streamToolCallEnsure || !id || seenStarts.has(id)) return [adopted]
@@ -120,11 +288,11 @@ export function adoptStreamPart(part, policy, seenStarts) {
   return [{ type: "tool-input-start", id, toolName: name }, adopted]
 }
 
-function wrapReadableStream(stream, policy) {
+function wrapReadableStream(stream, policy, toolSchemas) {
   const seenStarts = new Set()
   return stream.pipeThrough(new TransformStream({
     transform(chunk, controller) {
-      for (const part of adoptStreamPart(chunk, policy, seenStarts)) controller.enqueue(part)
+      for (const part of adoptStreamPart(chunk, policy, seenStarts, toolSchemas)) controller.enqueue(part)
     },
   }))
 }
@@ -135,17 +303,17 @@ function isThenable(value) {
 
 export function adaptLanguageModel(model, policy) {
   if (!model || typeof model !== "object") return model
-  if (policy.streamToolCallEnsure && !policy.bashDescriptionRequired) return model
   const original = model
   const adapted = Object.create(Object.getPrototypeOf(original), Object.getOwnPropertyDescriptors(original))
   if (typeof original.doStream === "function") {
     const inner = original.doStream.bind(original)
     adapted.doStream = (...args) => {
+      const toolSchemas = toolSchemasFromCall(args[0])
       const result = inner(...args)
       const finish = (resolved) => {
         if (!resolved || typeof resolved !== "object") return resolved
         if (resolved.stream instanceof ReadableStream) {
-          return { ...resolved, stream: wrapReadableStream(resolved.stream, policy) }
+          return { ...resolved, stream: wrapReadableStream(resolved.stream, policy, toolSchemas) }
         }
         return resolved
       }
@@ -155,12 +323,13 @@ export function adaptLanguageModel(model, policy) {
   if (typeof original.doGenerate === "function") {
     const inner = original.doGenerate.bind(original)
     adapted.doGenerate = (...args) => {
+      const toolSchemas = toolSchemasFromCall(args[0])
       const result = inner(...args)
       const finish = (resolved) => {
         if (!resolved || typeof resolved !== "object" || !Array.isArray(resolved.content)) return resolved
         const seenStarts = new Set()
         const content = []
-        for (const part of resolved.content) content.push(...adoptStreamPart(part, policy, seenStarts))
+        for (const part of resolved.content) content.push(...adoptStreamPart(part, policy, seenStarts, toolSchemas))
         return { ...resolved, content }
       }
       return isThenable(result) ? result.then(finish) : finish(result)
@@ -171,7 +340,6 @@ export function adaptLanguageModel(model, policy) {
 
 export function wrapProviderSdk(sdk, policy) {
   if (!sdk || typeof sdk !== "object") return sdk
-  if (policy.streamToolCallEnsure && !policy.bashDescriptionRequired) return sdk
   if (typeof sdk.languageModel !== "function") return sdk
   const adapted = Object.create(Object.getPrototypeOf(sdk), Object.getOwnPropertyDescriptors(sdk))
   const inner = sdk.languageModel.bind(sdk)
@@ -186,7 +354,6 @@ export function wrapProviderSdk(sdk, policy) {
 
 export function wrapProviderModule(mod, policy) {
   if (!mod || typeof mod !== "object") return mod
-  if (policy.streamToolCallEnsure && !policy.bashDescriptionRequired) return mod
   const out = { ...mod }
   for (const [key, value] of Object.entries(mod)) {
     if (key === "default") continue
@@ -229,6 +396,7 @@ export function originalBackupPath(entryPath: string): string {
  */
 export function renderProviderShimSource(meta: ShimMeta): string {
   const original = JSON.stringify(meta.original)
+  const hostHint = JSON.stringify(meta.hostHint ?? "")
   const exportLines = meta.exportNames
     .filter((name) => /^[A-Za-z_$][A-Za-z0-9_$]*$/.test(name))
     .map((name) => `export const ${name} = __wrapped[${JSON.stringify(name)}]`)
@@ -242,7 +410,9 @@ import {
   wrapProviderModule,
 } from "./${RUNTIME_FILENAME}"
 
-const __policy = policyForHostId(detectHostId())
+const __policy = policyForHostId(
+  detectHostId(process.env, process.argv, process.execPath, ${hostHint}),
+)
 const __wrapped = wrapProviderModule(__original, __policy)
 
 export default __wrapped.default

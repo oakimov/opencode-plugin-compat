@@ -4,7 +4,7 @@
  * See docs/ocp/0.1.md and docs/plans/.
  */
 export const PKG = "@opencode-compat/adapter" as const
-export const VERSION = "0.1.2" as const
+export const VERSION = "0.1.3" as const
 
 export {
   detect,
@@ -29,7 +29,9 @@ export {
   adaptLanguageModel,
   adaptLanguageModelForProfile,
   adoptStreamPart,
+  canonicalToolKey,
   defaultBashDescription,
+  normalizeToolInputForSchema,
   policyForHostId,
   policyFromProfile,
   wrapProviderModule,

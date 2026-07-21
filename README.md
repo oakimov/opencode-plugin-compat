@@ -6,6 +6,8 @@ Run **published OpenCode plugins unchanged** (`import "@opencode-ai/plugin"` / `
 
 **Install:** see [**INSTALL.md**](./INSTALL.md) — npm install of `@opencode-compat/ocp`, then `ocp setup` on MiMo/Kilo (includes a `cursor-opencode-provider` example).
 
+`ocp setup` also applies LanguageModel tool-stream normalization to compatible custom provider entries. It uses each call's advertised tool schema to adopt argument-key conventions (for example, camelCase or snake_case), so providers and future OpenCode-compatible hosts remain host-agnostic.
+
 **License:** [MPL-2.0](./LICENSE)
 
 ## Status

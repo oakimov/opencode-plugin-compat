@@ -110,6 +110,19 @@ describe("@opencode-compat/profile", () => {
     expect(kilo.supported).toBe(true)
   })
 
+  test("detect recognizes MiMo's process marker before config-dir heuristics", () => {
+    const mimo = detect({
+      env: { MIMOCODE: "1" },
+      home: "/tmp/home",
+      argv: ["node", "worker.js"],
+      execPath: "/usr/bin/node",
+      existsSync: (candidate) => candidate.includes("/kilo"),
+    })
+    expect(mimo.id).toBe("mimo")
+    expect(mimo.source).toBe("env")
+    expect(mimo.supported).toBe(true)
+  })
+
   test("detect falls back to unknown", () => {
     const unknown = detect({
       env: {},

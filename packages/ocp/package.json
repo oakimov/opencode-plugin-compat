@@ -1,6 +1,6 @@
 {
   "name": "@opencode-compat/ocp",
-  "version": "0.1.2",
+  "version": "0.1.3",
   "description": "OCP umbrella UX — one install + ocp setup for Layer A facade overrides",
   "type": "module",
   "license": "MPL-2.0",

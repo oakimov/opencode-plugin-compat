@@ -89,9 +89,9 @@ function envPrefixHint(
   env: NodeJS.ProcessEnv,
 ): Exclude<HostId, "unknown"> | undefined {
   // Strong host-specific prefixes first (avoid OPENCODE_* false positives from compat tooling).
-  if (hasPrefix(env, "MIMOCODE_")) return "mimo"
-  if (hasPrefix(env, "KILO_")) return "kilo"
-  if (hasPrefix(env, "ZCODE_")) return "zcode"
+  if (env.MIMOCODE || hasPrefix(env, "MIMOCODE_")) return "mimo"
+  if (env.KILO || hasPrefix(env, "KILO_")) return "kilo"
+  if (env.ZCODE || hasPrefix(env, "ZCODE_")) return "zcode"
   // OPENCODE_* alone is weak — only count when not also running under compat tooling only.
   // Prefer config/binary for OpenCode; still allow OPENCODE_CONFIG_DIR as a hint.
   if (env.OPENCODE_CONFIG_DIR || env.OPENCODE_CONFIG) return "opencode"

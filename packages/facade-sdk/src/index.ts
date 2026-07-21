@@ -3,7 +3,7 @@
  * Starts from types used by classic auth plugins; expands via fixtures.
  */
 export const PKG = "@opencode-compat/facade-sdk" as const
-export const VERSION = "0.1.2" as const
+export const VERSION = "0.1.3" as const
 
 export type OAuth = {
   type: "oauth"

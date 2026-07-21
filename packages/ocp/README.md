@@ -13,6 +13,8 @@ bun packages/ocp/bin/ocp.ts setup --dir /path/to/host/plugin/cache
 
 `setup` default `--mode auto` uses local `file:` facade paths from this checkout when present; outside the monorepo use **`--mode npm`** (see [INSTALL.md](../../INSTALL.md)).
 
+The default provider-shim action applies the active host's LanguageModel compatibility policy and adopts tool argument keys from each call's advertised schema. Exact schema keys win; only unique case/separator-insensitive matches are renamed. Runtime identity wins for host-specific policy; a setup-time install-tree host hint covers isolated provider workers that hide host process markers.
+
 ## Commands
 
 | Command | Role |

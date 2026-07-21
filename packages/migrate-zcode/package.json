@@ -1,6 +1,6 @@
 {
   "name": "@opencode-compat/migrate-zcode",
-  "version": "0.1.2",
+  "version": "0.1.3",
   "description": "Companion: migrate plugin-packaged skills/commands/marketplace manifests into a .zcode-plugin tree (not OCP ABI; ZCode stays T0; no host MCP migration)",
   "type": "module",
   "license": "MPL-2.0",

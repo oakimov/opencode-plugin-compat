@@ -4,7 +4,8 @@
  * Policy comes from HostProfile capabilities — never swaps host tool catalogs.
  * - streamToolCallEnsure=false (MiMo): emit tool-input-start before bare tool-call
  * - bashDescriptionRequired=true (MiMo): fill missing bash.description only
- * - Kilo / OpenCode: pass-through
+ * - argument keys: universally align unique case/separator variants with the
+ *   exact tool schema advertised by the active host
  */
 import type { HostId, HostProfile } from "@opencode-compat/profile"
 
@@ -22,6 +23,9 @@ export type StreamPartLike = {
   input?: unknown
   [key: string]: unknown
 }
+
+type SchemaLike = Record<string, unknown>
+type ToolSchemaMap = ReadonlyMap<string, unknown>
 
 export function policyFromProfile(profile: HostProfile): StreamAdoptionPolicy {
   return {
@@ -81,6 +85,158 @@ function parseToolInput(input: unknown): Record<string, unknown> | undefined {
   return undefined
 }
 
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return !!value && typeof value === "object" && !Array.isArray(value)
+}
+
+/** Compare identifier conventions without assuming one host's casing style. */
+export function canonicalToolKey(key: string): string {
+  return key.replace(/[^a-zA-Z0-9]/g, "").toLowerCase()
+}
+
+function resolveLocalRef(root: SchemaLike, ref: unknown): unknown {
+  if (typeof ref !== "string" || !ref.startsWith("#/")) return undefined
+  let current: unknown = root
+  for (const raw of ref.slice(2).split("/")) {
+    if (!isRecord(current)) return undefined
+    const key = raw.replace(/~1/g, "/").replace(/~0/g, "~")
+    current = current[key]
+  }
+  return current
+}
+
+function schemaVariants(schema: unknown, root: SchemaLike): SchemaLike[] {
+  const out: SchemaLike[] = []
+  const seen = new Set<object>()
+  const visit = (candidate: unknown): void => {
+    if (!isRecord(candidate) || seen.has(candidate)) return
+    seen.add(candidate)
+    out.push(candidate)
+    visit(resolveLocalRef(root, candidate.$ref))
+    for (const key of ["allOf", "anyOf", "oneOf"] as const) {
+      const branches = candidate[key]
+      if (Array.isArray(branches)) branches.forEach(visit)
+    }
+  }
+  visit(schema)
+  return out
+}
+
+function propertySchemas(schema: unknown, root: SchemaLike): Map<string, unknown> {
+  const found = new Map<string, unknown[]>()
+  for (const variant of schemaVariants(schema, root)) {
+    if (!isRecord(variant.properties)) continue
+    for (const [name, propertySchema] of Object.entries(variant.properties)) {
+      const entries = found.get(name) ?? []
+      entries.push(propertySchema)
+      found.set(name, entries)
+    }
+  }
+  const out = new Map<string, unknown>()
+  for (const [name, entries] of found) {
+    out.set(name, entries.length === 1 ? entries[0] : { anyOf: entries })
+  }
+  return out
+}
+
+function itemSchema(schema: unknown, root: SchemaLike): unknown {
+  const items = schemaVariants(schema, root)
+    .map((variant) => variant.items)
+    .filter((value) => value !== undefined)
+  if (items.length === 0) return undefined
+  return items.length === 1 ? items[0] : { anyOf: items }
+}
+
+function additionalPropertySchema(schema: unknown, root: SchemaLike): unknown {
+  const candidates = schemaVariants(schema, root)
+    .map((variant) => variant.additionalProperties)
+    .filter(isRecord)
+  if (candidates.length === 0) return undefined
+  return candidates.length === 1 ? candidates[0] : { anyOf: candidates }
+}
+
+function normalizeValueForSchema(value: unknown, schema: unknown, root: SchemaLike): unknown {
+  if (Array.isArray(value)) {
+    const items = itemSchema(schema, root)
+    return items === undefined
+      ? value
+      : value.map((entry) => normalizeValueForSchema(entry, items, root))
+  }
+  if (!isRecord(value)) return value
+
+  const properties = propertySchemas(schema, root)
+  const additional = additionalPropertySchema(schema, root)
+  if (properties.size === 0) {
+    if (additional === undefined) return value
+    return Object.fromEntries(
+      Object.entries(value).map(([key, entry]) => [
+        key,
+        normalizeValueForSchema(entry, additional, root),
+      ]),
+    )
+  }
+
+  const canonicalTargets = new Map<string, string[]>()
+  for (const name of properties.keys()) {
+    const canonical = canonicalToolKey(name)
+    const names = canonicalTargets.get(canonical) ?? []
+    names.push(name)
+    canonicalTargets.set(canonical, names)
+  }
+
+  const out: Record<string, unknown> = {}
+  for (const [sourceKey, sourceValue] of Object.entries(value)) {
+    let targetKey = sourceKey
+    if (!properties.has(sourceKey)) {
+      const matches = canonicalTargets.get(canonicalToolKey(sourceKey)) ?? []
+      if (matches.length === 1 && !(matches[0]! in value) && !(matches[0]! in out)) {
+        targetKey = matches[0]!
+      }
+    }
+    const childSchema = properties.get(targetKey) ?? additional
+    out[targetKey] = childSchema === undefined
+      ? sourceValue
+      : normalizeValueForSchema(sourceValue, childSchema, root)
+  }
+  return out
+}
+
+/**
+ * Align an input object to its advertised JSON schema using exact keys first,
+ * then a unique case/separator-insensitive match. Ambiguous keys are preserved.
+ */
+export function normalizeToolInputForSchema(input: unknown, schema: unknown): unknown {
+  if (!isRecord(schema)) return input
+  return normalizeValueForSchema(input, schema, schema)
+}
+
+function toolSchemasFromCall(call: unknown): Map<string, unknown> {
+  const out = new Map<string, unknown>()
+  if (!isRecord(call) || !Array.isArray(call.tools)) return out
+  for (const candidate of call.tools) {
+    if (!isRecord(candidate)) continue
+    const name = typeof candidate.name === "string"
+      ? candidate.name
+      : typeof candidate.toolName === "string"
+        ? candidate.toolName
+        : undefined
+    const schema = candidate.inputSchema ?? candidate.parameters ?? candidate.schema
+    if (name && isRecord(schema)) out.set(name, schema)
+  }
+  return out
+}
+
+function withSchemaKeys(part: StreamPartLike, toolSchemas: ToolSchemaMap): StreamPartLike {
+  const name = toolNameOf(part)
+  const schema = name ? toolSchemas.get(name) : undefined
+  const input = parseToolInput(part.input)
+  if (!schema || !input) return part
+  const normalized = normalizeToolInputForSchema(input, schema)
+  const next: StreamPartLike = { ...part }
+  next.input = typeof part.input === "string" ? JSON.stringify(normalized) : normalized
+  return next
+}
+
 function withBashDescription(
   part: StreamPartLike,
   policy: StreamAdoptionPolicy,
@@ -105,6 +261,7 @@ export function adoptStreamPart(
   part: StreamPartLike,
   policy: StreamAdoptionPolicy,
   seenStarts: Set<string>,
+  toolSchemas: ToolSchemaMap = new Map(),
 ): StreamPartLike[] {
   if (!part || typeof part !== "object") return [part]
 
@@ -116,7 +273,7 @@ export function adoptStreamPart(
 
   if (part.type !== "tool-call") return [part]
 
-  const adopted = withBashDescription(part, policy)
+  const adopted = withSchemaKeys(withBashDescription(part, policy), toolSchemas)
   const id = toolCallIdOf(adopted)
   const name = toolNameOf(adopted) ?? "unknown"
 
@@ -139,12 +296,13 @@ export function adoptStreamPart(
 function wrapReadableStream(
   stream: ReadableStream<StreamPartLike>,
   policy: StreamAdoptionPolicy,
+  toolSchemas: ToolSchemaMap,
 ): ReadableStream<StreamPartLike> {
   const seenStarts = new Set<string>()
   return stream.pipeThrough(
     new TransformStream<StreamPartLike, StreamPartLike>({
       transform(chunk, controller) {
-        for (const part of adoptStreamPart(chunk, policy, seenStarts)) {
+        for (const part of adoptStreamPart(chunk, policy, seenStarts, toolSchemas)) {
           controller.enqueue(part)
         }
       },
@@ -162,11 +320,10 @@ function isThenable<T>(value: unknown): value is Promise<T> {
 
 /**
  * Wrap a LanguageModelV3-like object so doStream / doGenerate adopt parts
- * for the active host. Identity when policy is fully permissive.
+ * for the active host and the schemas supplied with each call.
  */
 export function adaptLanguageModel<T>(model: T, policy: StreamAdoptionPolicy): T {
   if (!model || typeof model !== "object") return model
-  if (policy.streamToolCallEnsure && !policy.bashDescriptionRequired) return model
 
   const original = model as {
     doStream?: (...args: unknown[]) => unknown
@@ -182,6 +339,7 @@ export function adaptLanguageModel<T>(model: T, policy: StreamAdoptionPolicy): T
   if (typeof original.doStream === "function") {
     const inner = original.doStream.bind(original)
     adapted.doStream = (...args: unknown[]) => {
+      const toolSchemas = toolSchemasFromCall(args[0])
       const result = inner(...args)
       const finish = (resolved: unknown) => {
         if (!resolved || typeof resolved !== "object") return resolved
@@ -192,6 +350,7 @@ export function adaptLanguageModel<T>(model: T, policy: StreamAdoptionPolicy): T
             stream: wrapReadableStream(
               record.stream as ReadableStream<StreamPartLike>,
               policy,
+              toolSchemas,
             ),
           }
         }
@@ -205,6 +364,7 @@ export function adaptLanguageModel<T>(model: T, policy: StreamAdoptionPolicy): T
   if (typeof original.doGenerate === "function") {
     const inner = original.doGenerate.bind(original)
     adapted.doGenerate = (...args: unknown[]) => {
+      const toolSchemas = toolSchemasFromCall(args[0])
       const result = inner(...args)
       const finish = (resolved: unknown) => {
         if (!resolved || typeof resolved !== "object") return resolved
@@ -213,7 +373,7 @@ export function adaptLanguageModel<T>(model: T, policy: StreamAdoptionPolicy): T
         const seenStarts = new Set<string>()
         const content: StreamPartLike[] = []
         for (const part of record.content as StreamPartLike[]) {
-          content.push(...adoptStreamPart(part, policy, seenStarts))
+          content.push(...adoptStreamPart(part, policy, seenStarts, toolSchemas))
         }
         return { ...record, content }
       }
@@ -228,7 +388,6 @@ export function adaptLanguageModel<T>(model: T, policy: StreamAdoptionPolicy): T
 /** Wrap an AI SDK provider object that exposes languageModel(id). */
 export function wrapProviderSdk<T>(sdk: T, policy: StreamAdoptionPolicy): T {
   if (!sdk || typeof sdk !== "object") return sdk
-  if (policy.streamToolCallEnsure && !policy.bashDescriptionRequired) return sdk
 
   const original = sdk as {
     languageModel?: (...args: unknown[]) => unknown
@@ -261,7 +420,6 @@ export function wrapProviderModule<T extends Record<string, unknown>>(
   policy: StreamAdoptionPolicy,
 ): T {
   if (!mod || typeof mod !== "object") return mod
-  if (policy.streamToolCallEnsure && !policy.bashDescriptionRequired) return mod
 
   const out: Record<string, unknown> = { ...mod }
   for (const [key, value] of Object.entries(mod)) {

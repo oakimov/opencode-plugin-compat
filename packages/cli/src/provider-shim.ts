@@ -187,7 +187,7 @@ function looksLikeProviderPackage(pkg: PackageJson, entrySource: string): boolea
   if ("@ai-sdk/provider" in deps) return true
   if (entrySource.includes("languageModel")) return true
   if ((pkg.name ?? "").includes("provider")) return true
-  return hasCreateExport(names)
+  return false
 }
 
 /** Discover provider package directories under a host install tree. */
