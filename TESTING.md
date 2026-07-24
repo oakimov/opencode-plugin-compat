@@ -18,6 +18,20 @@ MiMo Code.
 | [MiMo Code](https://github.com/XiaomiMiMo/MiMo-Code) | any recent build |
 | `npm` (used by `ocp setup` to reify overrides) | any recent version |
 
+### Helper scripts (recommended)
+
+From this repo root:
+
+```bash
+./scripts/mimo-dev.sh local   # local OCP facades + local provider clone
+./scripts/mimo-dev.sh npm     # restore npm plugin + published OCP facades
+
+./scripts/kilo-dev.sh local
+./scripts/kilo-dev.sh npm
+```
+
+Defaults: provider checkout at `../cursor-opencode-provider` or `~/Projects/cursor-opencode-provider` (override with `OCP_DEV_PROVIDER_PATH`). Host config is backed up once under `~/.config/<host>/.ocp-dev/host-config.backup.json` before the first `local` run.
+
 ---
 
 ## 1. Testing a local version of OCP

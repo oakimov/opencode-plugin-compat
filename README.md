@@ -36,6 +36,7 @@ Also: [`fixtures/`](./fixtures) (conformance), [`docs/hosts/`](./docs/hosts) (ho
 | Doc | Purpose |
 |-----|---------|
 | [`INSTALL.md`](./INSTALL.md) | **User install** — npm OCP on MiMo/Kilo (+ `cursor-opencode-provider` example) |
+| [`TESTING.md`](./TESTING.md) | **Manual local dev** — unpublished OCP + local plugins on MiMo/Kilo (`scripts/*-dev.sh`) |
 | [`docs/ocp/0.1.md`](./docs/ocp/0.1.md) | OCP 0.1 contract |
 | [`docs/plans/universal-opencode-plugin-compat-plan.md`](./docs/plans/universal-opencode-plugin-compat-plan.md) | Parent product plan |
 | [`docs/plans/phase0-adr-universal-compat.md`](./docs/plans/phase0-adr-universal-compat.md) | Product ADR |
@@ -59,6 +60,8 @@ bun run pack:check          # publish dry-run (see docs/guides/npm-publish.md)
 ```
 
 Requires [Bun](https://bun.sh) ≥ 1.2. CLI bins import `dist/` — run `bun run build` after a clean checkout.
+
+For end-to-end checks against a real host with local checkouts, see [**TESTING.md**](./TESTING.md).
 
 ## Compatibility tiers (labels, not phases)
 

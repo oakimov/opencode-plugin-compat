@@ -139,7 +139,7 @@ ocp setup --host kilo --mode npm --version 0.1.2   # pin facade train (default t
 ocp setup --dir ~/.cache/mimocode/packages --mode npm   # explicit install root
 ```
 
-`--version` pins the `@opencode-compat/facade-*` specs written into overrides. The CLI default is the **current OCP package train** (today **`0.1.2`**). To pin an older published train, pass e.g. `--version 0.1.0`.
+`--version` pins the `@opencode-compat/facade-*` specs written into overrides. The CLI default is the **current OCP package train** (today **`0.1.4`**). To pin an older published train, pass e.g. `--version 0.1.0`.
 
 Outside this monorepo, always prefer **`--mode npm`** so overrides resolve from the public registry (not local `file:` paths).
 
