@@ -24,6 +24,7 @@ import {
   readdirSync,
   readFileSync,
   renameSync,
+  unlinkSync,
   writeFileSync,
 } from "node:fs"
 import { basename, dirname, join, relative, resolve } from "node:path"
@@ -346,8 +347,10 @@ function shimOnePackage(
     strategy: "inplace-entry",
   }
 
-  const runtimePath = join(dirname(entryAbs), RUNTIME_FILENAME)
-  const metaPath = join(packageDir, SHIM_META_FILENAME)
+  const entryDir = dirname(entryAbs)
+  const runtimePath = join(entryDir, RUNTIME_FILENAME)
+  const metaPath = join(entryDir, SHIM_META_FILENAME)
+  const legacyMetaPath = join(packageDir, SHIM_META_FILENAME)
   const shimSource = renderProviderShimSource(meta)
   const runtimeSource = providerShimRuntimeSource()
   const metaSource = renderShimMeta(meta)
@@ -368,6 +371,13 @@ function shimOnePackage(
   writeText(runtimePath, runtimeSource, dryRun)
   writeText(entryAbs, shimSource, dryRun)
   writeText(metaPath, metaSource, dryRun)
+  if (
+    !dryRun &&
+    legacyMetaPath !== metaPath &&
+    existsSync(legacyMetaPath)
+  ) {
+    unlinkSync(legacyMetaPath)
+  }
 
   return {
     packageDir,

@@ -6,7 +6,7 @@
  * (`MODULE_URL`), which bypasses package.json `exports`. So `ocp setup`:
  * 1. renames the package entry to `*.ocp-original.js` (install cache only)
  * 2. writes the shim at the original entry path
- * 3. drops an inlined `ocp-lm-runtime.js` beside it
+ * 3. drops an inlined `ocp-lm-runtime.js` and `ocp-shim-meta.json` beside the entry
  *
  * Upstream plugin repos / published tarballs are never edited — only the host
  * install tree after reify. Re-run setup after plugin install/upgrade.

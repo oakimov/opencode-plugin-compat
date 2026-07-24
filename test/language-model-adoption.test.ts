@@ -656,7 +656,7 @@ export const VERSION = "1.0.0"
       const entry = join(pkgDir, "dist", "index.js")
       const backup = join(pkgDir, "dist", `index${ORIGINAL_SUFFIX}`)
       const runtime = join(pkgDir, "dist", RUNTIME_FILENAME)
-      const meta = join(pkgDir, SHIM_META_FILENAME)
+      const meta = join(pkgDir, "dist", SHIM_META_FILENAME)
 
       expect(existsSync(backup)).toBe(true)
       expect(existsSync(runtime)).toBe(true)
