@@ -35,6 +35,11 @@ export type ShimMeta = {
 /** Zero-dep runtime source embedded into each shimmed provider package. */
 export function providerShimRuntimeSource(): string {
   return `/* ${SHIM_MARKER} — host-dynamic LanguageModel adoption; do not edit */
+import path from "node:path"
+import { homedir } from "node:os"
+
+const PATH_BRIDGE_KEY = Symbol.for("opencode.compat.path-bridge")
+
 export function policyForHostId(id) {
   switch (id) {
     case "mimo":
@@ -79,6 +84,58 @@ export function detectHostId(
   const fallback = typeof hostHint === "string" ? hostHint.trim().toLowerCase() : ""
   if (fallback === "mimo" || fallback === "kilo" || fallback === "opencode") return fallback
   return "unknown"
+}
+
+function unique(values) {
+  return [...new Set(values.filter((value) => typeof value === "string" && value.trim()).map((value) => path.resolve(value)))]
+}
+
+function xdgConfig(env) {
+  return env.XDG_CONFIG_HOME && env.XDG_CONFIG_HOME.length > 0
+    ? env.XDG_CONFIG_HOME
+    : path.join(env.HOME || env.USERPROFILE || homedir(), ".config")
+}
+
+function hostConfigRoot(id, env) {
+  if (id === "mimo") {
+    if (env.MIMOCODE_CONFIG_DIR) return path.resolve(env.MIMOCODE_CONFIG_DIR)
+    if (env.MIMOCODE_HOME) return path.resolve(env.MIMOCODE_HOME, "config")
+    return path.join(xdgConfig(env), "mimocode")
+  }
+  if (id === "kilo") {
+    if (env.KILO_CONFIG_DIR) return path.resolve(env.KILO_CONFIG_DIR)
+    return path.join(xdgConfig(env), "kilo")
+  }
+  if (env.OPENCODE_CONFIG_DIR) return path.resolve(env.OPENCODE_CONFIG_DIR)
+  return path.join(xdgConfig(env), "opencode")
+}
+
+function hostProjectNames(id) {
+  if (id === "mimo") return [".mimocode"]
+  if (id === "kilo") return [".kilo", ".kilocode"]
+  return [".opencode"]
+}
+
+function hostConfigFiles(id) {
+  if (id === "mimo") return ["config.json", "mimocode.json", "mimocode.jsonc"]
+  if (id === "kilo") return ["config.json", "kilo.json", "kilo.jsonc", "opencode.json", "opencode.jsonc"]
+  return ["opencode.json", "opencode.jsonc"]
+}
+
+/** Install native host paths for an unchanged OpenCode plugin before it loads. */
+export function installPathBridge(id, env = process.env) {
+  if (id !== "opencode" && id !== "mimo" && id !== "kilo") return
+  const globalRoot = hostConfigRoot(id, env)
+  globalThis[PATH_BRIDGE_KEY] = {
+    projectConfigDirs(workspaceRoot) {
+      const root = path.resolve(workspaceRoot || process.cwd())
+      return hostProjectNames(id).map((name) => path.join(root, name))
+    },
+    globalConfigDirs() {
+      return [globalRoot]
+    },
+    configFileNames: hostConfigFiles(id),
+  }
 }
 
 export function defaultBashDescription(command) {
@@ -403,16 +460,17 @@ export function renderProviderShimSource(meta: ShimMeta): string {
     .join("\n")
 
   return `/* ${SHIM_MARKER} — wraps create* → languageModel for host adoption; original entry untouched beside this file */
-import * as __original from ${original}
 import {
   detectHostId,
+  installPathBridge,
   policyForHostId,
   wrapProviderModule,
 } from "./${RUNTIME_FILENAME}"
 
-const __policy = policyForHostId(
-  detectHostId(process.env, process.argv, process.execPath, ${hostHint}),
-)
+const __host = detectHostId(process.env, process.argv, process.execPath, ${hostHint})
+installPathBridge(__host, process.env)
+const __original = await import(${original})
+const __policy = policyForHostId(__host)
 const __wrapped = wrapProviderModule(__original, __policy)
 
 export default __wrapped.default
