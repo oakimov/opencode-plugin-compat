@@ -109,6 +109,13 @@ export function mimoProfile(options?: DraftOptions): HostProfile {
       streamToolCallEnsure: false,
       bashDescriptionRequired: true,
     },
+    // MiMo rotated both names: `actor` spawns subagents, and the freed `task`
+    // name is its work-item tracker (there is no todowrite/todoread builtin).
+    tools: {
+      subagent: "actor",
+      todoWrite: "task",
+      todoRead: "task",
+    },
     hooks: {
       core: CORE_HOOKS,
       missing: MIMO_MISSING_HOOKS,

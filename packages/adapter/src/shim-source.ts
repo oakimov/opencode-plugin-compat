@@ -12,6 +12,8 @@
  * install tree after reify. Re-run setup after plugin install/upgrade.
  */
 
+import { readFileSync } from "node:fs"
+
 export const SHIM_FILENAME = "ocp-provider-shim.js"
 export const RUNTIME_FILENAME = "ocp-lm-runtime.js"
 export const SHIM_META_FILENAME = "ocp-shim-meta.json"
@@ -32,412 +34,18 @@ export type ShimMeta = {
   strategy: "inplace-entry"
 }
 
-/** Zero-dep runtime source embedded into each shimmed provider package. */
+/** Zero-dep runtime source copied into each shimmed provider package. */
 export function providerShimRuntimeSource(): string {
-  return `/* ${SHIM_MARKER} — host-dynamic LanguageModel adoption; do not edit */
-import path from "node:path"
-import { homedir } from "node:os"
+  const runtimeUrl = new URL(`../dist/${RUNTIME_FILENAME}`, import.meta.url)
 
-const PATH_BRIDGE_KEY = Symbol.for("opencode.compat.path-bridge")
-
-export function policyForHostId(id) {
-  switch (id) {
-    case "mimo":
-      return { streamToolCallEnsure: false, bashDescriptionRequired: true }
-    case "kilo":
-    case "opencode":
-      return { streamToolCallEnsure: true, bashDescriptionRequired: false }
-    default:
-      return { streamToolCallEnsure: true, bashDescriptionRequired: false }
-  }
-}
-
-function hasEnvMarker(env, name) {
-  if (env[name]) return true
-  const prefix = name + "_"
-  return Object.keys(env).some((key) => key.startsWith(prefix) && env[key])
-}
-
-function binaryTokens(argv, execPath) {
-  return [...argv, execPath || ""]
-    .map((value) => String(value).split(/[\\\\/]/).pop().toLowerCase())
-}
-
-export function detectHostId(
-  env = process.env,
-  argv = process.argv,
-  execPath = process.execPath,
-  hostHint = "",
-) {
-  const forced = env.OPENCODE_COMPAT_HOST
-  if (typeof forced === "string" && forced.trim()) return forced.trim().toLowerCase()
-
-  const tokens = binaryTokens(argv, execPath)
-  if (tokens.some((token) => token === "mimo" || token === "mimocode" || token.startsWith("mimo-") || token.includes("mimocode"))) return "mimo"
-  if (tokens.some((token) => token === "kilo" || token === "kilocode" || token.startsWith("kilo-") || token.includes("kilocode"))) return "kilo"
-  if (tokens.some((token) => token === "opencode" || token.startsWith("opencode-") || token.includes("opencode"))) return "opencode"
-
-  if (hasEnvMarker(env, "MIMOCODE")) return "mimo"
-  if (hasEnvMarker(env, "KILO")) return "kilo"
-  if (env.OPENCODE_CONFIG_DIR) return "opencode"
-
-  const fallback = typeof hostHint === "string" ? hostHint.trim().toLowerCase() : ""
-  if (fallback === "mimo" || fallback === "kilo" || fallback === "opencode") return fallback
-  return "unknown"
-}
-
-function unique(values) {
-  return [...new Set(values.filter((value) => typeof value === "string" && value.trim()).map((value) => path.resolve(value)))]
-}
-
-function xdgConfig(env) {
-  return env.XDG_CONFIG_HOME && env.XDG_CONFIG_HOME.length > 0
-    ? env.XDG_CONFIG_HOME
-    : path.join(env.HOME || env.USERPROFILE || homedir(), ".config")
-}
-
-function hostConfigRoot(id, env) {
-  if (id === "mimo") {
-    if (env.MIMOCODE_CONFIG_DIR) return path.resolve(env.MIMOCODE_CONFIG_DIR)
-    if (env.MIMOCODE_HOME) return path.resolve(env.MIMOCODE_HOME, "config")
-    return path.join(xdgConfig(env), "mimocode")
-  }
-  if (id === "kilo") {
-    if (env.KILO_CONFIG_DIR) return path.resolve(env.KILO_CONFIG_DIR)
-    return path.join(xdgConfig(env), "kilo")
-  }
-  if (env.OPENCODE_CONFIG_DIR) return path.resolve(env.OPENCODE_CONFIG_DIR)
-  return path.join(xdgConfig(env), "opencode")
-}
-
-function hostProjectNames(id) {
-  if (id === "mimo") return [".mimocode"]
-  if (id === "kilo") return [".kilo", ".kilocode"]
-  return [".opencode"]
-}
-
-function hostConfigFiles(id) {
-  if (id === "mimo") return ["config.json", "mimocode.json", "mimocode.jsonc"]
-  if (id === "kilo") return ["config.json", "kilo.json", "kilo.jsonc", "opencode.json", "opencode.jsonc"]
-  return ["opencode.json", "opencode.jsonc"]
-}
-
-/** Install native host paths for an unchanged OpenCode plugin before it loads. */
-export function installPathBridge(id, env = process.env) {
-  if (id !== "opencode" && id !== "mimo" && id !== "kilo") return
-  const globalRoot = hostConfigRoot(id, env)
-  globalThis[PATH_BRIDGE_KEY] = {
-    projectConfigDirs(workspaceRoot) {
-      const root = path.resolve(workspaceRoot || process.cwd())
-      return hostProjectNames(id).map((name) => path.join(root, name))
-    },
-    globalConfigDirs() {
-      return [globalRoot]
-    },
-    configFileNames: hostConfigFiles(id),
-  }
-}
-
-export function defaultBashDescription(command) {
-  const text = typeof command === "string" ? command.trim() : ""
-  if (!text) return "Run shell command"
-  const clipped = text.length > 60 ? text.slice(0, 57) + "..." : text
-  return "Run: " + clipped
-}
-
-function toolCallIdOf(part) {
-  if (typeof part.toolCallId === "string" && part.toolCallId) return part.toolCallId
-  if (typeof part.id === "string" && part.id) return part.id
-  return undefined
-}
-
-function toolNameOf(part) {
-  if (typeof part.toolName === "string" && part.toolName) return part.toolName
-  if (typeof part.name === "string" && part.name) return part.name
-  return undefined
-}
-
-function parseToolInput(input) {
-  if (input && typeof input === "object" && !Array.isArray(input)) return { ...input }
-  if (typeof input === "string") {
-    try {
-      const parsed = JSON.parse(input)
-      if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) return { ...parsed }
-    } catch {
-      return undefined
-    }
-  }
-  return undefined
-}
-
-function isRecord(value) {
-  return !!value && typeof value === "object" && !Array.isArray(value)
-}
-
-export function canonicalToolKey(key) {
-  return String(key).replace(/[^a-zA-Z0-9]/g, "").toLowerCase()
-}
-
-function resolveLocalRef(root, ref) {
-  if (typeof ref !== "string" || !ref.startsWith("#/")) return undefined
-  let current = root
-  for (const raw of ref.slice(2).split("/")) {
-    if (!isRecord(current)) return undefined
-    const key = raw.replace(/~1/g, "/").replace(/~0/g, "~")
-    current = current[key]
-  }
-  return current
-}
-
-function schemaVariants(schema, root) {
-  const out = []
-  const seen = new Set()
-  const visit = (candidate) => {
-    if (!isRecord(candidate) || seen.has(candidate)) return
-    seen.add(candidate)
-    out.push(candidate)
-    visit(resolveLocalRef(root, candidate.$ref))
-    for (const key of ["allOf", "anyOf", "oneOf"]) {
-      const branches = candidate[key]
-      if (Array.isArray(branches)) branches.forEach(visit)
-    }
-  }
-  visit(schema)
-  return out
-}
-
-function propertySchemas(schema, root) {
-  const found = new Map()
-  for (const variant of schemaVariants(schema, root)) {
-    if (!isRecord(variant.properties)) continue
-    for (const [name, propertySchema] of Object.entries(variant.properties)) {
-      const entries = found.get(name) || []
-      entries.push(propertySchema)
-      found.set(name, entries)
-    }
-  }
-  const out = new Map()
-  for (const [name, entries] of found) {
-    out.set(name, entries.length === 1 ? entries[0] : { anyOf: entries })
-  }
-  return out
-}
-
-function itemSchema(schema, root) {
-  const items = schemaVariants(schema, root)
-    .map((variant) => variant.items)
-    .filter((value) => value !== undefined)
-  if (items.length === 0) return undefined
-  return items.length === 1 ? items[0] : { anyOf: items }
-}
-
-function additionalPropertySchema(schema, root) {
-  const candidates = schemaVariants(schema, root)
-    .map((variant) => variant.additionalProperties)
-    .filter(isRecord)
-  if (candidates.length === 0) return undefined
-  return candidates.length === 1 ? candidates[0] : { anyOf: candidates }
-}
-
-function normalizeValueForSchema(value, schema, root) {
-  if (Array.isArray(value)) {
-    const items = itemSchema(schema, root)
-    return items === undefined
-      ? value
-      : value.map((entry) => normalizeValueForSchema(entry, items, root))
-  }
-  if (!isRecord(value)) return value
-
-  const properties = propertySchemas(schema, root)
-  const additional = additionalPropertySchema(schema, root)
-  if (properties.size === 0) {
-    if (additional === undefined) return value
-    return Object.fromEntries(
-      Object.entries(value).map(([key, entry]) => [
-        key,
-        normalizeValueForSchema(entry, additional, root),
-      ]),
+  try {
+    return readFileSync(runtimeUrl, "utf8")
+  } catch (err) {
+    throw new Error(
+      `Missing ${RUNTIME_FILENAME}. Run bun run build before ocp setup.`,
+      { cause: err },
     )
   }
-
-  const canonicalTargets = new Map()
-  for (const name of properties.keys()) {
-    const canonical = canonicalToolKey(name)
-    const names = canonicalTargets.get(canonical) || []
-    names.push(name)
-    canonicalTargets.set(canonical, names)
-  }
-
-  const out = {}
-  for (const [sourceKey, sourceValue] of Object.entries(value)) {
-    let targetKey = sourceKey
-    if (!properties.has(sourceKey)) {
-      const matches = canonicalTargets.get(canonicalToolKey(sourceKey)) ?? []
-      if (matches.length === 1 && !(matches[0] in value) && !(matches[0] in out)) {
-        targetKey = matches[0]
-      }
-    }
-    const childSchema = properties.get(targetKey) ?? additional
-    out[targetKey] = childSchema === undefined
-      ? sourceValue
-      : normalizeValueForSchema(sourceValue, childSchema, root)
-  }
-  return out
-}
-
-export function normalizeToolInputForSchema(input, schema) {
-  if (!isRecord(schema)) return input
-  return normalizeValueForSchema(input, schema, schema)
-}
-
-function toolSchemasFromCall(call) {
-  const out = new Map()
-  if (!isRecord(call) || !Array.isArray(call.tools)) return out
-  for (const candidate of call.tools) {
-    if (!isRecord(candidate)) continue
-    const name = typeof candidate.name === "string"
-      ? candidate.name
-      : typeof candidate.toolName === "string"
-        ? candidate.toolName
-        : undefined
-    const schema = candidate.inputSchema ?? candidate.parameters ?? candidate.schema
-    if (name && isRecord(schema)) out.set(name, schema)
-  }
-  return out
-}
-
-function withSchemaKeys(part, toolSchemas) {
-  const name = toolNameOf(part)
-  const schema = name ? toolSchemas.get(name) : undefined
-  const input = parseToolInput(part.input)
-  if (!schema || !input) return part
-  const normalized = normalizeToolInputForSchema(input, schema)
-  const next = { ...part }
-  next.input = typeof part.input === "string" ? JSON.stringify(normalized) : normalized
-  return next
-}
-
-function withBashDescription(part, policy) {
-  if (!policy.bashDescriptionRequired) return part
-  if (toolNameOf(part) !== "bash") return part
-  const args = parseToolInput(part.input)
-  if (!args) return part
-  if (typeof args.description === "string" && args.description.length > 0) return part
-  args.description = defaultBashDescription(args.command)
-  const next = { ...part }
-  next.input = typeof part.input === "string" ? JSON.stringify(args) : args
-  return next
-}
-
-export function adoptStreamPart(part, policy, seenStarts, toolSchemas = new Map()) {
-  if (!part || typeof part !== "object") return [part]
-  if (part.type === "tool-input-start") {
-    const id = toolCallIdOf(part)
-    if (id) seenStarts.add(id)
-    return [part]
-  }
-  if (part.type !== "tool-call") return [part]
-  const adopted = withSchemaKeys(withBashDescription(part, policy), toolSchemas)
-  const id = toolCallIdOf(adopted)
-  const name = toolNameOf(adopted) || "unknown"
-  if (policy.streamToolCallEnsure || !id || seenStarts.has(id)) return [adopted]
-  seenStarts.add(id)
-  return [{ type: "tool-input-start", id, toolName: name }, adopted]
-}
-
-function wrapReadableStream(stream, policy, toolSchemas) {
-  const seenStarts = new Set()
-  return stream.pipeThrough(new TransformStream({
-    transform(chunk, controller) {
-      for (const part of adoptStreamPart(chunk, policy, seenStarts, toolSchemas)) controller.enqueue(part)
-    },
-  }))
-}
-
-function isThenable(value) {
-  return !!value && typeof value === "object" && typeof value.then === "function"
-}
-
-export function adaptLanguageModel(model, policy) {
-  if (!model || typeof model !== "object") return model
-  const original = model
-  const adapted = Object.create(Object.getPrototypeOf(original), Object.getOwnPropertyDescriptors(original))
-  if (typeof original.doStream === "function") {
-    const inner = original.doStream.bind(original)
-    adapted.doStream = (...args) => {
-      const toolSchemas = toolSchemasFromCall(args[0])
-      const result = inner(...args)
-      const finish = (resolved) => {
-        if (!resolved || typeof resolved !== "object") return resolved
-        if (resolved.stream instanceof ReadableStream) {
-          return { ...resolved, stream: wrapReadableStream(resolved.stream, policy, toolSchemas) }
-        }
-        return resolved
-      }
-      return isThenable(result) ? result.then(finish) : finish(result)
-    }
-  }
-  if (typeof original.doGenerate === "function") {
-    const inner = original.doGenerate.bind(original)
-    adapted.doGenerate = (...args) => {
-      const toolSchemas = toolSchemasFromCall(args[0])
-      const result = inner(...args)
-      const finish = (resolved) => {
-        if (!resolved || typeof resolved !== "object" || !Array.isArray(resolved.content)) return resolved
-        const seenStarts = new Set()
-        const content = []
-        for (const part of resolved.content) content.push(...adoptStreamPart(part, policy, seenStarts, toolSchemas))
-        return { ...resolved, content }
-      }
-      return isThenable(result) ? result.then(finish) : finish(result)
-    }
-  }
-  return adapted
-}
-
-export function wrapProviderSdk(sdk, policy) {
-  if (!sdk || typeof sdk !== "object") return sdk
-  if (typeof sdk.languageModel !== "function") return sdk
-  const adapted = Object.create(Object.getPrototypeOf(sdk), Object.getOwnPropertyDescriptors(sdk))
-  const inner = sdk.languageModel.bind(sdk)
-  adapted.languageModel = (...args) => {
-    const model = inner(...args)
-    return isThenable(model)
-      ? model.then((resolved) => adaptLanguageModel(resolved, policy))
-      : adaptLanguageModel(model, policy)
-  }
-  return adapted
-}
-
-export function wrapProviderModule(mod, policy) {
-  if (!mod || typeof mod !== "object") return mod
-  const out = { ...mod }
-  for (const [key, value] of Object.entries(mod)) {
-    if (key === "default") continue
-    if (!key.startsWith("create") || typeof value !== "function") continue
-    out[key] = (...args) => {
-      const sdk = value(...args)
-      return isThenable(sdk)
-        ? sdk.then((resolved) => wrapProviderSdk(resolved, policy))
-        : wrapProviderSdk(sdk, policy)
-    }
-  }
-  if (typeof mod.default === "function") {
-    const name = typeof mod.default.name === "string" ? mod.default.name : ""
-    if (name.startsWith("create")) {
-      out.default = (...args) => {
-        const sdk = mod.default(...args)
-        return isThenable(sdk)
-          ? sdk.then((resolved) => wrapProviderSdk(resolved, policy))
-          : wrapProviderSdk(sdk, policy)
-      }
-    } else {
-      out.default = mod.default
-    }
-  }
-  return out
-}
-`
 }
 
 /** Backup path beside an entry file: `index.js` → `index.ocp-original.js`. */
@@ -464,6 +72,7 @@ import {
   detectHostId,
   installPathBridge,
   policyForHostId,
+  toolRolesForHostId,
   wrapProviderModule,
 } from "./${RUNTIME_FILENAME}"
 
@@ -471,7 +80,8 @@ const __host = detectHostId(process.env, process.argv, process.execPath, ${hostH
 installPathBridge(__host, process.env)
 const __original = await import(${original})
 const __policy = policyForHostId(__host)
-const __wrapped = wrapProviderModule(__original, __policy)
+const __roles = toolRolesForHostId(__host)
+const __wrapped = wrapProviderModule(__original, __policy, __roles)
 
 export default __wrapped.default
 ${exportLines ? `${exportLines}\n` : ""}`

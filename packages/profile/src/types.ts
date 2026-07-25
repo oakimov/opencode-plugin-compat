@@ -38,6 +38,26 @@ export type HostPaths = {
   home?: string
 }
 
+/**
+ * Host builtin tool identities, keyed by role rather than by name.
+ *
+ * Forks rotate builtin names while keeping the vocabulary: MiMo moved
+ * OpenCode's subagent spawner from `task` to `actor`, then reused the freed
+ * `task` name for its work-item tracker (OpenCode's `todowrite`/`todoread`).
+ * A consumer that hardcodes `"task"` therefore means "spawn a subagent" on
+ * OpenCode/Kilo and "record a todo" on MiMo — silently, with no type error.
+ *
+ * Resolve by role; never by literal name.
+ */
+export type HostToolRoles = {
+  /** Spawns a subagent. Default `task`; MiMo: `actor`. */
+  subagent: string
+  /** Records work items / todos. Default `todowrite`; MiMo: `task`. */
+  todoWrite: string
+  /** Reads work items / todos. Default `todoread`; MiMo: `task`. */
+  todoRead: string
+}
+
 export type HostHooks = {
   /** Portable classic hooks implemented (or accepted via facade) */
   core: readonly string[]
@@ -62,6 +82,13 @@ export type HostProfile = {
   envPrefix: string
   capabilities: HostCapabilities
   hooks: HostHooks
+  /**
+   * Sparse override for hosts that rotated builtin names. Omit entirely when
+   * the host matches upstream OpenCode — `toolRolesOf()` supplies the defaults.
+   * Advisory: consumers must intersect the result with the tools the host
+   * actually advertises at runtime, since a user may disable a builtin.
+   */
+  tools?: Partial<HostToolRoles>
   agents?: { builtins: string[]; aliases?: Record<string, string> }
   /** Free-form research notes */
   note?: string

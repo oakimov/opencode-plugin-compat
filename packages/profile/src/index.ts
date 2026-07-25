@@ -14,7 +14,14 @@ export type {
   HostId,
   HostPaths,
   HostProfile,
+  HostToolRoles,
 } from "./types"
+
+export {
+  DEFAULT_TOOL_ROLES,
+  resolveToolRole,
+  toolRolesOf,
+} from "./tool-roles"
 
 export {
   CORE_HOOKS,

@@ -43,6 +43,25 @@ export {
 } from "./language-model"
 
 export {
+  buildVocabulary,
+  diffTodos,
+  fanoutId,
+  originalCallId,
+  reconstructHostTodos,
+  translateCall,
+  translateCatalog,
+  translatePrompt,
+  type HostTodo,
+  type RoleBinding,
+  type TodoItem,
+  type TodoStatus,
+  type ToolLike,
+  type ToolRole,
+  type TranslatedCall,
+  type Vocabulary,
+} from "./vocabulary"
+
+export {
   OCP_ORIGINAL_EXPORTS_KEY,
   ORIGINAL_SUFFIX,
   RUNTIME_FILENAME,

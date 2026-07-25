@@ -499,10 +499,7 @@ describe("provider shim source + install-tree setup", () => {
   test("runtime source detects worker markers and falls back to its install-tree host", async () => {
     const src = providerShimRuntimeSource()
     expect(src).toContain(SHIM_MARKER)
-    expect(src).toContain('case "mimo"')
-    expect(src).toContain("streamToolCallEnsure: false")
-    expect(src).toContain("bashDescriptionRequired: true")
-    expect(src).toContain("tool-input-start")
+    expect(src).not.toContain("@opencode-compat/")
 
     const { mkdtemp, rm } = await import("node:fs/promises")
     const { tmpdir } = await import("node:os")
@@ -519,8 +516,17 @@ describe("provider shim source + install-tree setup", () => {
           execPath: string,
           hostHint?: string,
         ) => string
+        installPathBridge: (id: string, env?: Record<string, string>) => void
+        policyForHostId: (id: string) => unknown
+        toolRolesForHostId: (id: string) => { tools: Record<string, string> } | undefined
+        wrapProviderModule: (...args: unknown[]) => unknown
         normalizeToolInputForSchema: (input: unknown, schema: unknown) => unknown
       }
+      expect(typeof runtime.detectHostId).toBe("function")
+      expect(typeof runtime.installPathBridge).toBe("function")
+      expect(typeof runtime.policyForHostId).toBe("function")
+      expect(typeof runtime.toolRolesForHostId).toBe("function")
+      expect(typeof runtime.wrapProviderModule).toBe("function")
       expect(
         runtime.detectHostId(
           { MIMOCODE: "1" },
@@ -557,6 +563,97 @@ describe("provider shim source + install-tree setup", () => {
     }
   })
 
+  test("runtime source translates MiMo's rotated vocabulary end to end", async () => {
+    // Guards against the failure mode where vocabulary.ts / language-model.ts
+    // gain rotation logic but the hand-duplicated embedded runtime — the code
+    // actually written into an install tree and loaded by MiMo — is not kept
+    // in sync. Exercises the runtime exactly as `ocp setup` ships it: written
+    // to disk fresh and dynamically imported, not the source module.
+    const src = providerShimRuntimeSource()
+    const { mkdtemp, rm } = await import("node:fs/promises")
+    const { tmpdir } = await import("node:os")
+    const { join } = await import("node:path")
+    const { pathToFileURL } = await import("node:url")
+    const dir = await mkdtemp(join(tmpdir(), "ocp-runtime-vocab-"))
+    try {
+      const runtimePath = join(dir, "ocp-lm-runtime.mjs")
+      await Bun.write(runtimePath, src)
+      const runtime = (await import(pathToFileURL(runtimePath).href)) as {
+        toolRolesForHostId: (id: string) => { tools: Record<string, string> } | undefined
+        wrapProviderModule: (
+          mod: Record<string, unknown>,
+          policy: unknown,
+          roles: unknown,
+        ) => Record<string, unknown>
+      }
+
+      const roles = runtime.toolRolesForHostId("mimo")
+      expect(roles).toEqual({ tools: { subagent: "actor", todoWrite: "task", todoRead: "task" } })
+
+      let seenCall: { tools: Array<{ name: string }> } | undefined
+      const fakeModule = {
+        createFoo: () => ({
+          languageModel: () => ({
+            doStream: async (call: { tools: Array<{ name: string }> }) => {
+              seenCall = call
+              const stream = new ReadableStream({
+                start(controller) {
+                  controller.enqueue({
+                    type: "tool-call",
+                    toolCallId: "call1",
+                    toolName: "task",
+                    input: JSON.stringify({
+                      description: "d",
+                      prompt: "p",
+                      subagent_type: "explorer",
+                    }),
+                  })
+                  controller.close()
+                },
+              })
+              return { stream }
+            },
+          }),
+        }),
+      }
+
+      const wrapped = runtime.wrapProviderModule(
+        fakeModule,
+        { streamToolCallEnsure: false, bashDescriptionRequired: true },
+        roles,
+      )
+      const sdk = (wrapped.createFoo as () => { languageModel: () => { doStream: (c: unknown) => Promise<unknown> } })()
+      const model = sdk.languageModel()
+      const result = (await model.doStream({
+        tools: [
+          { name: "actor", inputSchema: { type: "object" } },
+          { name: "task", inputSchema: { type: "object" } },
+        ],
+        prompt: [],
+      })) as { stream: ReadableStream }
+
+      // The plugin's own catalog must show canonical names, never the host's
+      // rotated `actor` — that is the entire point of translation.
+      expect(seenCall?.tools.map((t) => t.name).sort()).toEqual(["task", "todoread", "todowrite"])
+
+      const reader = result.stream.getReader()
+      const parts: Array<Record<string, unknown>> = []
+      for (;;) {
+        const { done, value } = await reader.read()
+        if (done) break
+        parts.push(value as Record<string, unknown>)
+      }
+      // Canonical `task` call must be restated onto the host's `actor` tool.
+      const call = parts.find((p) => p.type === "tool-call")
+      expect(call?.toolName).toBe("actor")
+      expect(JSON.parse(call?.input as string)).toEqual({
+        operation: { action: "run", description: "d", prompt: "p", subagent_type: "explorer" },
+      })
+    } finally {
+      await rm(dir, { recursive: true, force: true })
+    }
+  })
+
   test("renderProviderShimSource re-exports create* via wrapProviderModule", () => {
     const src = renderProviderShimSource({
       original: "./index.ocp-original.js",
@@ -572,6 +669,12 @@ describe("provider shim source + install-tree setup", () => {
     expect(src).toContain('process.execPath, "mimo"')
     expect(src).toContain("export const createCursor")
     expect(src).toContain("export const VERSION")
+    // Roles must be resolved and threaded into wrapProviderModule, or the
+    // shim entry adopts the host's stream/bash policy but never rotates
+    // tool vocabulary — the exact gap this generator previously had.
+    expect(src).toContain("toolRolesForHostId")
+    expect(src).toContain("const __roles = toolRolesForHostId(__host)")
+    expect(src).toContain("wrapProviderModule(__original, __policy, __roles)")
   })
 
   test("setupProviderShims writes in-place entry beside stock create* package", async () => {
@@ -666,7 +769,7 @@ export const VERSION = "1.0.0"
       const shim = await readFile(entry, "utf8")
       expect(shim).toContain(SHIM_MARKER)
       expect(shim).toContain("createDemo")
-      expect(await readFile(runtime, "utf8")).toContain("adoptStreamPart")
+      expect(await readFile(runtime, "utf8")).toContain(SHIM_MARKER)
 
       // idempotent refresh
       const again = setupProviderShims({ dir: root, hostHint: "mimo" })

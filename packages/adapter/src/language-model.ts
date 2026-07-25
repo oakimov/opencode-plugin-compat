@@ -1,13 +1,30 @@
 /**
  * Host-dynamic LanguageModelV3 adoption for custom npm providers.
  *
- * Policy comes from HostProfile capabilities — never swaps host tool catalogs.
+ * Policy comes from HostProfile capabilities:
  * - streamToolCallEnsure=false (MiMo): emit tool-input-start before bare tool-call
  * - bashDescriptionRequired=true (MiMo): fill missing bash.description only
  * - argument keys: universally align unique case/separator variants with the
  *   exact tool schema advertised by the active host
+ *
+ * This layer *does* swap host tool catalogs, where the profile records that the
+ * host rotated a builtin name (see vocabulary.ts). An earlier revision refused
+ * to, on the reasoning that a catalog is the host's to define. That was wrong:
+ * a rotated name means an unmodified plugin's `task` resolves to a different
+ * role per host, which is precisely the incompatibility OCP exists to absorb.
+ * Translation is confined to roles the profile declares rotated, so hosts that
+ * match upstream take a byte-identical path.
  */
 import type { HostId, HostProfile } from "@opencode-compat/profile"
+import {
+  buildVocabulary,
+  reconstructHostTodos,
+  translateCall,
+  translateCatalog,
+  translatePrompt,
+  type HostTodo,
+  type Vocabulary,
+} from "./vocabulary"
 
 export type StreamAdoptionPolicy = {
   streamToolCallEnsure: boolean
@@ -256,12 +273,18 @@ function withBashDescription(
 /**
  * Expand a single stream/generate part into 0..n parts for the active host.
  * Pure — used by adaptLanguageModel and the install-tree shim runtime.
+ *
+ * When `context.vocab` is present the call is first restated in the host's own
+ * tool vocabulary, which may fan one canonical call out into several host
+ * calls. Schema alignment and tool-input-start synthesis then run per emitted
+ * call, against the host schema that will actually validate it.
  */
 export function adoptStreamPart(
   part: StreamPartLike,
   policy: StreamAdoptionPolicy,
   seenStarts: Set<string>,
   toolSchemas: ToolSchemaMap = new Map(),
+  context?: VocabularyContext,
 ): StreamPartLike[] {
   if (!part || typeof part !== "object") return [part]
 
@@ -273,6 +296,60 @@ export function adoptStreamPart(
 
   if (part.type !== "tool-call") return [part]
 
+  const translated = translateToolCallPart(part, context)
+  if (translated) {
+    const out: StreamPartLike[] = []
+    for (const call of translated) out.push(...finalizeToolCall(call, policy, seenStarts, toolSchemas))
+    return out
+  }
+
+  return finalizeToolCall(part, policy, seenStarts, toolSchemas)
+}
+
+export type VocabularyContext = {
+  vocab?: Vocabulary
+  hostTodos?: readonly HostTodo[]
+}
+
+/**
+ * Restate a canonical tool call in host vocabulary, or undefined when the call
+ * belongs to no rotated role — every other tool, and every subagent type, is
+ * left exactly as the plugin emitted it.
+ */
+function translateToolCallPart(
+  part: StreamPartLike,
+  context: VocabularyContext | undefined,
+): StreamPartLike[] | undefined {
+  const vocab = context?.vocab
+  if (!vocab) return undefined
+
+  const id = toolCallIdOf(part)
+  const name = toolNameOf(part)
+  if (!id || !name) return undefined
+
+  const calls = translateCall(id, name, parseToolInput(part.input) ?? {}, vocab, context.hostTodos)
+  if (!calls) return undefined
+
+  const inputWasString = typeof part.input === "string"
+  return calls.map((call) => {
+    const next: StreamPartLike = {
+      ...part,
+      toolCallId: call.toolCallId,
+      toolName: call.toolName,
+      input: inputWasString ? JSON.stringify(call.input) : call.input,
+    }
+    if (typeof part.id === "string") next.id = call.toolCallId
+    if (typeof part.name === "string") next.name = call.toolName
+    return next
+  })
+}
+
+function finalizeToolCall(
+  part: StreamPartLike,
+  policy: StreamAdoptionPolicy,
+  seenStarts: Set<string>,
+  toolSchemas: ToolSchemaMap,
+): StreamPartLike[] {
   const adopted = withSchemaKeys(withBashDescription(part, policy), toolSchemas)
   const id = toolCallIdOf(adopted)
   const name = toolNameOf(adopted) ?? "unknown"
@@ -297,17 +374,65 @@ function wrapReadableStream(
   stream: ReadableStream<StreamPartLike>,
   policy: StreamAdoptionPolicy,
   toolSchemas: ToolSchemaMap,
+  context: VocabularyContext | undefined,
 ): ReadableStream<StreamPartLike> {
   const seenStarts = new Set<string>()
   return stream.pipeThrough(
     new TransformStream<StreamPartLike, StreamPartLike>({
       transform(chunk, controller) {
-        for (const part of adoptStreamPart(chunk, policy, seenStarts, toolSchemas)) {
+        for (const part of adoptStreamPart(chunk, policy, seenStarts, toolSchemas, context)) {
           controller.enqueue(part)
         }
       },
     }),
   )
+}
+
+type PreparedCall = {
+  args: unknown[]
+  toolSchemas: ToolSchemaMap
+  context: VocabularyContext | undefined
+}
+
+/**
+ * Build the host-vocabulary view for one call.
+ *
+ * Tool schemas are read from the *original* catalog, because outbound parts are
+ * restated in host vocabulary before schema alignment runs — they must be
+ * checked against the schema the host will validate them with, not the
+ * canonical one the plugin saw.
+ */
+function prepareCall(args: unknown[], roles: Pick<HostProfile, "tools"> | undefined): PreparedCall {
+  const call = args[0]
+  const toolSchemas = toolSchemasFromCall(call)
+  if (!roles?.tools || !call || typeof call !== "object") {
+    return { args, toolSchemas, context: undefined }
+  }
+
+  const record = call as { tools?: unknown; prompt?: unknown; [key: string]: unknown }
+  const tools = Array.isArray(record.tools) ? record.tools : undefined
+  if (!tools) return { args, toolSchemas, context: undefined }
+
+  const advertised: string[] = []
+  for (const tool of tools) {
+    const name = (tool as { name?: unknown } | null)?.name
+    if (typeof name === "string" && name) advertised.push(name)
+  }
+
+  const vocab = buildVocabulary(roles, advertised)
+  if (!vocab) return { args, toolSchemas, context: undefined }
+
+  const prompt = Array.isArray(record.prompt) ? record.prompt : undefined
+  const hostTodos = reconstructHostTodos(record.prompt, vocab)
+
+  const next = [...args]
+  next[0] = {
+    ...record,
+    tools: translateCatalog(tools, vocab),
+    ...(prompt ? { prompt: translatePrompt(prompt, vocab) } : {}),
+  }
+
+  return { args: next, toolSchemas, context: { vocab, hostTodos } }
 }
 
 function isThenable<T>(value: unknown): value is Promise<T> {
@@ -322,7 +447,11 @@ function isThenable<T>(value: unknown): value is Promise<T> {
  * Wrap a LanguageModelV3-like object so doStream / doGenerate adopt parts
  * for the active host and the schemas supplied with each call.
  */
-export function adaptLanguageModel<T>(model: T, policy: StreamAdoptionPolicy): T {
+export function adaptLanguageModel<T>(
+  model: T,
+  policy: StreamAdoptionPolicy,
+  roles?: Pick<HostProfile, "tools">,
+): T {
   if (!model || typeof model !== "object") return model
 
   const original = model as {
@@ -339,8 +468,8 @@ export function adaptLanguageModel<T>(model: T, policy: StreamAdoptionPolicy): T
   if (typeof original.doStream === "function") {
     const inner = original.doStream.bind(original)
     adapted.doStream = (...args: unknown[]) => {
-      const toolSchemas = toolSchemasFromCall(args[0])
-      const result = inner(...args)
+      const prepared = prepareCall(args, roles)
+      const result = inner(...prepared.args)
       const finish = (resolved: unknown) => {
         if (!resolved || typeof resolved !== "object") return resolved
         const record = resolved as { stream?: unknown; [key: string]: unknown }
@@ -350,7 +479,8 @@ export function adaptLanguageModel<T>(model: T, policy: StreamAdoptionPolicy): T
             stream: wrapReadableStream(
               record.stream as ReadableStream<StreamPartLike>,
               policy,
-              toolSchemas,
+              prepared.toolSchemas,
+              prepared.context,
             ),
           }
         }
@@ -364,8 +494,8 @@ export function adaptLanguageModel<T>(model: T, policy: StreamAdoptionPolicy): T
   if (typeof original.doGenerate === "function") {
     const inner = original.doGenerate.bind(original)
     adapted.doGenerate = (...args: unknown[]) => {
-      const toolSchemas = toolSchemasFromCall(args[0])
-      const result = inner(...args)
+      const prepared = prepareCall(args, roles)
+      const result = inner(...prepared.args)
       const finish = (resolved: unknown) => {
         if (!resolved || typeof resolved !== "object") return resolved
         const record = resolved as { content?: unknown; [key: string]: unknown }
@@ -373,7 +503,7 @@ export function adaptLanguageModel<T>(model: T, policy: StreamAdoptionPolicy): T
         const seenStarts = new Set<string>()
         const content: StreamPartLike[] = []
         for (const part of record.content as StreamPartLike[]) {
-          content.push(...adoptStreamPart(part, policy, seenStarts, toolSchemas))
+          content.push(...adoptStreamPart(part, policy, seenStarts, prepared.toolSchemas, prepared.context))
         }
         return { ...record, content }
       }
@@ -386,7 +516,11 @@ export function adaptLanguageModel<T>(model: T, policy: StreamAdoptionPolicy): T
 }
 
 /** Wrap an AI SDK provider object that exposes languageModel(id). */
-export function wrapProviderSdk<T>(sdk: T, policy: StreamAdoptionPolicy): T {
+export function wrapProviderSdk<T>(
+  sdk: T,
+  policy: StreamAdoptionPolicy,
+  roles?: Pick<HostProfile, "tools">,
+): T {
   if (!sdk || typeof sdk !== "object") return sdk
 
   const original = sdk as {
@@ -404,9 +538,9 @@ export function wrapProviderSdk<T>(sdk: T, policy: StreamAdoptionPolicy): T {
   adapted.languageModel = (...args: unknown[]) => {
     const model = inner(...args)
     if (isThenable(model)) {
-      return model.then((resolved) => adaptLanguageModel(resolved, policy))
+      return model.then((resolved) => adaptLanguageModel(resolved, policy, roles))
     }
-    return adaptLanguageModel(model, policy)
+    return adaptLanguageModel(model, policy, roles)
   }
   return adapted as T
 }
@@ -418,6 +552,7 @@ export function wrapProviderSdk<T>(sdk: T, policy: StreamAdoptionPolicy): T {
 export function wrapProviderModule<T extends Record<string, unknown>>(
   mod: T,
   policy: StreamAdoptionPolicy,
+  roles?: Pick<HostProfile, "tools">,
 ): T {
   if (!mod || typeof mod !== "object") return mod
 
@@ -429,9 +564,9 @@ export function wrapProviderModule<T extends Record<string, unknown>>(
     out[key] = (...args: unknown[]) => {
       const sdk = factory(...args)
       if (isThenable(sdk)) {
-        return sdk.then((resolved) => wrapProviderSdk(resolved, policy))
+        return sdk.then((resolved) => wrapProviderSdk(resolved, policy, roles))
       }
-      return wrapProviderSdk(sdk, policy)
+      return wrapProviderSdk(sdk, policy, roles)
     }
   }
   if (typeof mod.default === "function" && !String(mod.default.name).startsWith("create")) {
@@ -442,9 +577,9 @@ export function wrapProviderModule<T extends Record<string, unknown>>(
     out.default = (...args: unknown[]) => {
       const sdk = factory(...args)
       if (isThenable(sdk)) {
-        return sdk.then((resolved) => wrapProviderSdk(resolved, policy))
+        return sdk.then((resolved) => wrapProviderSdk(resolved, policy, roles))
       }
-      return wrapProviderSdk(sdk, policy)
+      return wrapProviderSdk(sdk, policy, roles)
     }
   }
   return out as T
@@ -454,16 +589,16 @@ export function adaptLanguageModelForProfile<T>(
   model: T,
   profile: HostProfile,
 ): T {
-  return adaptLanguageModel(model, policyFromProfile(profile))
+  return adaptLanguageModel(model, policyFromProfile(profile), profile)
 }
 
 export function wrapProviderSdkForProfile<T>(sdk: T, profile: HostProfile): T {
-  return wrapProviderSdk(sdk, policyFromProfile(profile))
+  return wrapProviderSdk(sdk, policyFromProfile(profile), profile)
 }
 
 export function wrapProviderModuleForProfile<T extends Record<string, unknown>>(
   mod: T,
   profile: HostProfile,
 ): T {
-  return wrapProviderModule(mod, policyFromProfile(profile))
+  return wrapProviderModule(mod, policyFromProfile(profile), profile)
 }

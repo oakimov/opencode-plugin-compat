@@ -28,9 +28,11 @@
     "!dist/**/*.map"
   ],
   "scripts": {
-    "build": "bunx tsc -p tsconfig.json",
+    "build": "bunx tsc -p tsconfig.json && bun run build:runtime",
+    "build:runtime": "bun build ./src/runtime-entry.ts --outfile ./dist/ocp-lm-runtime.js --target=node --format=esm --packages=bundle --sourcemap=none && bun run check:runtime",
+    "check:runtime": "bun ./scripts/check-runtime.ts",
     "typecheck": "bunx tsc -p tsconfig.json --noEmit",
-    "prepack": "bunx tsc -p tsconfig.json"
+    "prepack": "bun run build"
   },
   "dependencies": {
     "@opencode-compat/host-promise-v2": "workspace:*",

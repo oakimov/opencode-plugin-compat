@@ -56,11 +56,11 @@ jobs:
       - name: Typecheck
         run: bun run typecheck
 
-      - name: Test
-        run: bun test ./test
-
       - name: Build
         run: bun run build
+
+      - name: Test
+        run: bun test ./test
 
       - name: Publish (OIDC, public access)
         # Packs with Bun (rewrites workspace:* → concrete versions), then

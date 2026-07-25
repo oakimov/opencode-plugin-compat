@@ -18,7 +18,7 @@
     "packages/*"
   ],
   "scripts": {
-    "build": "bunx tsc -b",
+    "build": "bunx tsc -b && bun run --cwd packages/adapter build:runtime",
     "typecheck": "bunx tsc -b --pretty false",
     "test": "bun test ./test",
     "matrix": "bun packages/cli/bin/compat.ts matrix",
