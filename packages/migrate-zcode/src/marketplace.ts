@@ -15,10 +15,11 @@ import type {
 /** Slug for `plugins/<slug>/` — lowercase, safe path segment. */
 export function pluginSlug(name: string): string {
   const trimmed = name.trim().toLowerCase()
-  const slug = trimmed
-    .replace(/[^a-z0-9._-]+/g, "-")
-    .replace(/^-+|-+$/g, "")
-    .slice(0, 128)
+  // Avoid `/^-+|-+$/g` (polynomial ReDoS on long '-' runs); strip linearly.
+  let slug = trimmed.replace(/[^a-z0-9._-]+/g, "-")
+  while (slug.startsWith("-")) slug = slug.slice(1)
+  while (slug.endsWith("-")) slug = slug.slice(0, -1)
+  slug = slug.slice(0, 128)
   if (!slug || !/^[a-z0-9]/.test(slug)) {
     throw new Error(
       `migrateZcodeMarketplace: cannot derive plugin slug from "${name}"`,

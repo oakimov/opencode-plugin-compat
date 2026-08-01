@@ -37,6 +37,30 @@ describe("@opencode-compat/migrate-zcode identity", () => {
   })
 })
 
+describe("pluginSlug", () => {
+  test("normalizes package-like names", () => {
+    expect(pluginSlug("@Scope/My Plugin")).toBe("scope-my-plugin")
+    expect(pluginSlug("  Foo_Bar.v2  ")).toBe("foo_bar.v2")
+  })
+
+  test("strips leading and trailing dashes from separator runs", () => {
+    expect(pluginSlug("---hello---")).toBe("hello")
+    expect(pluginSlug("!!!wow!!!")).toBe("wow")
+  })
+
+  test("caps length at 128 after strip", () => {
+    const slug = pluginSlug(`---${"a".repeat(200)}---`)
+    expect(slug).toBe("a".repeat(128))
+    expect(slug.length).toBe(128)
+  })
+
+  test("rejects empty or non-alphanumeric-leading results", () => {
+    expect(() => pluginSlug("---")).toThrow(/cannot derive plugin slug/)
+    expect(() => pluginSlug("...")).toThrow(/cannot derive plugin slug/)
+    expect(() => pluginSlug("")).toThrow(/cannot derive plugin slug/)
+  })
+})
+
 describe("markdown sanitizers", () => {
   test("skill keeps name+description only", () => {
     const { name, content, dropped } = sanitizeSkillMarkdown(

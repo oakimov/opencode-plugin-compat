@@ -68,8 +68,10 @@ const lockPath = join(ROOT, "bun.lock")
 let lockText = readFileSync(lockPath, "utf8")
 for (const dir of PACKAGES) {
   const key = `packages/${dir}`
+  // `/` is not special in `new RegExp(...)`; no escaping needed (and avoids
+  // incomplete-sanitization false positives from escaping only `/`).
   const re = new RegExp(
-    `("${key.replace(/\//g, "\\/")}":\\s*\\{[\\s\\S]*?"version":\\s*")([^"]+)(")`,
+    `("${key}":\\s*\\{[\\s\\S]*?"version":\\s*")([^"]+)(")`,
   )
   if (!re.test(lockText)) {
     console.error(`bun.lock: missing workspaces entry for ${key}`)
