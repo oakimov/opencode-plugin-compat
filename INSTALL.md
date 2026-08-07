@@ -130,6 +130,7 @@ For the detected (or `--host`) plugin install root, setup:
 2. **Deep-patches** each child plugin `package.json` (required on MiMo/Kilo).
 3. Runs **`npm install`** (reify) when `node_modules` already exists so the overrides link.
 4. Writes **in-place provider entry shims** (default) for LanguageModel / stream adoption on hosts that need it (notably MiMo). Use `--no-provider-shim` to skip.
+5. **Absolute-path / `file://` plugins** listed in the host config: symlinks `@opencode-ai/{plugin,sdk}` → OCP facades inside each checkout (install-tree overrides never reach those). Use `--no-absolute-plugins` to skip.
 
 Useful flags:
 
@@ -139,9 +140,15 @@ ocp setup --host kilo --mode npm --version 0.1.2   # pin facade train (default t
 ocp setup --dir ~/.cache/mimocode/packages --mode npm   # explicit install root
 ```
 
-`--version` pins the `@opencode-compat/facade-*` specs written into overrides. The CLI default is the **current OCP package train** (today **`0.1.4`**). To pin an older published train, pass e.g. `--version 0.1.0`.
+`--version` pins the `@opencode-compat/facade-*` specs written into overrides. The CLI default is the **current OCP package train** (today **`0.1.5`**). To pin an older published train, pass e.g. `--version 0.1.0`.
 
 Outside this monorepo, always prefer **`--mode npm`** so overrides resolve from the public registry (not local `file:` paths).
+
+### Absolute-path / local checkout plugins
+
+If the host `plugin` array points at a checkout (absolute path or `file://…/dist/index.js`), that package resolves `@opencode-ai/*` from **its own** `node_modules`, not the host cache. `ocp setup` (default `--absolute-plugins`) rewrites those deps to the facades. Re-run setup after adding or moving such entries.
+
+This matters for catalog plugins such as [`opencode-gateway-provider`](https://www.npmjs.com/package/opencode-gateway-provider): they call `@opencode-ai/sdk/v2/client` during the classic `config` hook. On MiMo/Kilo the stock client re-enters in-process `GET /api/model` and **deadlocks**; the OCP facade polyfills the catalog from [models.dev](https://models.dev) instead. Keep the plugin **unmodified** — do not fork it for the host.
 
 ---
 
@@ -188,6 +195,7 @@ ocp setup --host mimo --mode npm             # or --host kilo
 ## Optional notes
 
 - **Listing `@opencode-compat/ocp` in `plugin`:** optional bootstrap only. Layer A still requires the overrides from `ocp setup`.
+- **Absolute / `file://` plugin paths:** covered by `ocp setup` absolute-plugin wiring (see §3). npm cache installs still need the install-tree overrides.
 - **Do not** override `@opencode-ai/plugin` straight to `@mimo-ai/plugin` / `@kilocode/plugin` — that skips OCP.
 - **Do not** install per-host forks such as `cursor-kilocode-provider` for OCP; keep the stock npm package.
 - **ZCode** is not an OCP install target for `@opencode-ai/plugin` packages (marketplace ABI differs).

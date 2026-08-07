@@ -2,7 +2,7 @@
  * @opencode-compat/cli — `compat doctor` + matrix + setup + migrate-zcode companion.
  */
 export const PKG = "@opencode-compat/cli" as const
-export const VERSION = "0.1.4" as const
+export const VERSION = "0.1.5" as const
 
 import { doctorReport } from "@opencode-compat/adapter"
 import {
@@ -24,7 +24,15 @@ import {
   type SetupResult,
 } from "./setup"
 
-export { parseSetupArgs, setup, type SetupOptions, type SetupResult } from "./setup"
+export {
+  discoverAbsolutePluginRoots,
+  parseSetupArgs,
+  setup,
+  wireAbsolutePluginFacades,
+  type AbsolutePluginWireTarget,
+  type SetupOptions,
+  type SetupResult,
+} from "./setup"
 
 export type DoctorResult = {
   ok: boolean
@@ -105,6 +113,7 @@ Usage:
   opencode-compat overrides
   opencode-compat setup [--dir <path>] [--host <id>] [--mode auto|npm|file] [--dry-run]
                         [--deep|--no-deep] [--reify|--no-reify] [--provider-shim|--no-provider-shim]
+                        [--absolute-plugins|--no-absolute-plugins]
   opencode-compat matrix [--host <id>]... [--fixture <id>]... [--compat-scan]
   opencode-compat migrate-zcode --plugin <dir> [--out <dir>] [options]
   opencode-compat migrate-zcode --plugin <dir> [--plugin <dir>...] \\
@@ -128,6 +137,8 @@ setup options:
   --reify / --no-reify           npm install after patch when node_modules exists (default: auto)
   --provider-shim / --no-provider-shim
                                  In-place create*/languageModel adoption shims after reify (default: on)
+  --absolute-plugins / --no-absolute-plugins
+                                 Symlink facades into absolute-path / file:// plugin checkouts (default: on)
 
 migrate-zcode options:
   --plugin <dir>                 Plugin package root (repeatable; required)

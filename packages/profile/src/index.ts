@@ -11,6 +11,7 @@ export type {
   DetectSource,
   HostCapabilities,
   HostHooks,
+  HostHttp,
   HostId,
   HostPaths,
   HostProfile,

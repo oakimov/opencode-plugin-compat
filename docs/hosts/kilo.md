@@ -36,6 +36,8 @@ Kilo installs each npm plugin into an **isolated** child dir (same OpenCode-styl
 
 Listing OCP itself in `plugin` is optional bootstrap only — it does **not** intercept other plugins’ `@opencode-ai/plugin` imports.
 
+**Absolute-path / `file://` plugins** (common in local dev: `plugin: ["/…/dist/index.js"]`) resolve `@opencode-ai/*` from the checkout’s own `node_modules`. `ocp setup` (default `--absolute-plugins`) symlinks those to the OCP facades. Required for unmodified catalog plugins that import `@opencode-ai/sdk/v2/client` during classic `config` — stock `v2.model.list` re-enters `GET /api/model` and deadlocks on Kilo; facade-sdk polyfills from models.dev instead.
+
 From this checkout, `--mode auto` may use local `file:` facade paths; published installs use `--mode npm`. See [`INSTALL.md`](../../INSTALL.md) and [`npm-publish.md`](../guides/npm-publish.md).
 
 Classic Hooks keys already match OpenCode 1.18.3 core — T1 is primarily override + adapter dispatch to `@kilocode/plugin`.

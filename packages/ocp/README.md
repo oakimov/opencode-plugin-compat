@@ -25,7 +25,7 @@ The default provider-shim action applies the active host's LanguageModel compati
 | `ocp matrix` | OCP §10 fixtures (checkout-rooted) |
 | `ocp migrate-zcode` | Companion migrator (not OCP ABI) |
 
-`setup` options: `--dir`, `--host`, `--mode auto|npm|file`, `--version`, `--dry-run`, `--deep` / `--no-deep`, `--reify` / `--no-reify` (default auto-reify when a patched tree already has `node_modules`), `--provider-shim` / `--no-provider-shim`.
+`setup` options: `--dir`, `--host`, `--mode auto|npm|file`, `--version`, `--dry-run`, `--deep` / `--no-deep`, `--reify` / `--no-reify` (default auto-reify when a patched tree already has `node_modules`), `--provider-shim` / `--no-provider-shim`, `--absolute-plugins` / `--no-absolute-plugins` (symlink facades into absolute-path / `file://` plugin checkouts).
 
 Bridge packages (`profile`, `facade-*`, `adapter`, `host-promise-v2`, `cli`, …) ship as transitive dependencies / implementation detail.
 

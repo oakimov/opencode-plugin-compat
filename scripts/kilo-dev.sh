@@ -1,4 +1,6 @@
 #!/usr/bin/env bash
+# Kilo local-dev entrypoint. Logic lives in scripts/host-dev-common.sh
+# (`local` rebuilds provider stock + drops stale index.ocp-original.js before ocp setup).
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"

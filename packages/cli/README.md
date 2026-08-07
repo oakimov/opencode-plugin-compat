@@ -9,12 +9,13 @@ compat doctor [--host opencode|mimo|kilo|zcode]
 compat setup [--dir <path>] [--host <id>] [--mode auto|npm|file] [--version <x.y.z>]
              [--dry-run] [--deep|--no-deep] [--reify|--no-reify]
              [--provider-shim|--no-provider-shim]
+             [--absolute-plugins|--no-absolute-plugins]
 compat overrides
 compat matrix [...]
 compat migrate-zcode --plugin <dir> [--out <dir>] [--dry-run]
 ```
 
-`setup` defaults to **deep** child `package.json` patches, **auto-reify** (`npm install`) when a patched tree already has `node_modules`, and **`--provider-shim`** (Option B in-place entry shims). Deep + reify are required on MiMo/Kilo isolated per-plugin install dirs. Re-run after installing or upgrading consumer plugins. Outside this monorepo prefer **`--mode npm`**.
+`setup` defaults to **deep** child `package.json` patches, **auto-reify** (`npm install`) when a patched tree already has `node_modules`, **`--provider-shim`** (Option B in-place entry shims), and **`--absolute-plugins`** (facade symlinks into absolute-path / `file://` checkouts). Deep + reify are required on MiMo/Kilo isolated per-plugin install dirs. Re-run after installing or upgrading consumer plugins. Outside this monorepo prefer **`--mode npm`**.
 
 User-facing entry is **`ocp`** from `@opencode-compat/ocp` (defaults to `setup`). This package remains the bridge CLI implementation.
 

@@ -67,6 +67,20 @@ export type HostHooks = {
   extensions: readonly string[]
 }
 
+/**
+ * Host HTTP location headers used by native SDK client factories.
+ *
+ * Unmodified OpenCode plugins may construct `@opencode-ai/sdk/v2/client` and
+ * set `x-opencode-directory`. OCP’s facade-sdk must rewrite to the host’s
+ * header names so `/api/*` LocationMiddleware accepts the request.
+ */
+export type HostHttp = {
+  /** Directory header (value is typically URL-encoded). */
+  directoryHeader: string
+  /** Experimental workspace header. */
+  workspaceHeader: string
+}
+
 export type HostProfile = {
   id: HostId
   /** OCP semver this profile targets, or `"none"` for T0 hosts */
@@ -80,6 +94,8 @@ export type HostProfile = {
   configFiles: readonly string[]
   /** Env prefix without trailing underscore, e.g. `OPENCODE` */
   envPrefix: string
+  /** Location headers for SDK client bridging (facade-sdk). */
+  http: HostHttp
   capabilities: HostCapabilities
   hooks: HostHooks
   /**

@@ -42,6 +42,10 @@ export function opencodeProfile(options?: DraftOptions): HostProfile {
     },
     configFiles: ["opencode.json", "opencode.jsonc"],
     envPrefix: "OPENCODE",
+    http: {
+      directoryHeader: "x-opencode-directory",
+      workspaceHeader: "x-opencode-workspace",
+    },
     capabilities: {
       classicHooks: true,
       promiseV2: true,
@@ -97,6 +101,10 @@ export function mimoProfile(options?: DraftOptions): HostProfile {
     },
     configFiles: ["mimocode.json", "mimocode.jsonc"],
     envPrefix: "MIMOCODE",
+    http: {
+      directoryHeader: "x-mimocode-directory",
+      workspaceHeader: "x-mimocode-workspace",
+    },
     capabilities: {
       classicHooks: true,
       // OCP layer supplies Promise v2 via @opencode-compat/host-promise-v2 (not @mimo-ai exports)
@@ -121,7 +129,7 @@ export function mimoProfile(options?: DraftOptions): HostProfile {
       missing: MIMO_MISSING_HOOKS,
       extensions: MIMO_EXTENSION_HOOKS,
     },
-    note: "PluginInput still types createOpencodeClient from @mimo-ai/sdk (residual name); Promise v2 via OCP host kit; streamToolCallEnsure=false → OCP provider shim emits tool-input-start",
+    note: "PluginInput still types createOpencodeClient from @mimo-ai/sdk (residual name); Promise v2 via OCP host kit; streamToolCallEnsure=false → OCP provider shim emits tool-input-start; facade-sdk bridges x-mimocode-* headers",
   }
 }
 
@@ -159,6 +167,10 @@ export function kiloProfile(options?: DraftOptions): HostProfile {
       "opencode.jsonc",
     ],
     envPrefix: "KILO",
+    http: {
+      directoryHeader: "x-kilo-directory",
+      workspaceHeader: "x-kilo-workspace",
+    },
     capabilities: {
       classicHooks: true,
       // OCP layer supplies Promise v2 via @opencode-compat/host-promise-v2 (not @kilocode exports)
@@ -176,7 +188,7 @@ export function kiloProfile(options?: DraftOptions): HostProfile {
       missing: [],
       extensions: [],
     },
-    note: "Promise v2 via OCP host kit; live host provider-resolve calls createPromiseV2Host().resolveProvider; keep stock plugins (no cursor-kilocode-provider fork)",
+    note: "Promise v2 via OCP host kit; live host provider-resolve calls createPromiseV2Host().resolveProvider; keep stock plugins (no cursor-kilocode-provider fork); facade-sdk bridges x-kilo-* headers and avoids re-entrant /api/model during classic config",
   }
 }
 
@@ -204,6 +216,10 @@ export function zcodeProfile(options?: DraftOptions): HostProfile {
     },
     configFiles: ["setting.json", "config.json"],
     envPrefix: "ZCODE",
+    http: {
+      directoryHeader: "x-opencode-directory",
+      workspaceHeader: "x-opencode-workspace",
+    },
     capabilities: {
       classicHooks: false,
       promiseV2: false,
@@ -240,6 +256,10 @@ export function unknownProfile(options?: DraftOptions): HostProfile {
     },
     configFiles: [],
     envPrefix: "",
+    http: {
+      directoryHeader: "x-opencode-directory",
+      workspaceHeader: "x-opencode-workspace",
+    },
     capabilities: {
       classicHooks: false,
       promiseV2: false,
