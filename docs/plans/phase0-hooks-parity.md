@@ -1,5 +1,11 @@
 # Phase 0 — Classic Hooks parity matrix
 
+> **Historical document.** The work described here has shipped. Kept for provenance
+> (decision rationale and pinned upstream sources), **not** as a current roadmap.
+> Current contract: [`../ocp/0.1.md`](../ocp/0.1.md) (OpenCode clones) and
+> [`../../packages/pi-bridge/README.md`](../../packages/pi-bridge/README.md) (Pi family).
+> Current install docs: [`../hosts/opencode-clones.md`](../hosts/opencode-clones.md) · [`../hosts/pi-family.md`](../hosts/pi-family.md).
+
 **Date:** 2026-07-19
 **Status:** Research / discovery artifact (evidence for OCP product)
 **Repo:** `opencode-plugin-compat` (`docs/plans/`)

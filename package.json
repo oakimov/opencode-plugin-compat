@@ -41,6 +41,7 @@
     "@opencode-compat/host-promise-v2": "workspace:*",
     "@opencode-compat/migrate-zcode": "workspace:*",
     "@opencode-compat/ocp": "workspace:*",
+    "@opencode-compat/pi-bridge": "workspace:*",
     "@opencode-compat/profile": "workspace:*",
     "@types/bun": "latest",
     "typescript": "^5.8.3"

@@ -1,5 +1,11 @@
 # Provider host action reliability
 
+> **Historical document.** The work described here has shipped. Kept for provenance
+> (decision rationale and pinned upstream sources), **not** as a current roadmap.
+> Current contract: [`../ocp/0.1.md`](../ocp/0.1.md) (OpenCode clones) and
+> [`../../packages/pi-bridge/README.md`](../../packages/pi-bridge/README.md) (Pi family).
+> Current install docs: [`../hosts/opencode-clones.md`](../hosts/opencode-clones.md) · [`../hosts/pi-family.md`](../hosts/pi-family.md).
+
 - [x] Audit the MiMo provider session and separate host-visible results from the provider's pre-wrapper debug output.
 - [x] Identify the detection boundary and define safe precedence for runtime identity.
 - [x] Recognize host-owned runtime markers in the shared profile detector and generated shim runtime.

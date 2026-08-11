@@ -551,6 +551,7 @@ export function setup(options: SetupOptions = {}): SetupResult {
         if (target.error) continue
         const extra = setupProviderShims({
           dir: target.root,
+          rootOnly: true,
           hostHint: detected.id,
           dryRun,
         })
@@ -585,7 +586,7 @@ export function setup(options: SetupOptions = {}): SetupResult {
     "Note: listing OCP in host plugin config alone does not intercept @opencode-ai/* imports.",
     "Note: on MiMo/Kilo, re-run `ocp setup` after installing plugins (isolated per-plugin trees).",
     "Note: absolute-path / file:// plugins are wired via facade symlinks in each checkout.",
-    "Note: provider shims are install-tree only (in-place entry); re-apply after plugin upgrade/reify.",
+    "Note: provider entries are force-instrumented in place; rebuild or reinstall restores stock files.",
     ...reifyFailed.map((t) => `reify failed: ${dirname(t.path)} — ${t.reifyError}`),
     ...absoluteFailed.map((t) => `absolute-plugin failed: ${t.root} — ${t.error}`),
   ].join("\n")

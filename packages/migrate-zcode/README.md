@@ -32,4 +32,4 @@ const fleet = await migrateZcodeMarketplace({
 })
 ```
 
-Plan: [`docs/plans/zcode-asset-migrator-plan.md`](../../docs/plans/zcode-asset-migrator-plan.md)
+Guide: [`docs/guides/zcode-import-and-migrate.md`](../../docs/guides/zcode-import-and-migrate.md)

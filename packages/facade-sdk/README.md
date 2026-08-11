@@ -14,6 +14,6 @@ Install-override stand-in for `@opencode-ai/sdk`. Written into host plugin insta
 
 On **kilo** / **mimo**, `v2.model.list` polyfills from [models.dev](https://models.dev) instead of re-entering in-process `GET /api/model` during classic `config` hooks (Plugin.state deadlock). Directory headers are taken from `HostProfile.http` (`x-kilo-*` / `x-mimocode-*` / `x-opencode-*`).
 
-**End-user install:** [INSTALL.md](../../INSTALL.md). **License:** MPL-2.0
+**End-user install:** [MiMo/Kilo](../../docs/hosts/opencode-clones.md). **License:** MPL-2.0
 
 See the monorepo [README](../../README.md) and [OCP 0.1](../../docs/ocp/0.1.md).

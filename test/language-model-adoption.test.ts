@@ -11,7 +11,6 @@ import {
   canonicalToolKey,
   defaultBashDescription,
   normalizeToolInputForSchema,
-  ORIGINAL_SUFFIX,
   policyForHostId,
   policyFromProfile,
   providerShimRuntimeSource,
@@ -19,6 +18,7 @@ import {
   RUNTIME_FILENAME,
   SHIM_MARKER,
   SHIM_META_FILENAME,
+  stripProviderShimSource,
   wrapProviderModule,
   wrapProviderSdk,
 } from "../packages/adapter/src/index.ts"
@@ -654,33 +654,49 @@ describe("provider shim source + install-tree setup", () => {
     }
   })
 
-  test("renderProviderShimSource re-exports create* via wrapProviderModule", () => {
-    const src = renderProviderShimSource({
-      original: "./index.ocp-original.js",
-      entry: "./index.js",
-      exportNames: ["createCursor", "VERSION"],
-      hostHint: "mimo",
-      strategy: "inplace-entry",
-    })
+  test("renderProviderShimSource instruments stock create* exports in place", () => {
+    const stock = `export const createCursor = () => ({})
+export const VERSION = "1.0.0"
+`
+    const src = renderProviderShimSource(
+      {
+        entry: "./index.js",
+        factories: [
+          {
+            exportName: "createCursor",
+            localName: "createCursor",
+            declaration: "const",
+          },
+        ],
+        hostHint: "mimo",
+        strategy: "instrumented-entry",
+      },
+      stock,
+    )
     expect(src).toContain(SHIM_MARKER)
     expect(src).toContain("./ocp-lm-runtime.js")
-    expect(src).toContain('import("./index.ocp-original.js")')
+    expect(src).not.toContain("ocp-original")
     expect(src).toContain("installPathBridge(__host, process.env)")
     expect(src).toContain('process.execPath, "mimo"')
-    expect(src).toContain("export const createCursor")
+    expect(src).toContain("mutable const createCursor")
     expect(src).toContain("export const VERSION")
+    expect(src).toContain(
+      'createCursor = __ocpWrappedFactories["createCursor"]',
+    )
+    expect(stripProviderShimSource(src)).toBe(stock)
     // Roles must be resolved and threaded into wrapProviderModule, or the
-    // shim entry adopts the host's stream/bash policy but never rotates
+    // instrumented entry adopts the host's stream/bash policy but never rotates
     // tool vocabulary — the exact gap this generator previously had.
     expect(src).toContain("toolRolesForHostId")
     expect(src).toContain("const __roles = toolRolesForHostId(__host)")
-    expect(src).toContain("wrapProviderModule(__original, __policy, __roles)")
+    expect(src).toContain("}, __policy, __roles)")
   })
 
   test("setupProviderShims writes in-place entry beside stock create* package", async () => {
     const { mkdtemp, rm, readFile, mkdir } = await import("node:fs/promises")
     const { tmpdir } = await import("node:os")
     const { join } = await import("node:path")
+    const { pathToFileURL } = await import("node:url")
     const { existsSync } = await import("node:fs")
     const {
       setupProviderShims,
@@ -717,7 +733,7 @@ describe("provider shim source + install-tree setup", () => {
           2,
         ),
       )
-      const original = `export function createDemo() {
+      const original = `export const createDemo = function () {
   return {
     languageModel() {
       return { id: "demo" }
@@ -746,7 +762,10 @@ export const VERSION = "1.0.0"
       const utilitySource = "export function createDepthIdentifier() {}\n"
       await Bun.write(join(utilityDir, "lib", "fast-check.js"), utilitySource)
 
-      const result = setupProviderShims({ dir: root, hostHint: "mimo" })
+      const result = setupProviderShims({
+        dir: root,
+        hostHint: "mimo",
+      })
       expect(result.ok).toBe(true)
       expect(result.targets.some((t) => t.changed)).toBe(true)
       expect(result.targets.some((t) => t.packageName === "fast-check")).toBe(
@@ -757,24 +776,98 @@ export const VERSION = "1.0.0"
       )
 
       const entry = join(pkgDir, "dist", "index.js")
-      const backup = join(pkgDir, "dist", `index${ORIGINAL_SUFFIX}`)
+      const legacyBackup = join(pkgDir, "dist", "index.ocp-original.js")
       const runtime = join(pkgDir, "dist", RUNTIME_FILENAME)
       const meta = join(pkgDir, "dist", SHIM_META_FILENAME)
 
-      expect(existsSync(backup)).toBe(true)
+      expect(existsSync(legacyBackup)).toBe(false)
       expect(existsSync(runtime)).toBe(true)
       expect(existsSync(meta)).toBe(true)
-      expect(await readFile(backup, "utf8")).toBe(original)
 
       const shim = await readFile(entry, "utf8")
       expect(shim).toContain(SHIM_MARKER)
       expect(shim).toContain("createDemo")
+      expect(stripProviderShimSource(shim)).toBe(original)
       expect(await readFile(runtime, "utf8")).toContain(SHIM_MARKER)
+      const loaded = (await import(
+        `${pathToFileURL(entry).href}?instrumented=${Date.now()}`
+      )) as {
+        VERSION: string
+        createDemo: () => { languageModel: () => { id: string } }
+      }
+      expect(loaded.VERSION).toBe("1.0.0")
+      expect(loaded.createDemo().languageModel().id).toBe("demo")
 
-      // idempotent refresh
+      // Idempotent reapplication strips and regenerates the instrumentation;
+      // it never needs a captured copy of the stock module.
       const again = setupProviderShims({ dir: root, hostHint: "mimo" })
       expect(again.ok).toBe(true)
-      expect(await readFile(backup, "utf8")).toBe(original)
+      expect(stripProviderShimSource(await readFile(entry, "utf8"))).toBe(
+        original,
+      )
+
+      // Local TypeScript builds restore the out-of-box entry. Reapplying setup
+      // must force-wrap that fresh build and remove any legacy backup artifact.
+      const rebuilt = original.replace('"1.0.0"', '"2.0.0"')
+      await Bun.write(entry, rebuilt)
+      await Bun.write(legacyBackup, "stale legacy backup\n")
+      const afterBuild = setupProviderShims({ dir: root, hostHint: "mimo" })
+      expect(afterBuild.ok).toBe(true)
+      expect(afterBuild.targets.some((t) => t.changed)).toBe(true)
+      expect(existsSync(legacyBackup)).toBe(false)
+      expect(stripProviderShimSource(await readFile(entry, "utf8"))).toBe(
+        rebuilt,
+      )
+
+      const afterBuildAgain = setupProviderShims({
+        dir: root,
+        hostHint: "mimo",
+      })
+      expect(afterBuildAgain.ok).toBe(true)
+      expect(existsSync(legacyBackup)).toBe(false)
+    } finally {
+      await rm(root, { recursive: true, force: true })
+    }
+  })
+
+  test("setupProviderShims scans an absolute provider package root", async () => {
+    const { mkdtemp, rm, readFile, mkdir } = await import("node:fs/promises")
+    const { tmpdir } = await import("node:os")
+    const { join } = await import("node:path")
+    const { setupProviderShims } = await import(
+      "../packages/cli/src/provider-shim.ts"
+    )
+
+    const root = await mkdtemp(join(tmpdir(), "ocp-absolute-provider-"))
+    try {
+      await mkdir(join(root, "dist"), { recursive: true })
+      await Bun.write(
+        join(root, "package.json"),
+        JSON.stringify({
+          name: "absolute-provider",
+          main: "dist/index.js",
+          dependencies: { "@ai-sdk/provider": "2.0.0" },
+        }),
+      )
+      await Bun.write(
+        join(root, "dist", "index.js"),
+        "export function createAbsolute() { return {} }\n",
+      )
+
+      const result = setupProviderShims({
+        dir: root,
+        rootOnly: true,
+        hostHint: "mimo",
+      })
+      expect(result.ok).toBe(true)
+      expect(result.targets).toHaveLength(1)
+      expect(result.targets[0]?.packageDir).toBe(root)
+      expect(result.targets.some((target) => target.packageName === "fast-check")).toBe(
+        false,
+      )
+      expect(await readFile(join(root, "dist", "index.js"), "utf8")).toContain(
+        SHIM_MARKER,
+      )
     } finally {
       await rm(root, { recursive: true, force: true })
     }

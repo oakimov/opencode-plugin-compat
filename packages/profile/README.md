@@ -13,6 +13,6 @@ const { profile, supported, message } = detect()
 // or: detect({ env: { OPENCODE_COMPAT_HOST: "mimo" } })
 ```
 
-**End-user install:** [INSTALL.md](../../INSTALL.md).
+**End-user install:** [MiMo/Kilo](../../docs/hosts/opencode-clones.md) · [pi/omp](../../docs/hosts/pi-family.md).
 
 See the monorepo [README](../../README.md) and [OCP 0.1](../../docs/ocp/0.1.md) §5.

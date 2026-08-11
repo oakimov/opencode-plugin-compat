@@ -34,6 +34,7 @@ export const PACKAGES = [
   "facade-plugin",
   "cli",
   "ocp",
+  "pi-bridge",
 ] as const
 
 type PkgJson = {

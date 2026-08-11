@@ -3,19 +3,18 @@
  *
  * After Layer A reify, rewrite custom provider package entries in-place so
  * `create*` → `languageModel()` streams get MiMo/Kilo policy applied without
- * editing upstream plugin sources. Needed because classic plugins often set
+ * provider-specific source changes. Needed because classic plugins often set
  * `npm` to a direct `file://…/dist/index.js` URL (bypasses package exports).
  */
 import {
-  ORIGINAL_SUFFIX,
   RUNTIME_FILENAME,
   SHIM_MARKER,
   SHIM_META_FILENAME,
-  originalBackupPath,
   providerShimRuntimeSource,
-  relativeImportPath,
   renderProviderShimSource,
   renderShimMeta,
+  stripProviderShimSource,
+  type ShimFactoryBinding,
   type ShimMeta,
 } from "@opencode-compat/adapter"
 import {
@@ -23,15 +22,16 @@ import {
   mkdirSync,
   readdirSync,
   readFileSync,
-  renameSync,
   unlinkSync,
   writeFileSync,
 } from "node:fs"
-import { basename, dirname, join, relative, resolve } from "node:path"
+import { dirname, join, resolve } from "node:path"
 
 export type ProviderShimOptions = {
   /** Host plugin install root (e.g. ~/.cache/mimocode/packages). */
   dir: string
+  /** Inspect only dir itself (for one configured absolute/file:// plugin). */
+  rootOnly?: boolean
   /** Optional host id hint recorded in meta / used for messaging. */
   hostHint?: string
   dryRun?: boolean
@@ -41,7 +41,6 @@ export type ProviderShimTarget = {
   packageDir: string
   packageName?: string
   entry: string
-  original: string
   changed: boolean
   skipped?: string
 }
@@ -142,6 +141,61 @@ function shouldSkipPackage(name: string | undefined): boolean {
   return SKIP_NAME_PREFIXES.some((prefix) => name.startsWith(prefix))
 }
 
+function escapeRegExp(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")
+}
+
+function declarationForLocal(
+  source: string,
+  localName: string,
+): ShimFactoryBinding["declaration"] | undefined {
+  const name = escapeRegExp(localName)
+  const match = source.match(
+    new RegExp(
+      `(?:^|[;\\n])\\s*(?:export\\s+)?(?:async\\s+)?(function|const|let|var|class)\\s+${name}\\b`,
+      "m",
+    ),
+  )
+  return match?.[1] as ShimFactoryBinding["declaration"] | undefined
+}
+
+/** Find exported create* factories whose local binding can be instrumented. */
+export function discoverFactoryBindings(source: string): ShimFactoryBinding[] {
+  const stockSource = stripProviderShimSource(source)
+  const found = new Map<string, ShimFactoryBinding>()
+
+  for (const match of stockSource.matchAll(
+    /export\s+(?:async\s+)?(function|const|let|var|class)\s+([A-Za-z_$][A-Za-z0-9_$]*)/g,
+  )) {
+    const declaration = match[1] as ShimFactoryBinding["declaration"]
+    const name = match[2]!
+    if (!name.startsWith("create")) continue
+    found.set(name, { exportName: name, localName: name, declaration })
+  }
+
+  for (const match of stockSource.matchAll(
+    /export\s*\{([^}]+)\}\s*(from\s*["'][^"']+["'])?\s*;?/g,
+  )) {
+    if (match[2]) continue
+    for (const part of match[1]!.split(",")) {
+      const token = part.trim()
+      if (!token || token.startsWith("type ")) continue
+      const alias = token.match(
+        /^([A-Za-z_$][\w$]*)\s+as\s+([A-Za-z_$][\w$]*)$/,
+      )
+      const localName = alias?.[1] ?? token
+      const exportName = alias?.[2] ?? token
+      if (!exportName.startsWith("create")) continue
+      if (!/^[A-Za-z_$][\w$]*$/.test(localName)) continue
+      const declaration = declarationForLocal(stockSource, localName)
+      if (!declaration) continue
+      found.set(exportName, { exportName, localName, declaration })
+    }
+  }
+
+  return [...found.values()]
+}
+
 /** Static scan for `export … create*` / named exports (sync; no module eval). */
 export function discoverExportNames(source: string): string[] {
   const names = new Set<string>()
@@ -172,14 +226,9 @@ export function discoverExportNames(source: string): string[] {
   return [...names]
 }
 
-function hasCreateExport(names: string[]): boolean {
-  return names.some((name) => name.startsWith("create"))
-}
-
 function looksLikeProviderPackage(pkg: PackageJson, entrySource: string): boolean {
   if (shouldSkipPackage(pkg.name)) return false
-  const names = discoverExportNames(entrySource)
-  if (!hasCreateExport(names)) return false
+  if (discoverFactoryBindings(entrySource).length === 0) return false
   // Prefer AI-provider shaped packages; still allow create* + languageModel mention.
   const deps = {
     ...(pkg.dependencies ?? {}),
@@ -192,7 +241,10 @@ function looksLikeProviderPackage(pkg: PackageJson, entrySource: string): boolea
 }
 
 /** Discover provider package directories under a host install tree. */
-export function discoverProviderPackageDirs(installRoot: string): string[] {
+export function discoverProviderPackageDirs(
+  installRoot: string,
+  options: { rootOnly?: boolean } = {},
+): string[] {
   const root = resolve(installRoot)
   if (!existsSync(root)) return []
   const found = new Set<string>()
@@ -205,30 +257,32 @@ export function discoverProviderPackageDirs(installRoot: string): string[] {
     const entryRel = resolvePackageEntryRel(pkg)
     if (!entryRel) return
     const entryAbs = resolve(pkgDir, entryRel)
-    // When already shimmed, read the backup for discovery.
-    const backupAbs = originalBackupPath(entryAbs)
-    const sourcePath = existsSync(backupAbs)
-      ? backupAbs
-      : existsSync(entryAbs)
-        ? entryAbs
-        : undefined
-    if (!sourcePath) return
+    if (!existsSync(entryAbs)) return
     let source: string
     try {
-      source = readFileSync(sourcePath, "utf8")
+      source = readFileSync(entryAbs, "utf8")
     } catch {
       return
     }
-    // If reading the live entry and it is our shim, require backup.
-    if (source.includes(SHIM_MARKER) && !existsSync(backupAbs)) return
-    const probeSource = existsSync(backupAbs)
-      ? readFileSync(backupAbs, "utf8")
-      : source.includes(SHIM_MARKER)
-        ? ""
-        : source
-    if (!probeSource || !looksLikeProviderPackage(pkg, probeSource)) return
+    // Legacy backup-based wrappers must still reach shimOnePackage so setup
+    // can report the required stock reinstall/build instead of silently hiding.
+    if (
+      source.includes(SHIM_MARKER) &&
+      stripProviderShimSource(source) === source
+    ) {
+      found.add(pkgDir)
+      return
+    }
+    if (!looksLikeProviderPackage(pkg, source)) return
     found.add(pkgDir)
   }
+
+  // Absolute-path / file:// setup passes the provider package root itself,
+  // while host install-tree setup passes a directory containing packages.
+  // When the root is itself a provider, stop there: its dependencies are not
+  // independent host-installed provider targets.
+  consider(root)
+  if (options.rootOnly || found.has(root)) return [...found]
 
   // Isolated host layout: packages/<name>@<ver>/node_modules/<pkg>
   for (const ent of readdirSync(root, { withFileTypes: true })) {
@@ -253,6 +307,16 @@ function writeText(path: string, contents: string, dryRun: boolean): void {
   writeFileSync(path, contents, "utf8")
 }
 
+function legacyBackupPath(entryPath: string): string {
+  if (entryPath.endsWith(".js")) {
+    return `${entryPath.slice(0, -3)}.ocp-original.js`
+  }
+  if (entryPath.endsWith(".mjs")) {
+    return `${entryPath.slice(0, -4)}.ocp-original.js`
+  }
+  return `${entryPath}.ocp-original.js`
+}
+
 function shimOnePackage(
   packageDir: string,
   options: { hostHint?: string; dryRun?: boolean },
@@ -263,7 +327,6 @@ function shimOnePackage(
     return {
       packageDir,
       entry: "",
-      original: "",
       changed: false,
       skipped: "missing package.json",
     }
@@ -274,84 +337,59 @@ function shimOnePackage(
       packageDir,
       packageName,
       entry: "",
-      original: "",
       changed: false,
       skipped: "no package entry",
     }
   }
 
   const entryAbs = resolve(packageDir, entryRel)
-  const backupAbs = originalBackupPath(entryAbs)
   const dryRun = options.dryRun ?? false
-
-  let exportSourcePath = entryAbs
-  let changed = false
-
-  if (existsSync(backupAbs)) {
-    exportSourcePath = backupAbs
-    // Refresh shim/runtime even when backup already exists.
-  } else if (existsSync(entryAbs)) {
-    const current = readFileSync(entryAbs, "utf8")
-    if (current.includes(SHIM_MARKER)) {
-      return {
-        packageDir,
-        packageName,
-        entry: entryRel,
-        original: normalizeRel(relative(packageDir, backupAbs) || basename(backupAbs)),
-        changed: false,
-        skipped: "shim present without backup; refuse to clobber",
-      }
-    }
-    if (!dryRun) renameSync(entryAbs, backupAbs)
-    changed = true
-    exportSourcePath = backupAbs
-  } else {
+  if (!existsSync(entryAbs)) {
     return {
       packageDir,
       packageName,
       entry: entryRel,
-      original: "",
       changed: false,
       skipped: "entry file missing",
     }
   }
 
-  const originalSource = readFileSync(
-    dryRun && !existsSync(backupAbs) ? entryAbs : exportSourcePath,
-    "utf8",
-  )
-  const exportNames = discoverExportNames(originalSource).filter(
-    (name) => name !== "default",
-  )
-  if (!hasCreateExport(exportNames)) {
+  const currentSource = readFileSync(entryAbs, "utf8")
+  const stockSource = stripProviderShimSource(currentSource)
+  if (currentSource.includes(SHIM_MARKER) && stockSource === currentSource) {
     return {
       packageDir,
       packageName,
       entry: entryRel,
-      original: normalizeRel(relative(packageDir, backupAbs)),
       changed: false,
-      skipped: "no create* exports",
+      skipped: "legacy backup shim present; reinstall or rebuild stock entry",
     }
   }
 
-  const originalRelFromEntry = relativeImportPath(
-    entryRel,
-    normalizeRel(relative(packageDir, backupAbs) || `${entryRel.replace(/\.js$/, "")}${ORIGINAL_SUFFIX}`),
-  )
+  const factories = discoverFactoryBindings(stockSource)
+  if (factories.length === 0) {
+    return {
+      packageDir,
+      packageName,
+      entry: entryRel,
+      changed: false,
+      skipped: "no instrumentable create* exports",
+    }
+  }
 
   const meta: ShimMeta = {
-    original: originalRelFromEntry,
     entry: entryRel,
-    exportNames,
+    factories,
     hostHint: options.hostHint,
-    strategy: "inplace-entry",
+    strategy: "instrumented-entry",
   }
 
   const entryDir = dirname(entryAbs)
   const runtimePath = join(entryDir, RUNTIME_FILENAME)
   const metaPath = join(entryDir, SHIM_META_FILENAME)
   const legacyMetaPath = join(packageDir, SHIM_META_FILENAME)
-  const shimSource = renderProviderShimSource(meta)
+  const backupPath = legacyBackupPath(entryAbs)
+  const shimSource = renderProviderShimSource(meta, stockSource)
   const runtimeSource = providerShimRuntimeSource()
   const metaSource = renderShimMeta(meta)
 
@@ -359,18 +397,18 @@ function shimOnePackage(
   const prevRuntime = existsSync(runtimePath) ? readFileSync(runtimePath, "utf8") : ""
   const prevMeta = existsSync(metaPath) ? readFileSync(metaPath, "utf8") : ""
 
-  if (
+  const changed =
     prevShim !== shimSource ||
     prevRuntime !== runtimeSource ||
     prevMeta !== metaSource ||
-    changed
-  ) {
-    changed = true
-  }
+    existsSync(backupPath)
 
+  // Always overwrite generated artifacts. The package manager/build output is
+  // the only stock source of truth; legacy backups are deleted, never reused.
   writeText(runtimePath, runtimeSource, dryRun)
   writeText(entryAbs, shimSource, dryRun)
   writeText(metaPath, metaSource, dryRun)
+  if (!dryRun && existsSync(backupPath)) unlinkSync(backupPath)
   if (
     !dryRun &&
     legacyMetaPath !== metaPath &&
@@ -383,7 +421,6 @@ function shimOnePackage(
     packageDir,
     packageName,
     entry: entryRel,
-    original: meta.original,
     changed,
   }
 }
@@ -393,7 +430,9 @@ export function setupProviderShims(
   options: ProviderShimOptions,
 ): ProviderShimResult {
   const dir = resolve(options.dir)
-  const dirs = discoverProviderPackageDirs(dir)
+  const dirs = discoverProviderPackageDirs(dir, {
+    rootOnly: options.rootOnly,
+  })
   const targets = dirs.map((packageDir) =>
     shimOnePackage(packageDir, {
       hostHint: options.hostHint,
@@ -410,7 +449,7 @@ export function setupProviderShims(
       .map((t) =>
         t.skipped
           ? `  - ${t.packageName ?? t.packageDir}: skipped (${t.skipped})`
-          : `  ~ ${t.packageName ?? t.packageDir}: ${t.entry} → shim (${t.original})`,
+          : `  ~ ${t.packageName ?? t.packageDir}: ${t.entry} → instrumented shim`,
       ),
     ...(skipped.length === 0
       ? []

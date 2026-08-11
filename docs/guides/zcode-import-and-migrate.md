@@ -39,6 +39,7 @@ bun run migrate-zcode -- \
 
 ## Related
 
-- Plan: [`docs/plans/zcode-asset-migrator-plan.md`](../plans/zcode-asset-migrator-plan.md)
 - Package: [`packages/migrate-zcode`](../../packages/migrate-zcode)
+- Host family notes: [`docs/hosts/opencode-clones.md`](../hosts/opencode-clones.md)
+- Design provenance (historical): [`docs/plans/zcode-asset-migrator-plan.md`](../plans/zcode-asset-migrator-plan.md)
 - OCP ZCode policy: [`docs/ocp/0.1.md`](../ocp/0.1.md) §9

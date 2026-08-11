@@ -43,7 +43,7 @@ cd /path/to/opencode-plugin-compat
 bun run pack:check
 ```
 
-This builds, typechecks, tests, and `bun pm pack --dry-run`s all 8 **public** packages in dependency order.
+This builds, typechecks, tests, and `bun pm pack --dry-run`s all 9 **public** packages in dependency order.
 
 ### 3. Create-publish locally (interactive)
 
@@ -70,6 +70,7 @@ Order:
 6. `@opencode-compat/facade-plugin`
 7. `@opencode-compat/cli`
 8. `@opencode-compat/ocp`
+9. `@opencode-compat/pi-bridge`
 
 If a mid-train publish fails after some packages succeeded:
 
@@ -89,7 +90,7 @@ npm view @opencode-compat/profile version
 
 Or open https://www.npmjs.com/package/@opencode-compat/ocp — access should be **Public**.
 
-### 5. Register Trusted Publisher (one-time, all 8 packages)
+### 5. Register Trusted Publisher (one-time, all 9 packages)
 
 Required so later tag pushes publish **without** a long-lived npm token (same pattern as `cursor-opencode-provider`).
 
@@ -112,8 +113,38 @@ Packages:
 - `@opencode-compat/facade-plugin`
 - `@opencode-compat/cli`
 - `@opencode-compat/ocp`
+- `@opencode-compat/pi-bridge`
 
 Ensure `.github/workflows/publish.yml` is on `main` before the next tagged release.
+
+### 5b. Adding a *new* package to an already-published train
+
+Same chicken-and-egg as the original bootstrap: **npm cannot attach a Trusted
+Publisher to a package that does not exist yet**, so a package added later
+cannot be published by CI on its first release. The tagged workflow will fail
+that one package with `ENEEDAUTH` (or 404) while the rest succeed.
+
+Sequence for each newly added package (`@opencode-compat/pi-bridge` went through
+this to join the train, and now publishes with it via OIDC):
+
+1. Add it to `PACKAGES` in `scripts/publish.ts` (bottom-up order: dependents
+   last) and keep its `version` equal to the train. `publish.ts` fails closed if
+   versions diverge.
+2. Verify it packs: `bun run pack:check`.
+3. **Create-publish that one package locally**, in a real terminal (2FA prompts):
+
+   ```bash
+   bun scripts/publish.ts --publish --skip-existing
+   ```
+
+   `--skip-existing` leaves the already-published packages alone and creates
+   only the missing one.
+4. Register its Trusted Publisher on npmjs.com using the same settings as every
+   other package (org `oakimov`, repo `opencode-plugin-compat`, workflow
+   `publish.yml`).
+5. From then on it publishes with the train via OIDC — no further manual steps.
+
+Until step 4 is done, do **not** assume a tagged release publishes it.
 
 ### 6. Smoke-test as a consumer
 
@@ -183,7 +214,7 @@ No `NPM_TOKEN` secret. Publisher identity will look like `GitHub Actions <npm-oi
 - **Public only** — never set `"private": true` on workspace packages; never publish with restricted access.
 - **Do not** publish impersonating `@opencode-ai/plugin` / `@opencode-ai/sdk`. Layer A overrides remap those names to `@opencode-compat/facade-*` inside host install trees only.
 - Re-run `ocp setup` after host plugin install/upgrade.
-- Keep all eight package versions equal for a train release.
+- Keep all nine package versions equal for a train release.
 - Always commit the refreshed **`bun.lock`** with a version bump. Publish CI will fail if lockfile or packed deps disagree with the train.
 - `prepack` runs `tsc` per package; root scripts still build the project-references graph first.
 - Bun shebang CLIs (`ocp`, `compat`, `opencode-compat`) require Bun on `PATH` after global install.

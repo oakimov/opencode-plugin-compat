@@ -2,49 +2,64 @@
 
 **OCP** — OpenCode Compatibility Protocol and a **universal compatibility bridge** for OpenCode-compatible hosts.
 
-Run **published OpenCode plugins unchanged** (`import "@opencode-ai/plugin"` / `v2/promise`) on **MiMo Code** and **Kilo Code** via an **external** `@opencode-compat/*` layer. Hosts are read-only references. **ZCode** stays honestly at T0 (marketplace ABI ≠ OpenCode plugin ABI). This repo does **not** ship or plan host-specific forks of individual plugins (no `cursor-mimocode-provider`, `cursor-kilocode-provider`, etc.).
+Run **published OpenCode plugins unchanged** (`import "@opencode-ai/plugin"` / `v2/promise`) on **MiMo Code**, **Kilo Code**, **pi**, and **oh-my-pi** via an external `@opencode-compat/*` layer. Hosts are read-only references; OCP never ships or forks host-specific plugin packages (no `cursor-mimocode-provider`, `cursor-kilocode-provider`, etc.).
 
-**Install:** see [**INSTALL.md**](./INSTALL.md) — npm install of `@opencode-compat/ocp`, then `ocp setup` on MiMo/Kilo (includes a `cursor-opencode-provider` example).
+Two host families are supported:
+
+- **OpenCode clones/forks** — MiMo (`mimocode`), Kilo (`kilocode`), zcode. These ship their own OpenCode-shaped native plugin packages, so an unmodified plugin's `@opencode-ai/plugin` / `@opencode-ai/sdk` imports are resolved to *facades* that delegate to the host's native package, plus one universal autodetection adapter driven by `HostProfile` data. **zcode is detect/doctor-only** — its marketplace ABI (`.zcode-plugin`) is not the `@opencode-ai/plugin` ABI, so it is not a load target.
+- **Pi family** — `pi` ([earendil-works](https://github.com/earendil-works/pi)) and `oh-my-pi` / `omp` ([can1357](https://github.com/can1357/oh-my-pi), a fork of pi). Neither is an OpenCode fork and neither has an `@opencode-ai/plugin`-shaped package, so `@opencode-compat/pi-bridge` dynamically loads an unmodified OpenCode `aisdk`-type plugin and registers it through the host's own `pi.registerProvider(...)`, translating AI-SDK `doStream` to/from the host's `Context` / `AssistantMessageEvent` stream.
+
+**Install** — one self-contained guide per host family:
+
+- **MiMo / Kilo** — [**docs/hosts/opencode-clones.md**](./docs/hosts/opencode-clones.md): npm install `@opencode-compat/ocp`, then `ocp setup` (uses `cursor-opencode-provider` as the worked example).
+- **pi / oh-my-pi** — [**docs/hosts/pi-family.md**](./docs/hosts/pi-family.md): install `@opencode-compat/pi-bridge` with the host's extension installer, then name your provider package in one config file.
 
 `ocp setup` also applies LanguageModel tool-stream normalization to compatible custom provider entries. It uses each call's advertised tool schema to adopt argument-key conventions (for example, camelCase or snake_case), so providers and future OpenCode-compatible hosts remain host-agnostic.
 
 **License:** [MPL-2.0](./LICENSE)
 
-## Status
+## Supported hosts
 
-Bridge packages, OCP §10 fixtures, CLI doctor/matrix/setup, host enablement notes, and the **`@opencode-compat/ocp`** umbrella are in-tree. First npm publish of **public** `@opencode-compat/*` is documented in [`docs/guides/npm-publish.md`](./docs/guides/npm-publish.md) (local create-publish, then OIDC Trusted Publishing on tags).
+| Family | Host | How OCP attaches | Docs |
+|--------|------|------------------|------|
+| OpenCode clones | MiMo (`mimocode`) | Facades + universal adapter (`ocp setup`) | [`docs/hosts/opencode-clones.md`](./docs/hosts/opencode-clones.md) |
+| | Kilo (`kilocode`) | Facades + universal adapter (`ocp setup`) | [`docs/hosts/opencode-clones.md`](./docs/hosts/opencode-clones.md) |
+| | zcode | Detect / doctor only — marketplace ABI ≠ OpenCode plugin ABI | [`docs/hosts/opencode-clones.md`](./docs/hosts/opencode-clones.md) |
+| Pi family | pi (earendil-works) | `@opencode-compat/pi-bridge` → `pi.registerProvider(...)` | [`docs/hosts/pi-family.md`](./docs/hosts/pi-family.md) |
+| | oh-my-pi / omp (can1357) | `@opencode-compat/pi-bridge` → `pi.registerProvider(...)` | [`docs/hosts/pi-family.md`](./docs/hosts/pi-family.md) |
 
 ## Packages (`@opencode-compat/*`)
 
 | Package | Role |
 |---------|------|
-| [`ocp`](./packages/ocp) | **Umbrella UX**: one install + `ocp setup` → Layer A overrides; re-exports / depends on bridge packages |
+| [`ocp`](./packages/ocp) | **Umbrella UX** for OpenCode clones: one install + `ocp setup` → Layer A overrides; re-exports / depends on the facade bridge packages |
 | [`profile`](./packages/profile) | `HostProfile` types + host drafts (opencode / mimo / kilo / zcode) |
 | [`facade-plugin`](./packages/facade-plugin) | Install-override stand-in for `@opencode-ai/plugin` |
 | [`facade-sdk`](./packages/facade-sdk) | Stand-in for `@opencode-ai/sdk` (minimal) |
 | [`adapter`](./packages/adapter) | **One** universal host adapter — autodetects host, dispatches via `HostProfile` |
 | [`host-promise-v2`](./packages/host-promise-v2) | Shared Promise v2 aisdk host kit (wired from OCP layer) |
+| [`pi-bridge`](./packages/pi-bridge) | Pi family: dynamically load an unmodified OpenCode `aisdk` plugin and register it on pi / omp |
 | [`cli`](./packages/cli) | `compat doctor` + matrix + `setup`/`overrides` (+ migrate-zcode companion) |
-| [`migrate-zcode`](./packages/migrate-zcode) | Companion: plugin-package skills/commands/manifests → `.zcode-plugin` (**not** OCP ABI; **no** host MCP — [plan](./docs/plans/zcode-asset-migrator-plan.md)) |
+| [`migrate-zcode`](./packages/migrate-zcode) | Companion: plugin-package skills/commands/manifests → `.zcode-plugin` (**not** OCP ABI; **no** host MCP) |
 
-Also: [`fixtures/`](./fixtures) (conformance), [`docs/hosts/`](./docs/hosts) (host enablement notes), [`docs/ocp/0.1.md`](./docs/ocp/0.1.md).
+Also: [`fixtures/`](./fixtures) (conformance), [`docs/hosts/`](./docs/hosts) (host enablement notes).
 
-**Not in scope:** separate publishable packages per host (`adapter-mimo`, `adapter-kilo`, …). Host differences live in `HostProfile` data + internal dispatch inside `@opencode-compat/adapter`. ZCode marketplace packing is a **companion** deliverable and does not make ZCode T1+.
+**Not in scope:** separate publishable packages per host (`adapter-mimo`, `adapter-kilo`, …). OpenCode-clone differences live in `HostProfile` data + internal dispatch inside `@opencode-compat/adapter`; pi-family differences live as data in `packages/pi-bridge/src/host/profile.ts`. ZCode marketplace packing is a **companion** deliverable (`compat migrate-zcode`) and does not make zcode a load target.
 
 ## Docs
 
 | Doc | Purpose |
 |-----|---------|
-| [`INSTALL.md`](./INSTALL.md) | **User install** — npm OCP on MiMo/Kilo (+ `cursor-opencode-provider` example) |
+| [`docs/hosts/opencode-clones.md`](./docs/hosts/opencode-clones.md) | **MiMo / Kilo / ZCode** — install, per-host internals, Promise v2 sidecar, troubleshooting |
+| [`docs/hosts/pi-family.md`](./docs/hosts/pi-family.md) | **pi / oh-my-pi** — install, config, model variants, verification |
+| [`packages/pi-bridge/README.md`](./packages/pi-bridge/README.md) | pi-bridge config reference + pi/omp host-difference table |
+| [`docs/ocp/0.1.md`](./docs/ocp/0.1.md) | OCP contract — HostProfile, classic hooks, tiers, Promise v2, conformance |
 | [`TESTING.md`](./TESTING.md) | **Manual local dev** — unpublished OCP + local plugins on MiMo/Kilo (`scripts/*-dev.sh`) |
-| [`docs/ocp/0.1.md`](./docs/ocp/0.1.md) | OCP 0.1 contract |
-| [`docs/plans/universal-opencode-plugin-compat-plan.md`](./docs/plans/universal-opencode-plugin-compat-plan.md) | Parent product plan |
-| [`docs/plans/phase0-adr-universal-compat.md`](./docs/plans/phase0-adr-universal-compat.md) | Product ADR |
-| [`docs/plans/phase0-hooks-parity.md`](./docs/plans/phase0-hooks-parity.md) | Hooks / path evidence |
-| [`docs/plans/zcode-asset-migrator-plan.md`](./docs/plans/zcode-asset-migrator-plan.md) | Companion plugin-package → `.zcode-plugin` migrator (ZCode stays T0; no host MCP) |
 | [`docs/guides/kilocode-telemetry-disable.md`](./docs/guides/kilocode-telemetry-disable.md) | Disable Kilo PostHog telemetry (config / `KILO_TELEMETRY_LEVEL`) |
+| [`docs/guides/mimocode-telemetry-disable.md`](./docs/guides/mimocode-telemetry-disable.md) | Disable MiMo Xiaomi usage analytics (`MIMOCODE_ENABLE_ANALYSIS=false`) |
 | [`docs/guides/zcode-telemetry-block.md`](./docs/guides/zcode-telemetry-block.md) | ZCode telemetry block (**docs-only** firewall/DNS) |
-| [`docs/guides/npm-publish.md`](./docs/guides/npm-publish.md) | First-time + OIDC publish of **public** `@opencode-compat/*` |
+| [`docs/guides/zcode-import-and-migrate.md`](./docs/guides/zcode-import-and-migrate.md) | ZCode Import UI vs `compat migrate-zcode` (companion; not OCP ABI) |
+| [`docs/guides/npm-publish.md`](./docs/guides/npm-publish.md) | Publish **public** `@opencode-compat/*` (local create-publish, then OIDC Trusted Publishing on tags) |
 
 ## Develop
 
@@ -61,17 +76,7 @@ bun run pack:check          # publish dry-run (see docs/guides/npm-publish.md)
 
 Requires [Bun](https://bun.sh) ≥ 1.2. CLI bins import `dist/` — run `bun run build` after a clean checkout.
 
-For end-to-end checks against a real host with local checkouts, see [**TESTING.md**](./TESTING.md).
-
-## Compatibility tiers (labels, not phases)
-
-| Tier | Meaning |
-|------|---------|
-| T0 | Detect / doctor only (ZCode) |
-| T1 | Classic Hooks via facade + universal adapter |
-| T2 | Path / env / project-dir bridge |
-| T3 | Promise v2 aisdk via host kit |
-| TX | Host-aware risk (hardcoded paths/env); bridge may not fully cover — **fix the bridge or the plugin**, do not fork the plugin per host |
+For end-to-end checks against a real host with local checkouts, see [**TESTING.md**](./TESTING.md). The MiMo/Kilo helper scripts clean cached plugin installs and provider `node_modules` before every local shim or npm restore, then reinstall from the selected local path or explicit npm `@latest` source.
 
 ## Related
 

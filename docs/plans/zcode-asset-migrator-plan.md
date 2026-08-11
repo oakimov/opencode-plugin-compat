@@ -1,5 +1,11 @@
 # Plan: Plugin package → ZCode `.zcode-plugin` migrator (companion)
 
+> **Historical document.** The work described here has shipped. Kept for provenance
+> (decision rationale and pinned upstream sources), **not** as a current roadmap.
+> Current contract: [`../ocp/0.1.md`](../ocp/0.1.md) (OpenCode clones) and
+> [`../../packages/pi-bridge/README.md`](../../packages/pi-bridge/README.md) (Pi family).
+> Current install docs: [`../hosts/opencode-clones.md`](../hosts/opencode-clones.md) · [`../hosts/pi-family.md`](../hosts/pi-family.md).
+
 **Date:** 2026-07-19
 **Status:** **Complete (A–I)** — library, CLI, guide, and optional multi-plugin marketplace wrap landed
 **Repo:** [oakimov/opencode-plugin-compat](https://github.com/oakimov/opencode-plugin-compat)

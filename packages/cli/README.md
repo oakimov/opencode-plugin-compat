@@ -2,7 +2,7 @@
 
 OCP compat doctor, Plugin×Host×Tier matrix runner, Layer A `setup` / `overrides`, Option B provider shims, and `migrate-zcode` companion CLI.
 
-**End-user install:** see the monorepo [**INSTALL.md**](../../INSTALL.md).
+**End-user install:** see [**docs/hosts/opencode-clones.md**](../../docs/hosts/opencode-clones.md).
 
 ```text
 compat doctor [--host opencode|mimo|kilo|zcode]
@@ -15,7 +15,7 @@ compat matrix [...]
 compat migrate-zcode --plugin <dir> [--out <dir>] [--dry-run]
 ```
 
-`setup` defaults to **deep** child `package.json` patches, **auto-reify** (`npm install`) when a patched tree already has `node_modules`, **`--provider-shim`** (Option B in-place entry shims), and **`--absolute-plugins`** (facade symlinks into absolute-path / `file://` checkouts). Deep + reify are required on MiMo/Kilo isolated per-plugin install dirs. Re-run after installing or upgrading consumer plugins. Outside this monorepo prefer **`--mode npm`**.
+`setup` defaults to **deep** child `package.json` patches, **auto-reify** (`npm install`) when a patched tree already has `node_modules`, **`--provider-shim`** (Option B force-instrumented, backup-free entry shims), and **`--absolute-plugins`** (facade symlinks into absolute-path / `file://` checkouts). Deep + reify are required on MiMo/Kilo isolated per-plugin install dirs. Re-run after installing, upgrading, or locally rebuilding consumer plugins. Rebuild/reinstall—not a captured backup—is the stock revert path. Outside this monorepo prefer **`--mode npm`**.
 
 User-facing entry is **`ocp`** from `@opencode-compat/ocp` (defaults to `setup`). This package remains the bridge CLI implementation.
 
@@ -23,4 +23,4 @@ User-facing entry is **`ocp`** from `@opencode-compat/ocp` (defaults to `setup`)
 
 **License:** MPL-2.0
 
-See [INSTALL.md](../../INSTALL.md), the monorepo [README](../../README.md), [OCP 0.1](../../docs/ocp/0.1.md), and [migrator plan](../../docs/plans/zcode-asset-migrator-plan.md).
+See the monorepo [README](../../README.md), [OCP 0.1](../../docs/ocp/0.1.md), host guides under [`docs/hosts/`](../../docs/hosts/), and the [ZCode import/migrate guide](../../docs/guides/zcode-import-and-migrate.md).

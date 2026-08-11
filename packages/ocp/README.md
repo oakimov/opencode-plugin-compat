@@ -2,7 +2,9 @@
 
 User-facing **OCP umbrella**: one install + **`ocp setup`** writes Layer A install-tree overrides (and default Option B provider entry shims) so published OpenCode plugins resolve `@opencode-ai/plugin` / `@opencode-ai/sdk` through the compatibility facades.
 
-**End-user install (MiMo / Kilo + npm):** see the monorepo [**INSTALL.md**](../../INSTALL.md).
+**End-user install (MiMo / Kilo + npm):** see [**docs/hosts/opencode-clones.md**](../../docs/hosts/opencode-clones.md).
+
+**Scope:** OpenCode clones only. On `pi` / `oh-my-pi` there is no `@opencode-ai/plugin`-shaped native package to facade — use [`@opencode-compat/pi-bridge`](../pi-bridge/README.md) instead. ZCode is detect/doctor only.
 
 ```bash
 # from this monorepo (developers)
@@ -11,7 +13,7 @@ bun packages/ocp/bin/ocp.ts setup --host mimo --dry-run
 bun packages/ocp/bin/ocp.ts setup --dir /path/to/host/plugin/cache
 ```
 
-`setup` default `--mode auto` uses local `file:` facade paths from this checkout when present; outside the monorepo use **`--mode npm`** (see [INSTALL.md](../../INSTALL.md)).
+`setup` default `--mode auto` uses local `file:` facade paths from this checkout when present; outside the monorepo use **`--mode npm`** (see the [host guide](../../docs/hosts/opencode-clones.md)).
 
 The default provider-shim action applies the active host's LanguageModel compatibility policy and adopts tool argument keys from each call's advertised schema. Exact schema keys win; only unique case/separator-insensitive matches are renamed. Runtime identity wins for host-specific policy; a setup-time install-tree host hint covers isolated provider workers that hide host process markers.
 
@@ -31,4 +33,4 @@ Bridge packages (`profile`, `facade-*`, `adapter`, `host-promise-v2`, `cli`, …
 
 **License:** MPL-2.0
 
-See [INSTALL.md](../../INSTALL.md), the monorepo [README](../../README.md), [OCP 0.1](../../docs/ocp/0.1.md), and host notes under [`docs/hosts/`](../../docs/hosts/).
+See the monorepo [README](../../README.md), [OCP 0.1](../../docs/ocp/0.1.md), and host guides under [`docs/hosts/`](../../docs/hosts/).

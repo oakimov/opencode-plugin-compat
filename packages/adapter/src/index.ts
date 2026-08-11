@@ -62,17 +62,14 @@ export {
 } from "./vocabulary"
 
 export {
-  OCP_ORIGINAL_EXPORTS_KEY,
-  ORIGINAL_SUFFIX,
   RUNTIME_FILENAME,
-  SHIM_FILENAME,
   SHIM_MARKER,
   SHIM_META_FILENAME,
-  originalBackupPath,
   providerShimRuntimeSource,
-  relativeImportPath,
   renderProviderShimSource,
   renderShimMeta,
+  stripProviderShimSource,
+  type ShimFactoryBinding,
   type ShimMeta,
 } from "./shim-source"
 
