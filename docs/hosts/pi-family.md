@@ -12,6 +12,24 @@ family overview plus install/verify.
 
 ---
 
+> ## ⚠️ omp: MCP servers need `tools.xdev false`
+>
+> ```bash
+> omp config set tools.xdev false
+> ```
+>
+> Under omp's default `tools.xdev: true`, every non-essential tool — **all MCP
+> server tools included** — is mounted behind an `xd://` device URL and left out
+> of `Context.tools`. The bridge and the provider can only advertise what the
+> host puts in that list, so the model never receives MCP tools as callable and
+> will report that it has none.
+>
+> This reads like a bridge bug and is not one: the servers connect normally,
+> list in `/mcp`, and execute on demand. Only their presentation to the model
+> changes.
+
+---
+
 ## Mechanism: `pi-bridge`, not facades
 
 Pi-family hosts are **not** OpenCode forks (omp is a fork of pi) and have no

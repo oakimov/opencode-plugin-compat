@@ -45,6 +45,50 @@ export type PiTerminalResultToolProfile = {
   input: Readonly<Record<string, unknown>>
 }
 
+export type PiToolInputProfile = {
+  /** Provider-emitted argument name -> host argument name. */
+  inputAliases: Readonly<Record<string, string>>
+}
+
+/**
+ * OpenCode plugins emit camelCase tool args (`filePath`, `oldString`, `workdir`).
+ * Pi-family hosts validate against `path`/`cwd`/snake_case schemas and drop
+ * unrecognized keys when more than one string field is required -- so a write
+ * of `{ filePath, content }` arrives as `{ content }` and fails. Activated only
+ * when the named tool is live in the current catalog.
+ *
+ * The hosts' own schemas diverge here, so each gets its own map rather than a
+ * shared one. omp 17.2.12: tools/{write,read,bash}.ts, edit/modes/replace.ts.
+ */
+const OMP_ESSENTIAL_TOOL_INPUTS: Readonly<Record<string, PiToolInputProfile>> = {
+  read: { inputAliases: { filePath: "path", file_path: "path" } },
+  write: { inputAliases: { filePath: "path", file_path: "path" } },
+  edit: {
+    inputAliases: {
+      filePath: "path",
+      file_path: "path",
+      oldString: "old_string",
+      newString: "new_string",
+      replaceAll: "replace_all",
+    },
+  },
+  bash: { inputAliases: { workdir: "cwd", working_directory: "cwd" } },
+}
+
+/**
+ * pi 0.84.1 (`core/tools/{read,write,edit,bash}.ts`) is narrower than omp:
+ * `bash` accepts only `{command, timeout}` with no working-directory argument,
+ * and `edit` is `{path, edits: [{oldText, …}]}` rather than flat replacement
+ * fields. A nested batch shape cannot be produced by renaming keys, so `edit`
+ * carries only its verified `path` rename and `bash` is left alone instead of
+ * being aliased onto arguments that host does not define.
+ */
+const PI_ESSENTIAL_TOOL_INPUTS: Readonly<Record<string, PiToolInputProfile>> = {
+  read: { inputAliases: { filePath: "path", file_path: "path" } },
+  write: { inputAliases: { filePath: "path", file_path: "path" } },
+  edit: { inputAliases: { filePath: "path", file_path: "path" } },
+}
+
 export type PiHostProfile = {
   id: PiHostId
   /** Display name for diagnostics. */
@@ -64,6 +108,11 @@ export type PiHostProfile = {
      * assistant stop. The bridge activates this only when the tool is live.
      */
     terminalResult?: PiTerminalResultToolProfile
+    /**
+     * Strict host-tool argument aliases keyed by live tool name. Used for
+     * OpenCode camelCase → Pi-family path/cwd/snake_case remaps.
+     */
+    toolInputs?: Readonly<Record<string, PiToolInputProfile>>
   }
   messages?: {
     /**
@@ -189,6 +238,7 @@ export function ompProfile(): PiHostProfile {
       // OMP subagents do not settle on a plain assistant response. `yield`
       // with an empty typed result tells the host to use that response text.
       terminalResult: { name: "yield", input: { type: "result", result: {} } },
+      toolInputs: OMP_ESSENTIAL_TOOL_INPUTS,
     },
     messages: {
       agentDeveloperWake: {
@@ -222,6 +272,7 @@ export function piProfile(): PiHostProfile {
         // user-defined name not present here still passes through unchanged.
         agentAliases: { general: "worker", explore: "scout" },
       },
+      toolInputs: PI_ESSENTIAL_TOOL_INPUTS,
     },
     capabilities: {
       dynamicModels: "refreshModels",

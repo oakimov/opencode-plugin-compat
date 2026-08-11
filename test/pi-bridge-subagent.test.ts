@@ -211,6 +211,63 @@ describe("Pi-family subagent vocabulary", () => {
     })
   })
 
+  test("omp remaps OpenCode camelCase essential-tool args to host schemas", () => {
+    const tools = [
+      { name: "read" },
+      { name: "write" },
+      { name: "edit" },
+      { name: "bash" },
+      { name: "hub" },
+    ] as never
+    const toolInputs = buildPiToolInputVocabulary(tools, ompProfile())
+    expect(toolInputs?.write?.inputAliases).toMatchObject({ filePath: "path" })
+    expect(translateCanonicalToolCall(
+      "write",
+      { filePath: "xd://mcp__everything_echo", content: '{"message":"ok"}' },
+      undefined,
+      toolInputs,
+    )).toEqual({
+      toolName: "write",
+      input: { path: "xd://mcp__everything_echo", content: '{"message":"ok"}' },
+    })
+    expect(translateCanonicalToolCall(
+      "edit",
+      { filePath: "a.ts", oldString: "a", newString: "b", replaceAll: true },
+      undefined,
+      toolInputs,
+    )).toEqual({
+      toolName: "edit",
+      input: { path: "a.ts", old_string: "a", new_string: "b", replace_all: true },
+    })
+    expect(translateCanonicalToolCall(
+      "bash",
+      { command: "ls", workdir: "/tmp" },
+      undefined,
+      toolInputs,
+    )).toEqual({
+      toolName: "bash",
+      input: { command: "ls", cwd: "/tmp" },
+    })
+    // Absent tools stay unmapped so a disabled write cannot steal aliases.
+    expect(buildPiToolInputVocabulary([{ name: "hub" }] as never, ompProfile())?.write).toBeUndefined()
+  })
+
+  test("pi keeps only the argument renames its own schemas define", () => {
+    // pi 0.84.1 `bash` is {command, timeout} with no working-directory arg, and
+    // `edit` is {path, edits:[{oldText,…}]} rather than flat replace fields —
+    // so neither may be aliased onto omp's shape.
+    const tools = [{ name: "read" }, { name: "write" }, { name: "edit" }, { name: "bash" }] as never
+    const toolInputs = buildPiToolInputVocabulary(tools, piProfile())
+    expect(toolInputs?.write?.inputAliases).toEqual({ filePath: "path", file_path: "path" })
+    expect(toolInputs?.edit?.inputAliases).toEqual({ filePath: "path", file_path: "path" })
+    expect(toolInputs?.bash).toBeUndefined()
+    expect(translateCanonicalToolCall("bash", { command: "ls", workdir: "/tmp" }, undefined, toolInputs)).toBeUndefined()
+    expect(translateCanonicalToolCall("write", { filePath: "a.ts", content: "x" }, undefined, toolInputs)).toEqual({
+      toolName: "write",
+      input: { path: "a.ts", content: "x" },
+    })
+  })
+
   test("already host-shaped calls and unrelated calls remain intact", () => {
     const vocabulary = buildPiSubagentVocabulary([PI_SUBAGENT] as never, toSchema as never, piProfile())!
     expect(translateCanonicalSubagentCall("task", { agent: "reviewer", task: "Review" }, vocabulary)).toEqual({

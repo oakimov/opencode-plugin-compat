@@ -110,6 +110,14 @@ bridge accepts the common provider spelling `action` and translates it before
 host validation, so `{action: "jobs"}` executes as `{op: "jobs"}`. If both are
 present, the explicit host-native `op` value wins.
 
+OpenCode plugins also emit camelCase essential-tool args (`filePath`,
+`oldString`, `workdir`). Pi-family hosts validate against `path` / `cwd` /
+snake_case schemas and drop unrecognized keys when more than one string field
+is required — so a write of `{filePath, content}` arrives as `{content}` and
+fails. The bridge remaps those aliases for live `read` / `write` / `edit` /
+`bash` tools (including `write` to `xd://…` MCP devices) before host
+validation. Host-native keys already present win.
+
 When a result auto-delivers, OMP represents the custom completion notice as a
 `developer` message with `attribution: "agent"`. The bridge promotes only the
 matching background-job completion envelope to a provider-facing user turn;
@@ -247,15 +255,18 @@ identical on each.
 
 ### Provider-native MCP resource operations
 
-The bridge can translate only AI-SDK tool calls emitted by `doStream`. A
-provider that advertises its own native MCP resource protocol must decode and
-reply to that protocol before the AI-SDK stream boundary. Errors naming
-`list_mcp_resources_exec_args` or `read_mcp_resource_exec_args` therefore mean
-the consumer provider advertised a native operation it did not implement; no
-resource URI or correlated result channel reaches `pi-bridge`, so the bridge
-cannot safely reconstruct that call. Fix or upgrade that provider rather than
-adding a provider-specific branch here. Ordinary advertised host tools,
-including an explicit `read_mcp_resource` tool, continue to pass through.
+The bridge can translate only AI-SDK tool calls emitted by `doStream`; it never
+parses a consumer provider's private wire protocol. Providers that speak their
+own native MCP resource protocol must decode and reply to it themselves, before
+the AI-SDK stream boundary. Errors naming `list_mcp_resources_exec_args` or
+`read_mcp_resource_exec_args` mean the provider's build does not settle those
+native requests: upgrade to a provider version that handles its own MCP
+resource operations internally (current `cursor-opencode-provider` releases do;
+older ones must be upgraded). No resource URI or correlated result channel
+reaches `pi-bridge`, so the bridge cannot safely reconstruct that call — it
+must not vendor provider-specific wire parsing. Ordinary advertised host tools,
+including an explicit `read_mcp_resource` tool, continue to pass through and
+are translated like any other tool.
 
 ## Programmatic use
 

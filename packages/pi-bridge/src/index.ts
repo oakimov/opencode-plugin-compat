@@ -12,7 +12,7 @@ export { configSearchPaths, loadConfig, registerProvidersFromConfig, resolveConf
 
 // Host layer
 export { detectPiHost, resetPiHostDetection, type PiHostDetection } from "./host/detect.js"
-export { ompProfile, piProfile, profileFor, renderApiKeyRef, PI_HOST_PROFILES, type PiCoordinationToolProfile, type PiHostId, type PiHostProfile, type PiSubagentToolProfile } from "./host/profile.js"
+export { ompProfile, piProfile, profileFor, renderApiKeyRef, PI_HOST_PROFILES, type PiCoordinationToolProfile, type PiHostId, type PiHostProfile, type PiSubagentToolProfile, type PiToolInputProfile } from "./host/profile.js"
 export { fallbackToolSchema, loadPiRuntime, resetPiRuntime, type PiRuntime } from "./host/runtime.js"
 
 // OpenCode plugin surface

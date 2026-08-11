@@ -147,9 +147,24 @@ export function buildPiToolInputVocabulary(
   tools: readonly PiTool[] | undefined,
   profile: PiHostProfile,
 ): PiToolInputVocabulary | undefined {
+  if (!tools || tools.length === 0) return undefined
+  const live = new Set(tools.map(tool => tool.name))
+  const out: Record<string, { inputAliases: Readonly<Record<string, string>> }> = {}
+
+  for (const [name, configured] of Object.entries(profile.tools?.toolInputs ?? {})) {
+    if (!live.has(name) || !configured?.inputAliases) continue
+    out[name] = { inputAliases: configured.inputAliases }
+  }
+
   const coordination = profile.tools?.subagent?.coordinationTool
-  if (!coordination?.inputAliases || !tools?.some(tool => tool.name === coordination.name)) return undefined
-  return { [coordination.name]: { inputAliases: coordination.inputAliases } }
+  if (coordination?.inputAliases && live.has(coordination.name)) {
+    const existing = out[coordination.name]?.inputAliases ?? {}
+    out[coordination.name] = {
+      inputAliases: { ...existing, ...coordination.inputAliases },
+    }
+  }
+
+  return Object.keys(out).length > 0 ? out : undefined
 }
 
 /** Resolve a host-only terminal result tool independently of spawn support. */
