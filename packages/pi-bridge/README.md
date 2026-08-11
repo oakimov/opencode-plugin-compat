@@ -76,7 +76,95 @@ are merged in on every call under the provider id the **plugin** declares.
 `effort` is the single convention-sensitive name, and it degrades safely: an
 unrecognized dimension simply becomes separate entries instead.
 
-## Install
+## Subagents
+
+The bridge also normalizes the Pi family's subagent tools to the OpenCode
+`task` contract seen by an unmodified provider:
+
+| Host | Live host tool | Host input | Plugin-facing input |
+|---|---|---|---|
+| oh-my-pi | built-in `task` | `{agent, task}` | `task({description, prompt, subagent_type})` |
+| pi | optional `subagent` extension | `{agent, task}` | `task({description, prompt, subagent_type})` |
+
+Translation covers the live tool catalog, emitted calls, named tool choice,
+and prior call/result history. Call ids and unknown custom agent names remain
+unchanged. omp's `general` uses its live default spawn policy and `explore`
+maps to `scout`; pi's reference extension maps them to `worker` and `scout`.
+No mapping activates when the tool is disabled or absent. If pi also advertises
+an unrelated tool named `task`, the bridge exposes that host tool under the
+collision-safe name `pi_host_task` while reserving canonical `task` for the
+subagent executor.
+
+OMP's `hub` is a built-in host tool, not an MCP server. Every `task` call
+starts a new agent; results auto-deliver, while status and follow-up use
+`hub jobs`, `hub wait`, or `hub send`. OMP also requires subagents to finish by
+calling its hidden `yield` tool. OpenCode-style providers normally finish with
+assistant text instead, so the bridge converts a terminal text response to the
+live `yield` contract. It also disables OMP specialists' structured-output
+schemas for canonical OpenCode `task` calls, preserving OpenCode's unstructured
+result contract. Both behaviors are gated by the live host tools/profile and do
+not affect pi or ordinary main-agent responses.
+
+OMP's hub schema is strict and names its operation discriminator `op`. The
+bridge accepts the common provider spelling `action` and translates it before
+host validation, so `{action: "jobs"}` executes as `{op: "jobs"}`. If both are
+present, the explicit host-native `op` value wins.
+
+When a result auto-delivers, OMP represents the custom completion notice as a
+`developer` message with `attribution: "agent"`. The bridge promotes only the
+matching background-job completion envelope to a provider-facing user turn;
+other agent-attributed developer messages remain system context. This makes the
+completion—not the original request—the live request on the resumed parent turn, so providers that
+split conversation history from the latest user message do not restart the
+original workflow or spawn duplicate agents. Ordinary developer messages remain
+system context.
+
+The host's stable provider `sessionId` is also forwarded as the namespaced
+`x-opencode-session` (unless the caller already supplied an OpenCode
+session-affinity header). This
+lets stateful OpenCode providers retain their conversation/checkpoint across
+ordinary Pi tool turns and asynchronous parent resumptions.
+
+omp needs no extra installation. In pi, subagents are an optional host example,
+not a core tool; install its `packages/coding-agent/examples/extensions/subagent`
+extension and agent definitions first if you want the canonical `task` surface.
+The provider bridge continues to work normally without it.
+
+## Development helper scripts
+
+From the OCP repository root, use the same `local|npm` workflow as the
+MiMo/Kilo development helpers while retaining the Pi family's separate runtime
+mechanism:
+
+```bash
+./scripts/pi-dev.sh local
+./scripts/pi-dev.sh npm
+
+./scripts/omp-dev.sh local
+./scripts/omp-dev.sh npm
+```
+
+`local` installs locked dependencies, builds this checkout plus the local
+provider checkout, registers the bridge using the selected host's native
+installer, links that host's own `pi-ai` runtime into the real bridge checkout,
+and writes the provider's absolute `dist/index.js` to `pi-bridge.json`. `npm`
+installs both published packages and switches the same config entry back to the
+provider's bare package name. Other provider entries and optional fields on the
+selected entry are preserved.
+
+The local provider defaults to a sibling `cursor-opencode-provider` checkout or
+`~/Projects/cursor-opencode-provider`. Set `OCP_DEV_PROVIDER_PATH` and
+`OCP_DEV_PLUGIN` for another provider. npm versions default to `latest`; pin
+them with `OCP_DEV_BRIDGE_VERSION` and `OCP_DEV_PLUGIN_VERSION`. Set
+`PI_BRIDGE_CONFIG` for a non-default config file, or `PI_CODING_AGENT_DIR` for
+a non-default host agent directory.
+
+These scripts never call `ocp setup`: Pi-family hosts use their native
+extension loaders, and the package manifest selects an explicit Pi or OMP
+entrypoint so a checkout containing both development dependencies cannot be
+misdetected.
+
+## Manual local install
 
 Two separate concerns — don't conflate them:
 
@@ -87,31 +175,25 @@ omp plugin install <path-to>/opencode-plugin-compat/packages/pi-bridge   # oh-my
 pi install <path-to>/opencode-plugin-compat/packages/pi-bridge           # pi
 ```
 
-**2. Make everything this bridge imports resolvable from *its own* location.**
-Node/Bun resolve a bare specifier relative to the **real** path of the importing
-file, not any symlink it was reached through — so installing packages as
-*siblings* under the host's plugin dir does **not** make them importable here.
-Once these are published to npm and installed as real dependencies it's
-automatic; for local checkouts, link them into `packages/pi-bridge/node_modules`:
+**2. Point config directly at the built provider entry.** This avoids relying
+on a sibling package being resolvable from the real bridge checkout:
 
 ```bash
-# the provider package named in your config
-cd <path-to>/cursor-opencode-provider && bun link
-cd <path-to>/opencode-plugin-compat/packages/pi-bridge && bun link cursor-opencode-provider
+# pi-bridge.json
+{
+  "providers": [
+    { "package": "/absolute/path/to/cursor-opencode-provider/dist/index.js" }
+  ]
+}
 ```
 
-**On pi additionally**, the host's `pi-ai` is not a sibling of this package the
-way omp's is, so link it too (it ships inside the installed CLI):
+**3. Make the host's `pi-ai` resolvable from the real checkout.** The helper
+scripts do this portably for either host. For manual setup, link the matching
+package from the installed host CLI's dependency tree into
+`packages/pi-bridge/node_modules`.
 
-```bash
-cd <path-to>/opencode-plugin-compat/packages/pi-bridge
-mkdir -p node_modules/@earendil-works
-ln -sfn "$(dirname "$(readlink -f "$(which pi)")")/../node_modules/@earendil-works/pi-ai" \
-        node_modules/@earendil-works/pi-ai
-```
-
-Nothing requires a machine-specific path inside any file — only these commands
-vary per developer, the same as any `npm link`-style local workflow.
+For repeatable switching and portable host-runtime discovery, prefer
+`pi-dev.sh` / `omp-dev.sh` over performing these steps by hand.
 
 ## Config reference
 
@@ -132,6 +214,7 @@ Only `package` is required:
 | `disableOAuth` | Ignore the plugin's auth hook (e.g. env-var key only) |
 | `preferAuthMethod` | `"oauth"` or `"api"` when a plugin offers both |
 | `factoryExport` / `pluginExport` | Disambiguate exports when auto-detection can't |
+| `splitDimensions` | Variant dimensions that become separate host model ids (default `["fast"]`) |
 
 **Provider-id collisions.** A plugin declares its own id, which may match one
 the host ships natively — `cursor-opencode-provider` declares `"cursor"`, and
@@ -154,10 +237,25 @@ Each delta below was read from host source and lives as data in
 | `apiKey` syntax | bare env-var name | `$VAR` / `!cmd` template |
 | `Context.systemPrompt` | `string[]` | `string` |
 | extra stream event | `image_end` | `deferred` done-reason |
+| subagent executor | built-in `task` | optional `subagent` extension |
 
-The host is detected by probing which `pi-ai` package resolves; `PI_BRIDGE_HOST=omp|pi`
-forces it. Only the event variants **both** hosts share are emitted, so the
-translation layer is identical on each.
+Normal host installation selects an explicit Pi or OMP manifest entrypoint.
+Generic/programmatic loading falls back to probing which `pi-ai` package
+resolves, and `PI_BRIDGE_HOST=omp|pi` remains an explicit override. Only the
+event variants **both** hosts share are emitted, so the translation layer is
+identical on each.
+
+### Provider-native MCP resource operations
+
+The bridge can translate only AI-SDK tool calls emitted by `doStream`. A
+provider that advertises its own native MCP resource protocol must decode and
+reply to that protocol before the AI-SDK stream boundary. Errors naming
+`list_mcp_resources_exec_args` or `read_mcp_resource_exec_args` therefore mean
+the consumer provider advertised a native operation it did not implement; no
+resource URI or correlated result channel reaches `pi-bridge`, so the bridge
+cannot safely reconstruct that call. Fix or upgrade that provider rather than
+adding a provider-specific branch here. Ordinary advertised host tools,
+including an explicit `read_mcp_resource` tool, continue to pass through.
 
 ## Programmatic use
 

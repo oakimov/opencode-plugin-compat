@@ -34,10 +34,12 @@ name is discovered from conventions the plugin already implements:
 | streaming | the plugin's `createXxx()` AI-SDK factory |
 | model variants | the plugin's `variants` map + entry `options` |
 
-The host is detected by probing which `pi-ai` package resolves
-(`@oh-my-pi/pi-ai` vs `@earendil-works/pi-ai`); `PI_BRIDGE_HOST=omp|pi` forces
-it. Provider-id collisions are handled: a *derived* id that would shadow a host
-built-in is suffixed (`cursor` → `cursor-opencode`) with a logged explanation.
+Each host's package manifest selects its explicit bridge entrypoint. Generic or
+programmatic loading falls back to probing which `pi-ai` package resolves
+(`@oh-my-pi/pi-ai` vs `@earendil-works/pi-ai`), while
+`PI_BRIDGE_HOST=omp|pi` remains an explicit override. Provider-id collisions
+are handled: a *derived* id that would shadow a host built-in is suffixed
+(`cursor` → `cursor-opencode`) with a logged explanation.
 
 ---
 
@@ -48,7 +50,7 @@ extension installer, then register providers by config:
 
 ```bash
 omp plugin install @opencode-compat/pi-bridge   # oh-my-pi
-pi install @opencode-compat/pi-bridge           # pi
+pi install npm:@opencode-compat/pi-bridge       # pi
 ```
 
 `pi-bridge` ships in the same `0.2.x` train as the rest of `@opencode-compat/*`.
@@ -59,12 +61,49 @@ same way, so it resolves from the bridge's own tree:
 
 ```bash
 omp plugin install cursor-opencode-provider     # oh-my-pi
-pi install cursor-opencode-provider             # pi
+pi install npm:cursor-opencode-provider         # pi
 ```
 
 ---
 
-## Install for local development
+## Development helper scripts
+
+The recommended local/npm switch is automated from this repository root:
+
+```bash
+./scripts/pi-dev.sh local
+./scripts/pi-dev.sh npm
+
+./scripts/omp-dev.sh local
+./scripts/omp-dev.sh npm
+```
+
+`local` installs locked dependencies, builds the local bridge and provider,
+registers the bridge through the host's native package manager, links the
+selected host's `pi-ai` runtime into the real bridge checkout, and points the
+matching `pi-bridge.json` provider entry at the provider's absolute
+`dist/index.js`. `npm` installs both published packages and switches that entry
+back to its bare npm package name. Unrelated providers and optional fields on
+the selected entry are preserved. Neither mode invokes `ocp setup`.
+
+Defaults and overrides:
+
+| Variable | Meaning |
+|---|---|
+| `OCP_DEV_PROVIDER_PATH` | Local provider checkout; default is a sibling checkout or `~/Projects/cursor-opencode-provider` |
+| `OCP_DEV_PLUGIN` | Provider npm name; default `cursor-opencode-provider` |
+| `OCP_DEV_BRIDGE_VERSION` | Published bridge version; default `latest` |
+| `OCP_DEV_PLUGIN_VERSION` | Published provider version; default `latest` |
+| `PI_BRIDGE_CONFIG` | Explicit bridge config file |
+| `PI_CODING_AGENT_DIR` | Agent directory used when the config-file override is absent |
+
+The package manifest supplies different Pi and OMP entry files, so local
+checkout detection stays correct even when both hosts' development packages
+are resolvable.
+
+---
+
+## Manual local development
 
 Two separate concerns — don't conflate them.
 
@@ -80,34 +119,24 @@ omp plugin install <path-to>/opencode-plugin-compat/packages/pi-bridge   # oh-my
 pi install <path-to>/opencode-plugin-compat/packages/pi-bridge           # pi
 ```
 
-**2. Make everything this bridge imports resolvable from *its own* location.**
-Node/Bun resolve a bare specifier relative to the **real** path of the importing
-file, not any symlink it was reached through. `omp plugin install` / `pi install`
-of a *checkout* only symlinks it, so resolution walks up the **OCP monorepo**,
-never the host's plugin dir — installing the provider as a sibling there has no
-effect on a checkout. Link it into `packages/pi-bridge`'s own `node_modules`
-instead:
+**2. Point config directly at the provider's built module.** A host install-tree
+sibling is not visible from the real bridge checkout, while an absolute module
+path has unambiguous ESM resolution:
 
 ```bash
-# the provider package named in your config
-cd <path-to>/cursor-opencode-provider && bun link
-cd <path-to>/opencode-plugin-compat/packages/pi-bridge && bun link cursor-opencode-provider
+# pi-bridge.json
+{
+  "providers": [
+    { "package": "/absolute/path/to/cursor-opencode-provider/dist/index.js" }
+  ]
+}
 ```
 
-**On pi additionally**, the host's `pi-ai` is not a sibling of this package the
-way omp's is, so link it too (it ships inside the installed CLI):
-
-```bash
-cd <path-to>/opencode-plugin-compat/packages/pi-bridge
-mkdir -p node_modules/@earendil-works
-ln -sfn "$(dirname "$(readlink -f "$(which pi)")")/../node_modules/@earendil-works/pi-ai" \
-        node_modules/@earendil-works/pi-ai
-```
-
-Once `@opencode-compat/pi-bridge` and the provider are installed as real
-dependencies this becomes automatic. Nothing requires a machine-specific path
-inside any file — only these commands vary per developer, the same as any
-`npm link`-style local workflow.
+**3. Link the running host's `pi-ai` package into the real bridge checkout.**
+Its location depends on how the host CLI was installed. The helper scripts
+resolve the CLI symlink, support nested and hoisted package layouts, and refuse
+to overwrite a real package directory, so they are the preferred way to apply
+this step.
 
 ---
 
@@ -141,6 +170,40 @@ and everything else collapses to one preferred value. Set `splitDimensions` on
 a provider entry to change which dimensions split. Details in the
 [pi-bridge README](../../packages/pi-bridge/README.md).
 
+### Subagents
+
+Pi-family subagents use host-native wire contracts, not OpenCode's `task`
+schema. `pi-bridge` translates the live catalog, calls, named tool choice, and
+history so an unmodified OpenCode provider sees
+`task({description, prompt, subagent_type})` while the host executes its own
+`{agent, task}` shape.
+
+- omp has a built-in `task` executor; `general` follows its live default spawn
+  policy and `explore` maps to `scout`. Its `hub` coordination surface is a
+  built-in host tool, not an MCP server: each `task` call starts a new agent,
+  while `hub jobs` / `hub wait` / `hub send` handle status and follow-up.
+  The bridge also accepts `{action: "jobs"}` from an OpenCode-oriented provider
+  and rewrites the strict OMP discriminator to `{op: "jobs"}`.
+  Because OMP subagents require a terminal `yield` call but OpenCode providers
+  normally return final assistant text, the bridge supplies that terminal call
+  when the live `yield` tool is present. It also overrides specialist output
+  schemas so canonical `task` results retain OpenCode's unstructured text
+  semantics. Auto-delivered results resume the parent as new provider-facing
+  turns; otherwise a provider can mistake the original request for the live
+  request and launch the same work again. The bridge also forwards the host's
+  provider-session identity so stateful plugins retain their checkpoint across
+  the asynchronous wake-up.
+- pi's subagent support is the host's optional
+  `packages/coding-agent/examples/extensions/subagent` extension. Install that
+  extension and its agent definitions separately; the bridge activates the
+  mapping only when the live `subagent` tool is advertised. Its reference
+  aliases are `general` → `worker` and `explore` → `scout`.
+
+Custom agent names pass through unchanged. If the subagent tool is absent or
+disabled, all tools remain untouched. If pi advertises both `subagent` and an
+independent tool named `task`, the latter remains available to the provider as
+`pi_host_task`; canonical `task` still launches the subagent executor.
+
 ---
 
 ## Verify
@@ -153,6 +216,10 @@ a provider entry to change which dimensions split. Details in the
    "registering as" explanation.
 3. Watch for `pi-bridge: failed to register provider …` errors — one bad
    config entry is isolated and logged rather than failing the whole extension.
+4. When subagents are enabled, launch one short task and confirm it settles once.
+   On OMP, both `{action: "jobs"}` and `{op: "jobs"}` should reach `hub`, and an
+   auto-delivered result should resume the parent without spawning the task a
+   second time.
 
 Programmatic smoke test (instead of a config file):
 

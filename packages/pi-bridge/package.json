@@ -1,6 +1,6 @@
 {
   "name": "@opencode-compat/pi-bridge",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "description": "Dynamically run unmodified OpenCode aisdk-type plugins as providers on pi or oh-my-pi (omp)",
   "type": "module",
   "license": "MPL-2.0",
@@ -35,12 +35,12 @@
   },
   "omp": {
     "extensions": [
-      "./dist/extension.js"
+      "./dist/extension-omp.js"
     ]
   },
   "pi": {
     "extensions": [
-      "./dist/extension.js"
+      "./dist/extension-pi.js"
     ]
   },
   "files": [

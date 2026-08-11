@@ -14,6 +14,37 @@
 
 export type PiHostId = "omp" | "pi"
 
+export type PiCoordinationToolProfile = {
+  /** Host-native coordination tool name. */
+  name: string
+  /** Provider-emitted argument name → host argument name. */
+  inputAliases?: Readonly<Record<string, string>>
+}
+
+export type PiSubagentToolProfile = {
+  /** Tool name the host advertises when its subagent executor is active. */
+  name: string
+  /**
+   * OpenCode agent type → host agent type. `null` means omit the field and let
+   * the host apply its session-specific default spawn policy.
+   */
+  agentAliases: Readonly<Record<string, string | null>>
+  /** Built-in coordination tool used for status and follow-up, when present. */
+  coordinationTool?: PiCoordinationToolProfile
+  /**
+   * Host argument that disables an agent definition's structured-output
+   * contract. OpenCode's canonical task result is unstructured text.
+   */
+  unstructuredOutput?: { field: string; value: unknown }
+}
+
+export type PiTerminalResultToolProfile = {
+  /** Tool name a host subagent must call to submit its terminal result. */
+  name: string
+  /** Arguments that submit the current assistant text as the result. */
+  input: Readonly<Record<string, unknown>>
+}
+
 export type PiHostProfile = {
   id: PiHostId
   /** Display name for diagnostics. */
@@ -22,6 +53,29 @@ export type PiHostProfile = {
   aiPackage: string
   /** Package providing ExtensionAPI (types only; never imported at runtime). */
   codingAgentPackage: string
+  tools?: {
+    /**
+     * Pi-family subagents do not use OpenCode's `task` wire schema. The bridge
+     * activates this mapping only when the named tool is advertised live.
+     */
+    subagent?: PiSubagentToolProfile
+    /**
+     * Some hosts require a terminal tool call instead of accepting a normal
+     * assistant stop. The bridge activates this only when the tool is live.
+     */
+    terminalResult?: PiTerminalResultToolProfile
+  }
+  messages?: {
+    /**
+     * OMP renders async job delivery as an agent-attributed developer message.
+     * Only messages matching this envelope become provider-facing user turns;
+     * other developer messages retain developer/system priority.
+     */
+    agentDeveloperWake?: {
+      startsWith: string
+      includes: readonly string[]
+    }
+  }
   capabilities: {
     /**
      * How a provider supplies a dynamic model list.
@@ -116,6 +170,32 @@ export function ompProfile(): PiHostProfile {
     name: "oh-my-pi (omp)",
     aiPackage: "@oh-my-pi/pi-ai",
     codingAgentPackage: "@oh-my-pi/pi-coding-agent",
+    tools: {
+      subagent: {
+        name: "task",
+        // omp's generic worker follows the live session spawn policy; its
+        // bundled read-only equivalent of OpenCode's `explore` is `scout`.
+        agentAliases: { general: null, explore: "scout" },
+        coordinationTool: {
+          name: "hub",
+          // OpenCode-oriented models commonly say `action`; OMP's strict hub
+          // schema calls the discriminator `op`.
+          inputAliases: { action: "op" },
+        },
+        // OMP's scout/reviewer definitions impose structured schemas, while
+        // OpenCode's task contract returns plain text to the parent.
+        unstructuredOutput: { field: "outputSchema", value: true },
+      },
+      // OMP subagents do not settle on a plain assistant response. `yield`
+      // with an empty typed result tells the host to use that response text.
+      terminalResult: { name: "yield", input: { type: "result", result: {} } },
+    },
+    messages: {
+      agentDeveloperWake: {
+        startsWith: "<system-notice>",
+        includes: ["background job", "resume your work using"],
+      },
+    },
     capabilities: {
       dynamicModels: "fetchDynamicModels",
       oauthRequires: [],
@@ -135,6 +215,14 @@ export function piProfile(): PiHostProfile {
     name: "pi (earendil-works)",
     aiPackage: "@earendil-works/pi-ai",
     codingAgentPackage: "@earendil-works/pi-coding-agent",
+    tools: {
+      subagent: {
+        name: "subagent",
+        // These are the reference extension's bundled sample agent names. A
+        // user-defined name not present here still passes through unchanged.
+        agentAliases: { general: "worker", explore: "scout" },
+      },
+    },
     capabilities: {
       dynamicModels: "refreshModels",
       oauthRequires: ["refreshToken", "getApiKey"],

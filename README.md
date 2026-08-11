@@ -7,7 +7,7 @@ Run **published OpenCode plugins unchanged** (`import "@opencode-ai/plugin"` / `
 Two host families are supported:
 
 - **OpenCode clones/forks** — MiMo (`mimocode`), Kilo (`kilocode`), zcode. These ship their own OpenCode-shaped native plugin packages, so an unmodified plugin's `@opencode-ai/plugin` / `@opencode-ai/sdk` imports are resolved to *facades* that delegate to the host's native package, plus one universal autodetection adapter driven by `HostProfile` data. **zcode is detect/doctor-only** — its marketplace ABI (`.zcode-plugin`) is not the `@opencode-ai/plugin` ABI, so it is not a load target.
-- **Pi family** — `pi` ([earendil-works](https://github.com/earendil-works/pi)) and `oh-my-pi` / `omp` ([can1357](https://github.com/can1357/oh-my-pi), a fork of pi). Neither is an OpenCode fork and neither has an `@opencode-ai/plugin`-shaped package, so `@opencode-compat/pi-bridge` dynamically loads an unmodified OpenCode `aisdk`-type plugin and registers it through the host's own `pi.registerProvider(...)`, translating AI-SDK `doStream` to/from the host's `Context` / `AssistantMessageEvent` stream.
+- **Pi family** — `pi` ([earendil-works](https://github.com/earendil-works/pi)) and `oh-my-pi` / `omp` ([can1357](https://github.com/can1357/oh-my-pi), a fork of pi). Neither is an OpenCode fork and neither has an `@opencode-ai/plugin`-shaped package, so `@opencode-compat/pi-bridge` dynamically loads an unmodified OpenCode `aisdk`-type plugin and registers it through the host's own `pi.registerProvider(...)`, translating AI-SDK `doStream` to/from the host's `Context` / `AssistantMessageEvent` stream. Live host subagent tools are also exposed to the plugin through OpenCode's canonical `task` vocabulary and translated back for execution/history, including OMP's required terminal `yield` lifecycle and asynchronous parent wake-ups.
 
 **Install** — one self-contained guide per host family:
 
@@ -54,7 +54,7 @@ Also: [`fixtures/`](./fixtures) (conformance), [`docs/hosts/`](./docs/hosts) (ho
 | [`docs/hosts/pi-family.md`](./docs/hosts/pi-family.md) | **pi / oh-my-pi** — install, config, model variants, verification |
 | [`packages/pi-bridge/README.md`](./packages/pi-bridge/README.md) | pi-bridge config reference + pi/omp host-difference table |
 | [`docs/ocp/0.1.md`](./docs/ocp/0.1.md) | OCP contract — HostProfile, classic hooks, tiers, Promise v2, conformance |
-| [`TESTING.md`](./TESTING.md) | **Manual local dev** — unpublished OCP + local plugins on MiMo/Kilo (`scripts/*-dev.sh`) |
+| [`TESTING.md`](./TESTING.md) | **Manual local dev** — unpublished OCP + local plugins (`scripts/*-dev.sh`) |
 | [`docs/guides/kilocode-telemetry-disable.md`](./docs/guides/kilocode-telemetry-disable.md) | Disable Kilo PostHog telemetry (config / `KILO_TELEMETRY_LEVEL`) |
 | [`docs/guides/mimocode-telemetry-disable.md`](./docs/guides/mimocode-telemetry-disable.md) | Disable MiMo Xiaomi usage analytics (`MIMOCODE_ENABLE_ANALYSIS=false`) |
 | [`docs/guides/zcode-telemetry-block.md`](./docs/guides/zcode-telemetry-block.md) | ZCode telemetry block (**docs-only** firewall/DNS) |
@@ -77,6 +77,21 @@ bun run pack:check          # publish dry-run (see docs/guides/npm-publish.md)
 Requires [Bun](https://bun.sh) ≥ 1.2. CLI bins import `dist/` — run `bun run build` after a clean checkout.
 
 For end-to-end checks against a real host with local checkouts, see [**TESTING.md**](./TESTING.md). The MiMo/Kilo helper scripts clean cached plugin installs and provider `node_modules` before every local shim or npm restore, then reinstall from the selected local path or explicit npm `@latest` source.
+
+Pi-family development uses the same `local|npm` switch with the hosts' native
+package managers and `pi-bridge.json`—never clone facades or `ocp setup`:
+
+```bash
+./scripts/pi-dev.sh local    # local pi-bridge + local provider checkout
+./scripts/pi-dev.sh npm      # published pi-bridge + published provider
+./scripts/omp-dev.sh local
+./scripts/omp-dev.sh npm
+```
+
+Local mode defaults to a sibling `cursor-opencode-provider` checkout; override
+it with `OCP_DEV_PROVIDER_PATH`. See the
+[Pi-family guide](./docs/hosts/pi-family.md#development-helper-scripts) for
+version pins and config-path overrides.
 
 ## Related
 

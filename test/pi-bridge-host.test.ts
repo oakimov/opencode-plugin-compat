@@ -19,6 +19,24 @@ describe("host profiles", () => {
     expect(piProfile().capabilities.dynamicModels).toBe("refreshModels")
   })
 
+  test("subagent host names and generic aliases remain profile data", () => {
+    expect(ompProfile().tools.subagent).toEqual({
+      name: "task",
+      agentAliases: { general: null, explore: "scout" },
+      coordinationTool: { name: "hub", inputAliases: { action: "op" } },
+      unstructuredOutput: { field: "outputSchema", value: true },
+    })
+    expect(piProfile().tools.subagent).toEqual({
+      name: "subagent",
+      agentAliases: { general: "worker", explore: "scout" },
+    })
+    expect(ompProfile().tools.terminalResult).toEqual({
+      name: "yield",
+      input: { type: "result", result: {} },
+    })
+    expect(piProfile().tools.terminalResult).toBeUndefined()
+  })
+
   test("pi marks oauth refreshToken/getApiKey required; omp does not", () => {
     expect(piProfile().capabilities.oauthRequires).toEqual(["refreshToken", "getApiKey"])
     expect(ompProfile().capabilities.oauthRequires).toEqual([])

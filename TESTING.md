@@ -8,10 +8,10 @@ MiMo Code.
 > edit MiMo source or fork consumer plugins. All local-dev wiring happens in the
 > install-tree cache.
 
-> **Pi family (`pi` / `oh-my-pi`):** nothing on this page applies — those hosts
-> use `@opencode-compat/pi-bridge`, not facades or `ocp setup`. Their local-dev
-> loop (`bun link` into `packages/pi-bridge/node_modules`, and why a sibling
-> install is not enough for a checkout) is in
+> **Pi family (`pi` / `oh-my-pi`):** the facade instructions on this page do not
+> apply — those hosts use `@opencode-compat/pi-bridge`, not `ocp setup`. Use
+> `./scripts/pi-dev.sh local|npm` or `./scripts/omp-dev.sh local|npm`; their
+> bridge/config workflow is documented in
 > [`docs/hosts/pi-family.md`](./docs/hosts/pi-family.md).
 
 ---

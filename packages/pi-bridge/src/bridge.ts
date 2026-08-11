@@ -21,6 +21,7 @@ import type { PiOAuthConfig } from "./opencode/auth.js"
 import type { PiModelConfig } from "./opencode/models.js"
 import { translateContextToPrompt, translateToolChoice, translateTools } from "./translate/context.js"
 import { emptyUsage, runV3StreamToPi } from "./translate/stream.js"
+import { buildPiSubagentVocabulary, buildPiTerminalResultVocabulary, buildPiToolInputVocabulary } from "./translate/subagent.js"
 import type { PiContextLike, PiExtensionApi, PiModelLike, PiSimpleStreamOptions } from "./pi-provider-types.js"
 
 export interface AiSdkProviderSpec {
@@ -54,6 +55,23 @@ async function resolveApiKey(apiKey: unknown, signal: AbortSignal | undefined): 
   return String(apiKey)
 }
 
+const SESSION_AFFINITY_HEADERS = new Set(["x-session-id", "x-session-affinity", "x-opencode-session"])
+
+/**
+ * Preserve the Pi host's provider-session identity on the AI-SDK call.
+ * OpenCode providers commonly use one of these headers to retain opaque
+ * conversation/checkpoint state across tool loops and asynchronous wake-ups.
+ */
+export function aiSdkHeadersFromPi(options: PiSimpleStreamOptions | undefined): Record<string, string> | undefined {
+  const headers = options?.headers ? { ...options.headers } : {}
+  const hasExplicitAffinity = Object.keys(headers).some(name => SESSION_AFFINITY_HEADERS.has(name.toLowerCase()))
+  // Use OCP's namespaced header by default. It is understood by cooperating
+  // OpenCode providers and is less likely than the generic x-session-id to be
+  // forwarded to an unrelated upstream API with provider-specific semantics.
+  if (!hasExplicitAffinity && options?.sessionId) headers["x-opencode-session"] = options.sessionId
+  return Object.keys(headers).length > 0 ? headers : undefined
+}
+
 function errorAssistantMessage(model: PiModelLike, err: unknown) {
   return {
     role: "assistant" as const,
@@ -75,16 +93,19 @@ function buildStreamSimple(spec: AiSdkProviderSpec, runtime: PiRuntime) {
       try {
         const apiKey = await resolveApiKey(options?.apiKey, options?.signal)
         const lm = await spec.getLanguageModel(model.id, apiKey)
+        const vocabulary = buildPiSubagentVocabulary(context.tools, runtime.toolSchema, runtime.profile)
+        const toolInputs = buildPiToolInputVocabulary(context.tools, runtime.profile)
+        const terminalResult = buildPiTerminalResultVocabulary(context.tools, runtime.profile)
         const base: LanguageModelV3CallOptions = {
-          prompt: translateContextToPrompt(context),
-          tools: translateTools(context.tools, runtime.toolSchema),
-          toolChoice: translateToolChoice(options?.toolChoice),
+          prompt: translateContextToPrompt(context, vocabulary, runtime.profile),
+          tools: translateTools(context.tools, runtime.toolSchema, vocabulary),
+          toolChoice: translateToolChoice(options?.toolChoice, vocabulary),
           abortSignal: options?.signal,
-          headers: options?.headers,
+          headers: aiSdkHeadersFromPi(options),
         }
         const callOptions = spec.buildCallOptions ? await spec.buildCallOptions({ model, context, options, base }) : base
         const result = await lm.doStream(callOptions)
-        await runV3StreamToPi({ model, v3Stream: result.stream, piStream })
+        await runV3StreamToPi({ model, v3Stream: result.stream, piStream, vocabulary, toolInputs, terminalResult })
       } catch (err) {
         const message = errorAssistantMessage(model, err)
         piStream.push({ type: "start", partial: message })

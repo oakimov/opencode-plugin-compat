@@ -15,6 +15,14 @@ import type {
   PiToolCall,
   PiUsage,
 } from "../pi-provider-types.js"
+import {
+  translateCanonicalToolCall,
+  type PiSubagentVocabulary,
+  type PiTerminalResultVocabulary,
+  type PiToolInputVocabulary,
+} from "./subagent.js"
+
+let syntheticToolCallSequence = 0
 
 export function emptyUsage(): PiUsage {
   return { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, totalTokens: 0, cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 } }
@@ -77,6 +85,9 @@ export async function runV3StreamToPi(options: {
   model: Model
   v3Stream: AsyncIterable<LanguageModelV3StreamPart> | ReadableStream<LanguageModelV3StreamPart>
   piStream: AssistantMessageEventStream
+  vocabulary?: PiSubagentVocabulary
+  toolInputs?: PiToolInputVocabulary
+  terminalResult?: PiTerminalResultVocabulary
 }): Promise<void> {
   const { model, piStream } = options
   const partial: AssistantMessage = {
@@ -176,13 +187,47 @@ export async function runV3StreamToPi(options: {
           break
         case "tool-call": {
           const idx = toolCallIndexById.get(part.toolCallId) ?? openToolCallBlock(part.toolCallId)
-          const toolCall: PiToolCall = { type: "toolCall", id: part.toolCallId, name: part.toolName, arguments: parseToolInput(part.input) }
+          const input = parseToolInput(part.input)
+          const translated = translateCanonicalToolCall(part.toolName, input, options.vocabulary, options.toolInputs)
+          const toolCall: PiToolCall = {
+            type: "toolCall",
+            id: part.toolCallId,
+            name: translated?.toolName ?? part.toolName,
+            arguments: translated?.input ?? input,
+          }
           partial.content[idx] = toolCall
           piStream.push({ type: "toolcall_end", contentIndex: idx, toolCall, partial })
           break
         }
         case "finish": {
           partial.usage = translateUsage(part.usage, model)
+          const hasFinalText = partial.content.some(
+            block => block.type === "text" && block.text.trim().length > 0,
+          )
+          if (
+            part.finishReason.unified === "stop" &&
+            options.terminalResult &&
+            toolCallIndexById.size === 0 &&
+            hasFinalText
+          ) {
+            // OpenCode agents finish by returning assistant text. OMP
+            // subagents instead require their hidden `yield` tool; without
+            // this host-side completion shim OMP repeatedly reminds the model
+            // until the child exhausts its request budget and never settles.
+            const id = `pi_bridge_terminal_${Date.now().toString(36)}_${(++syntheticToolCallSequence).toString(36)}`
+            const idx = openToolCallBlock(id)
+            const toolCall: PiToolCall = {
+              type: "toolCall",
+              id,
+              name: options.terminalResult.hostToolName,
+              arguments: { ...options.terminalResult.input },
+            }
+            partial.content[idx] = toolCall
+            piStream.push({ type: "toolcall_end", contentIndex: idx, toolCall, partial })
+            partial.stopReason = "toolUse"
+            piStream.push({ type: "done", reason: "toolUse", message: partial })
+            return
+          }
           const finish = translateFinishReason(part.finishReason)
           if (finish.kind === "done") {
             partial.stopReason = finish.reason

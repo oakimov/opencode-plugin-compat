@@ -12,7 +12,7 @@ export { configSearchPaths, loadConfig, registerProvidersFromConfig, resolveConf
 
 // Host layer
 export { detectPiHost, resetPiHostDetection, type PiHostDetection } from "./host/detect.js"
-export { ompProfile, piProfile, profileFor, renderApiKeyRef, PI_HOST_PROFILES, type PiHostId, type PiHostProfile } from "./host/profile.js"
+export { ompProfile, piProfile, profileFor, renderApiKeyRef, PI_HOST_PROFILES, type PiCoordinationToolProfile, type PiHostId, type PiHostProfile, type PiSubagentToolProfile } from "./host/profile.js"
 export { fallbackToolSchema, loadPiRuntime, resetPiRuntime, type PiRuntime } from "./host/runtime.js"
 
 // OpenCode plugin surface
@@ -35,4 +35,21 @@ export type * from "./opencode/types.js"
 // Translation
 export { normalizeSystemPrompt, translateContextToPrompt, translateToolChoice, translateTools, type ToolSchemaFn } from "./translate/context.js"
 export { emptyUsage, runV3StreamToPi } from "./translate/stream.js"
+export {
+  buildPiSubagentVocabulary,
+  buildPiTerminalResultVocabulary,
+  buildPiToolInputVocabulary,
+  canonicalSubagentDescription,
+  canonicalSubagentSchema,
+  canonicalToolName,
+  translateCanonicalSubagentCall,
+  translateCanonicalToolCall,
+  translateHostSubagentCall,
+  CANONICAL_SUBAGENT_TOOL,
+  type PiSubagentVocabulary,
+  type PiTerminalResultVocabulary,
+  type PiToolInputVocabulary,
+  type SubagentToolSchemaFn,
+  type TranslatedSubagentCall,
+} from "./translate/subagent.js"
 export type * from "./pi-provider-types.js"

@@ -5,6 +5,7 @@
  * tests need no real or mocked package.
  */
 import { describe, expect, test } from "bun:test"
+import { ompProfile } from "../packages/pi-bridge/src/host/profile.ts"
 import { translateContextToPrompt, translateToolChoice, translateTools } from "../packages/pi-bridge/src/translate/context.ts"
 
 describe("translateContextToPrompt", () => {
@@ -61,6 +62,55 @@ describe("translateContextToPrompt", () => {
       ],
     } as never)
     expect(prompt).toEqual([{ role: "system", content: "dev note" }])
+  })
+
+  test("preserves an OMP async-result developer message as a new user turn", () => {
+    const prompt = translateContextToPrompt({
+      messages: [
+        { role: "user", content: "Run three scouts", timestamp: 1 },
+        {
+          role: "assistant",
+          content: [{ type: "text", text: "The scouts are running." }],
+          api: "x",
+          provider: "acme",
+          model: "m",
+          usage: {},
+          stopReason: "stop",
+          timestamp: 2,
+        },
+        {
+          role: "developer",
+          attribution: "agent",
+          content: "<system-notice>\nBackground job SparklingSwift has completed. Resume your work using the result below.\n<task-result>done</task-result>\n</system-notice>",
+          timestamp: 3,
+        },
+      ],
+    } as never, undefined, ompProfile())
+
+    expect(prompt).toEqual([
+      { role: "user", content: [{ type: "text", text: "Run three scouts" }] },
+      { role: "assistant", content: [{ type: "text", text: "The scouts are running." }] },
+      {
+        role: "user",
+        content: [{ type: "text", text: "<system-notice>\nBackground job SparklingSwift has completed. Resume your work using the result below.\n<task-result>done</task-result>\n</system-notice>" }],
+      },
+    ])
+  })
+
+  test("does not promote unrelated agent-attributed developer messages", () => {
+    const prompt = translateContextToPrompt({
+      messages: [
+        {
+          role: "developer",
+          attribution: "agent",
+          content: "<system-notice>Internal maintenance guidance.</system-notice>",
+          timestamp: 1,
+        },
+      ],
+    } as never, undefined, ompProfile())
+    expect(prompt).toEqual([
+      { role: "system", content: "<system-notice>Internal maintenance guidance.</system-notice>" },
+    ])
   })
 
   test("maps assistant text/thinking/toolCall blocks; drops redactedThinking", () => {

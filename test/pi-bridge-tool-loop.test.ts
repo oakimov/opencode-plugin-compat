@@ -11,6 +11,7 @@
  * does, for example) depends on this exact match.
  */
 import { describe, expect, test } from "bun:test"
+import { aiSdkHeadersFromPi } from "../packages/pi-bridge/src/bridge.ts"
 import { translateContextToPrompt } from "../packages/pi-bridge/src/translate/context.ts"
 import { runV3StreamToPi } from "../packages/pi-bridge/src/translate/stream.ts"
 
@@ -47,6 +48,17 @@ async function* v3Parts(parts: unknown[]) {
 }
 
 describe("tool loop round trip (append-to-history)", () => {
+  test("carries Pi's session identity into the OpenCode provider without overriding explicit affinity", () => {
+    expect(aiSdkHeadersFromPi({ sessionId: "omp-parent-123", headers: { "x-client": "omp" } })).toEqual({
+      "x-client": "omp",
+      "x-opencode-session": "omp-parent-123",
+    })
+    expect(aiSdkHeadersFromPi({
+      sessionId: "ignored",
+      headers: { "X-Session-Affinity": "operator-choice" },
+    })).toEqual({ "X-Session-Affinity": "operator-choice" })
+  })
+
   test("a toolCallId emitted on turn 1 survives into turn 2's tool-result prompt part", async () => {
     const TOOL_CALL_ID = "provider_session123_1"
 

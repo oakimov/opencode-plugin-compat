@@ -60,6 +60,12 @@ export type PiUserMessage = {
 export type PiDeveloperMessage = {
   role: "developer"
   content: string | PiTextOrImageContent[]
+  /**
+   * OMP preserves the origin of custom messages here. In particular,
+   * background-job completions arrive as `attribution: "agent"` even though
+   * the host's LLM-facing role is `developer`.
+   */
+  attribution?: "user" | "agent"
   timestamp?: number
   [key: string]: unknown
 }
