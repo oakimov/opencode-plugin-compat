@@ -4,7 +4,7 @@
  * See docs/ocp/0.1.md and docs/plans/.
  */
 export const PKG = "@opencode-compat/adapter" as const
-export const VERSION = "0.1.5" as const
+export const VERSION = "0.2.0" as const
 
 export {
   detect,

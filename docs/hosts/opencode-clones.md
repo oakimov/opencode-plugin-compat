@@ -35,8 +35,8 @@ Concretely, the host's plugin install tree gets these overrides:
 
 ```json
 {
-  "@opencode-ai/plugin": "npm:@opencode-compat/facade-plugin@0.1.x",
-  "@opencode-ai/sdk": "npm:@opencode-compat/facade-sdk@0.1.x"
+  "@opencode-ai/plugin": "npm:@opencode-compat/facade-plugin@0.2.x",
+  "@opencode-ai/sdk": "npm:@opencode-compat/facade-sdk@0.2.x"
 }
 ```
 
@@ -147,7 +147,7 @@ Useful flags:
 
 ```bash
 ocp setup --host mimo --mode npm --dry-run          # preview only
-ocp setup --host kilo --mode npm --version 0.1.5    # pin the facade train explicitly
+ocp setup --host kilo --mode npm --version 0.2.0    # pin the facade train explicitly
 ocp setup --dir ~/.cache/mimocode/packages --mode npm   # explicit install root
 ```
 
@@ -158,7 +158,7 @@ Full option list: `--dir`, `--host`, `--mode auto|npm|file`, `--version`,
 `compat setup`, print-only `compat overrides` / `opencode-compat overrides`.
 
 `--version` pins the `@opencode-compat/facade-*` specs written into overrides.
-The default is the **current OCP package train** (today **`0.1.5`**), so you
+The default is the **current OCP package train** (today **`0.2.0`**), so you
 normally omit it. Outside this monorepo always prefer **`--mode npm`** so
 overrides resolve from the public registry rather than local `file:` paths.
 

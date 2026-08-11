@@ -51,7 +51,7 @@ omp plugin install @opencode-compat/pi-bridge   # oh-my-pi
 pi install @opencode-compat/pi-bridge           # pi
 ```
 
-`pi-bridge` ships in the same `0.1.x` train as the rest of `@opencode-compat/*`.
+`pi-bridge` ships in the same `0.2.x` train as the rest of `@opencode-compat/*`.
 Installed this way its dependencies resolve normally — no linking needed.
 
 The provider package you name in the config is a separate install. Add it the
