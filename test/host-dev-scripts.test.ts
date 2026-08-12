@@ -5,12 +5,14 @@ import {
   mkdtempSync,
   readFileSync,
   rmSync,
+  statSync,
   writeFileSync,
 } from "node:fs"
 import { tmpdir } from "node:os"
 import { join, resolve } from "node:path"
 
 const helper = resolve(import.meta.dir, "../scripts/host-dev-common.sh")
+const cleaner = resolve(import.meta.dir, "../scripts/clean-test-state.sh")
 
 function bash(command: string, args: string[] = []) {
   return Bun.spawnSync(["bash", "-c", command, "host-dev-test", ...args], {
@@ -20,6 +22,23 @@ function bash(command: string, args: string[] = []) {
 }
 
 describe("MiMo/Kilo host-dev cleanup", () => {
+  test("standalone test-state cleanup is executable and exposes provider reset", () => {
+    const syntax = Bun.spawnSync(["bash", "-n", cleaner], {
+      stdout: "pipe",
+      stderr: "pipe",
+    })
+    expect(syntax.exitCode).toBe(0)
+
+    const help = Bun.spawnSync([cleaner, "--help"], {
+      stdout: "pipe",
+      stderr: "pipe",
+    })
+    expect(help.exitCode).toBe(0)
+    expect(help.stdout.toString()).toContain("--provider PATH")
+    expect(help.stdout.toString()).toContain("--host mimo|kilo")
+    expect(statSync(cleaner).mode & 0o111).not.toBe(0)
+  })
+
   test("removes every cached plugin version without touching other packages", () => {
     const root = mkdtempSync(join(tmpdir(), "ocp-host-clean-"))
     const packages = join(root, "cache", "packages")

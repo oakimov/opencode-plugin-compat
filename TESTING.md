@@ -291,9 +291,24 @@ can mix local OCP + npm plugin or npm OCP + local plugin.
 
 ## 6. Resetting to clean state
 
-The recommended reset is `./scripts/mimo-dev.sh npm` (or
-`./scripts/kilo-dev.sh npm`). The helper performs the cache and dependency
-cleanup below automatically and reinstalls the published plugin at `@latest`.
+For a provider checkout that was used by a local test, run the standalone
+cleanup first. It removes the provider's test-time facade links and generated
+entry shims, reinstalls its declared dependencies, and rebuilds stock output:
+
+```bash
+./scripts/clean-test-state.sh --provider /path/to/cursor-opencode-provider
+```
+
+Add `--host mimo` or `--host kilo` to also remove the selected provider's host
+cache entries, recognizable OCP install-tree overrides, and local provider
+references from the host config. The script deliberately does not claim to
+restore values overwritten by an older script run when no config backup exists.
+
+If you want to switch the host back to the published plugin and published OCP
+facades, the existing mode switch remains the recommended reset:
+`./scripts/mimo-dev.sh npm` (or `./scripts/kilo-dev.sh npm`). Those helpers
+perform the cache and dependency cleanup below automatically and reinstall the
+published plugin at `@latest`.
 
 ```bash
 # Remove OCP overrides from the install tree

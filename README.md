@@ -78,6 +78,18 @@ Requires [Bun](https://bun.sh) ≥ 1.2. CLI bins import `dist/` — run `bun run
 
 For end-to-end checks against a real host with local checkouts, see [**TESTING.md**](./TESTING.md). The MiMo/Kilo helper scripts clean cached plugin installs and provider `node_modules` before every local shim or npm restore, then reinstall from the selected local path or explicit npm `@latest` source.
 
+After an interrupted or ad-hoc test run, restore a consumer checkout before
+building it again:
+
+```bash
+./scripts/clean-test-state.sh --provider /path/to/cursor-opencode-provider
+```
+
+Pass `--host mimo` or `--host kilo` to also remove that provider's cached
+install, recognizable OCP overrides, and local checkout references from the
+host config. The provider is rebuilt from its own lockfile, so compatibility
+facades and generated entry shims cannot remain in its test dependencies.
+
 Pi-family development uses the same `local|npm` switch with the hosts' native
 package managers and `pi-bridge.json`—never clone facades or `ocp setup`:
 
