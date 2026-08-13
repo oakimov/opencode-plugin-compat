@@ -48,6 +48,10 @@ export type PiTerminalResultToolProfile = {
 export type PiToolInputProfile = {
   /** Provider-emitted argument name -> host argument name. */
   inputAliases: Readonly<Record<string, string>>
+  /** Structural conversion required after aliases have been applied. */
+  inputShape?: "pi-edit"
+  /** Provider-facing tool name when the host uses a different name. */
+  providerName?: string
 }
 
 /**
@@ -86,7 +90,13 @@ const OMP_ESSENTIAL_TOOL_INPUTS: Readonly<Record<string, PiToolInputProfile>> = 
 const PI_ESSENTIAL_TOOL_INPUTS: Readonly<Record<string, PiToolInputProfile>> = {
   read: { inputAliases: { filePath: "path", file_path: "path" } },
   write: { inputAliases: { filePath: "path", file_path: "path" } },
-  edit: { inputAliases: { filePath: "path", file_path: "path" } },
+  edit: {
+    inputAliases: { filePath: "path", file_path: "path" },
+    inputShape: "pi-edit",
+  },
+  // Pi calls OpenCode's glob operation `find`; expose the canonical name to
+  // the provider while the host-side validator still receives `find`.
+  find: { inputAliases: {}, providerName: "glob" },
 }
 
 export type PiHostProfile = {

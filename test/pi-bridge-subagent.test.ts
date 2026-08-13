@@ -260,11 +260,84 @@ describe("Pi-family subagent vocabulary", () => {
     const toolInputs = buildPiToolInputVocabulary(tools, piProfile())
     expect(toolInputs?.write?.inputAliases).toEqual({ filePath: "path", file_path: "path" })
     expect(toolInputs?.edit?.inputAliases).toEqual({ filePath: "path", file_path: "path" })
+    expect(toolInputs?.edit?.inputShape).toBe("pi-edit")
     expect(toolInputs?.bash).toBeUndefined()
     expect(translateCanonicalToolCall("bash", { command: "ls", workdir: "/tmp" }, undefined, toolInputs)).toBeUndefined()
     expect(translateCanonicalToolCall("write", { filePath: "a.ts", content: "x" }, undefined, toolInputs)).toEqual({
       toolName: "write",
       input: { path: "a.ts", content: "x" },
+    })
+    expect(translateCanonicalToolCall(
+      "edit",
+      { filePath: "a.ts", oldString: "before", newString: "after" },
+      undefined,
+      toolInputs,
+    )).toEqual({
+      toolName: "edit",
+      input: { path: "a.ts", edits: [{ oldText: "before", newText: "after" }] },
+    })
+    expect(translateCanonicalToolCall(
+      "edit",
+      { path: "a.ts", edits: [{ oldText: "before", newText: "after" }] },
+      undefined,
+      toolInputs,
+    )).toEqual({
+      toolName: "edit",
+      input: { path: "a.ts", edits: [{ oldText: "before", newText: "after" }] },
+    })
+  })
+
+  test("pi advertises OpenCode's flat edit schema while executing Pi's nested shape", () => {
+    const tools = [{ name: "edit", description: "Edit a file", parameters: {
+      type: "object",
+      properties: { path: { type: "string" }, edits: { type: "array" } },
+      required: ["path", "edits"],
+    } }] as never
+    const toolInputs = buildPiToolInputVocabulary(tools, piProfile())
+
+    expect(translateTools(tools, toSchema as never, undefined, toolInputs)).toEqual([{
+      type: "function",
+      name: "edit",
+      description: "Edit a file",
+      inputSchema: {
+        type: "object",
+        properties: {
+          filePath: { type: "string", description: "Path to the file to edit (relative or absolute)" },
+          oldString: { type: "string", description: "Exact text to replace" },
+          newString: { type: "string", description: "Replacement text" },
+          replaceAll: { type: "boolean", description: "Replace every occurrence instead of requiring a unique match" },
+        },
+        required: ["filePath", "oldString", "newString"],
+        additionalProperties: false,
+      },
+    }])
+    expect(translateCanonicalToolCall(
+      "edit",
+      { filePath: "a.ts", oldString: "before", newString: "after" },
+      undefined,
+      toolInputs,
+    )).toEqual({
+      toolName: "edit",
+      input: { path: "a.ts", edits: [{ oldText: "before", newText: "after" }] },
+    })
+  })
+
+  test("pi exposes its live find tool to the provider as OpenCode glob", () => {
+    const tools = [{ name: "find", description: "Find files", parameters: { type: "object" } }] as never
+    const toolInputs = buildPiToolInputVocabulary(tools, piProfile())
+
+    expect(toolInputs?.find?.providerName).toBe("glob")
+    expect(translateTools(tools, toSchema as never, undefined, toolInputs)).toEqual([
+      {
+        type: "function",
+        name: "glob",
+        description: "Find files",
+        inputSchema: { type: "object" },
+      },
+    ])
+    expect(translateCanonicalToolCall("glob", { pattern: "**/*.ts", path: "." }, undefined, toolInputs)).toEqual({
+      toolName: "find",
+      input: { pattern: "**/*.ts", path: "." },
     })
   })
 

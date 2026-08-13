@@ -7,6 +7,8 @@
 import { describe, expect, test } from "bun:test"
 import { ompProfile } from "../packages/pi-bridge/src/host/profile.ts"
 import { translateContextToPrompt, translateToolChoice, translateTools } from "../packages/pi-bridge/src/translate/context.ts"
+import { buildPiToolInputVocabulary } from "../packages/pi-bridge/src/translate/subagent.ts"
+import { piProfile } from "../packages/pi-bridge/src/host/profile.ts"
 
 describe("translateContextToPrompt", () => {
   test("joins systemPrompt entries into one leading system message", () => {
@@ -187,6 +189,12 @@ describe("translateTools", () => {
       },
     ])
   })
+
+  test("maps Pi's live find tool to the provider's canonical glob name", () => {
+    const hostTools = [{ name: "find", description: "Find files", parameters: { type: "object" } }] as never
+    const toolInputs = buildPiToolInputVocabulary(hostTools, piProfile())
+    expect(translateTools(hostTools, t => t.parameters as Record<string, unknown>, undefined, toolInputs)?.[0]?.name).toBe("glob")
+  })
 })
 
 describe("translateToolChoice", () => {
@@ -201,5 +209,14 @@ describe("translateToolChoice", () => {
   })
   test("a named tool choice maps to {type:'tool', toolName}", () => {
     expect(translateToolChoice({ type: "function", name: "read" })).toEqual({ type: "tool", toolName: "read" })
+  })
+
+  test("a Pi find tool choice maps to the provider's glob name", () => {
+    const hostTools = [{ name: "find", description: "Find files", parameters: { type: "object" } }] as never
+    const toolInputs = buildPiToolInputVocabulary(hostTools, piProfile())
+    expect(translateToolChoice({ type: "tool", name: "find" }, undefined, toolInputs)).toEqual({
+      type: "tool",
+      toolName: "glob",
+    })
   })
 })

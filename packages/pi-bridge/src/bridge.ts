@@ -97,9 +97,9 @@ function buildStreamSimple(spec: AiSdkProviderSpec, runtime: PiRuntime) {
         const toolInputs = buildPiToolInputVocabulary(context.tools, runtime.profile)
         const terminalResult = buildPiTerminalResultVocabulary(context.tools, runtime.profile)
         const base: LanguageModelV3CallOptions = {
-          prompt: translateContextToPrompt(context, vocabulary, runtime.profile),
-          tools: translateTools(context.tools, runtime.toolSchema, vocabulary),
-          toolChoice: translateToolChoice(options?.toolChoice, vocabulary),
+          prompt: translateContextToPrompt(context, vocabulary, runtime.profile, toolInputs),
+          tools: translateTools(context.tools, runtime.toolSchema, vocabulary, toolInputs),
+          toolChoice: translateToolChoice(options?.toolChoice, vocabulary, toolInputs),
           abortSignal: options?.signal,
           headers: aiSdkHeadersFromPi(options),
         }
@@ -124,29 +124,48 @@ function buildStreamSimple(spec: AiSdkProviderSpec, runtime: PiRuntime) {
  * Failures are non-fatal on both: a provider that can't list models right now
  * (usually: not logged in yet) must still register.
  */
-function buildDynamicModels(spec: AiSdkProviderSpec, profile: PiHostProfile): Record<string, unknown> {
+export function buildDynamicModels(spec: AiSdkProviderSpec, profile: PiHostProfile): Record<string, unknown> {
   const fetchModels = spec.fetchModels
   if (!fetchModels) return {}
 
-  const safeFetch = async (apiKey: string | undefined): Promise<readonly PiModelConfig[]> => {
+  const baselineModels = spec.models ?? []
+  const safeFetch = async (apiKey: string | undefined): Promise<{ models: readonly PiModelConfig[]; succeeded: boolean }> => {
     try {
-      return await fetchModels(apiKey)
+      return { models: await fetchModels(apiKey), succeeded: true }
     } catch (err) {
       console.error(`pi-bridge: model list failed for provider "${spec.name}" — ${err instanceof Error ? err.message : String(err)}`)
-      return []
+      return { models: [], succeeded: false }
     }
   }
 
   if (profile.capabilities.dynamicModels === "fetchDynamicModels") {
-    return { fetchDynamicModels: (apiKey: string | undefined) => safeFetch(apiKey) }
+    return { fetchDynamicModels: async (apiKey: string | undefined) => (await safeFetch(apiKey)).models }
   }
 
   return {
-    async refreshModels(context: { credential?: { key?: string; access?: string }; allowNetwork?: boolean; signal?: AbortSignal }) {
-      if (context?.allowNetwork === false) return []
+    async refreshModels(context: {
+      credential?: { key?: string; access?: string }
+      stored?: { models?: readonly PiModelConfig[] }
+      publish?: (publication: { persist?: { models: readonly PiModelConfig[]; checkedAt?: number } }) => Promise<boolean>
+      allowNetwork?: boolean
+      signal?: AbortSignal
+    }) {
+      // Pi performs a cache-only refresh while constructing the session. An
+      // empty return value is authoritative to its provider composer, so
+      // never turn "network disabled" into an empty catalog when Pi already
+      // has a persisted or registration-time catalog to restore.
+      const cachedModels = context?.stored?.models ?? baselineModels
+      if (context?.allowNetwork === false) return cachedModels
       const credential = context?.credential
       const apiKey = credential?.access ?? credential?.key
-      return safeFetch(apiKey)
+      const result = await safeFetch(apiKey)
+      if (!result.succeeded) return cachedModels
+
+      // Pi does not persist the array returned by an extension refresh on its
+      // own. Publish it explicitly so a new process can restore the same
+      // catalog during its cache-only startup phase.
+      await context?.publish?.({ persist: { models: result.models, checkedAt: Date.now() } })
+      return result.models
     },
   }
 }

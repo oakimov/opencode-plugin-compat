@@ -33,7 +33,11 @@ export type PiSubagentVocabulary = {
 }
 
 export type PiToolInputVocabulary = Readonly<
-  Record<string, { inputAliases: Readonly<Record<string, string>> }>
+  Record<string, {
+    inputAliases: Readonly<Record<string, string>>
+    inputShape?: "pi-edit"
+    providerName?: string
+  }>
 >
 
 export type PiTerminalResultVocabulary = {
@@ -149,11 +153,19 @@ export function buildPiToolInputVocabulary(
 ): PiToolInputVocabulary | undefined {
   if (!tools || tools.length === 0) return undefined
   const live = new Set(tools.map(tool => tool.name))
-  const out: Record<string, { inputAliases: Readonly<Record<string, string>> }> = {}
+  const out: Record<string, {
+    inputAliases: Readonly<Record<string, string>>
+    inputShape?: "pi-edit"
+    providerName?: string
+  }> = {}
 
   for (const [name, configured] of Object.entries(profile.tools?.toolInputs ?? {})) {
-    if (!live.has(name) || !configured?.inputAliases) continue
-    out[name] = { inputAliases: configured.inputAliases }
+    if (!live.has(name) || !configured) continue
+    out[name] = {
+      inputAliases: configured.inputAliases,
+      inputShape: configured.inputShape,
+      providerName: configured.providerName,
+    }
   }
 
   const coordination = profile.tools?.subagent?.coordinationTool
@@ -270,6 +282,30 @@ function applyInputAliases(
   return translated
 }
 
+/**
+ * Pi's edit tool is structurally different from OpenCode's replacement tool:
+ * it requires `edits: [{ oldText, newText }]`. Models sometimes retain the
+ * OpenCode vocabulary even after receiving Pi's nested schema, so perform the
+ * conversion at the last boundary before Pi validates the call.
+ */
+function applyInputShape(input: Record<string, unknown>, shape: "pi-edit" | undefined): Record<string, unknown> {
+  if (shape !== "pi-edit" || Array.isArray(input.edits)) return input
+
+  const oldText = typeof input.oldText === "string" ? input.oldText : input.oldString
+  const newText = typeof input.newText === "string" ? input.newText : input.newString
+  if (typeof oldText !== "string" || typeof newText !== "string") return input
+
+  const {
+    oldText: _oldText,
+    newText: _newText,
+    oldString: _oldString,
+    newString: _newString,
+    replaceAll: _replaceAll,
+    ...rest
+  } = input
+  return { ...rest, edits: [{ oldText, newText }] }
+}
+
 /** Translate any provider-facing tool call into the live host vocabulary. */
 export function translateCanonicalToolCall(
   toolName: string,
@@ -286,9 +322,22 @@ export function translateCanonicalToolCall(
     }
   }
 
-  const aliases = toolInputs?.[toolName]?.inputAliases
+  const inputProfile = toolInputs?.[toolName]
+  const renamedProfile = Object.entries(toolInputs ?? {}).find(([, profile]) => profile.providerName === toolName)
+  if (renamedProfile) {
+    const [hostToolName, profile] = renamedProfile
+    const translated = applyInputShape(input, profile.inputShape)
+    return { toolName: hostToolName, input: translated }
+  }
+
+  const aliases = inputProfile?.inputAliases
   if (aliases && Object.keys(aliases).some(name => Object.hasOwn(input, name))) {
-    return { toolName, input: applyInputAliases(input, aliases) }
+    const translated = applyInputAliases(input, aliases)
+    return { toolName, input: applyInputShape(translated, inputProfile.inputShape) }
+  }
+  if (inputProfile?.inputShape) {
+    const translated = applyInputShape(input, inputProfile.inputShape)
+    if (translated !== input || Array.isArray(input.edits)) return { toolName, input: translated }
   }
   return undefined
 }
@@ -317,7 +366,13 @@ export function translateHostSubagentCall(
   }
 }
 
-export function canonicalToolName(toolName: string, vocabulary: PiSubagentVocabulary | undefined): string {
+export function canonicalToolName(
+  toolName: string,
+  vocabulary: PiSubagentVocabulary | undefined,
+  toolInputs?: PiToolInputVocabulary,
+): string {
+  const renamed = toolInputs?.[toolName]?.providerName
+  if (renamed) return renamed
   if (!vocabulary) return toolName
   if (toolName === vocabulary.hostToolName) return CANONICAL_SUBAGENT_TOOL
   return vocabulary.hostToolAliases[toolName] ?? toolName

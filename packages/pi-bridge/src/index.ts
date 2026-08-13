@@ -9,6 +9,7 @@
 export { registerOpenCodePlugin, type OpenCodePluginSpec, type RegisterResult } from "./register.js"
 export { registerAiSdkProvider, type AiSdkProviderSpec } from "./bridge.js"
 export { configSearchPaths, loadConfig, registerProvidersFromConfig, resolveConfigPath, type PiBridgeConfig } from "./config.js"
+export { activateOpenCodeSearchTools } from "./extension.js"
 
 // Host layer
 export { detectPiHost, resetPiHostDetection, type PiHostDetection } from "./host/detect.js"

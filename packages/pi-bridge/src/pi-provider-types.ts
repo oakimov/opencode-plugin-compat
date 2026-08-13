@@ -168,6 +168,13 @@ export type PiEventStream = {
 }
 
 /** The minimal slice of the host's `ExtensionAPI` this bridge depends on. */
+export type PiToolInfoLike = string | { name: string }
+
 export type PiExtensionApi = {
   registerProvider(name: string, config: Record<string, unknown>): void
+  /** Available after the extension factory; used to activate host-registered tools on session_start. */
+  on?: (event: string, handler: (...args: unknown[]) => unknown) => void
+  getActiveTools?: () => string[]
+  getAllTools?: () => readonly PiToolInfoLike[]
+  setActiveTools?: (toolNames: string[]) => void | Promise<void>
 }

@@ -33,6 +33,23 @@ conventions OpenCode plugins **already** implement:
 Because these are conventions rather than anything provider-specific, adding a
 different OpenCode provider plugin is the same one-line entry.
 
+A provider whose model catalog requires authentication may show no models
+before login. After a successful host login, Pi/OMP automatically refreshes
+that provider's catalog; the bridge supplies the newly resolved credential to
+the plugin's `auth.loader` before re-running its `config` hook. The same path
+reconstructs the loader credential from the host's stored key after restart.
+Pi performs a cache-only catalog refresh while restoring a session; the bridge
+returns Pi's stored catalog during that phase instead of replacing it with an
+empty list. Successful network refreshes are persisted through Pi's model
+store, so a provider model selected in the previous session can be restored
+before the background refresh completes.
+
+At session start, the bridge also activates Pi's optional built-in `find`,
+`grep`, and `ls` tools when the host has them in its allowed tool registry. The
+provider sees Pi's `find` as OpenCode's canonical `glob`; calls are translated
+back to the host executor. An explicit Pi/OMP tool allowlist remains
+authoritative. Arbitrary extension and MCP tools are not enabled implicitly.
+
 ## Model variants (effort / fast / …)
 
 An OpenCode model entry may declare `variants`: display label → options object.
@@ -116,7 +133,11 @@ snake_case schemas and drop unrecognized keys when more than one string field
 is required — so a write of `{filePath, content}` arrives as `{content}` and
 fails. The bridge remaps those aliases for live `read` / `write` / `edit` /
 `bash` tools (including `write` to `xd://…` MCP devices) before host
-validation. Host-native keys already present win.
+validation. Pi's `edit` additionally requires `edits: [{ oldText, newText }]`,
+so a flat `{ oldString, newString }` call is converted at that same boundary.
+Pi calls OpenCode's `glob` operation `find`; when `find` is active, the bridge
+advertises it to the provider as `glob` and translates calls/results back to
+`find`. Host-native keys already present win.
 
 When a result auto-delivers, OMP represents the custom completion notice as a
 `developer` message with `attribution: "agent"`. The bridge promotes only the

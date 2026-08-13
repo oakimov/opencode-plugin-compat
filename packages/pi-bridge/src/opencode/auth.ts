@@ -126,6 +126,8 @@ export type BuildOAuthOptions = {
    * path). Supplied by the caller because it owns the plugin instance + stub.
    */
   runLoader?: (auth: OpenCodeAuth, signal?: AbortSignal) => Promise<OpenCodeAuth | undefined>
+  /** Keep the plugin stub in sync with credentials accepted by the host login flow. */
+  authStore?: AuthStore
 }
 
 /**
@@ -155,11 +157,14 @@ export function buildPiOAuth(options: BuildOAuthOptions): PiOAuthConfig | undefi
         if (result.type !== "success") {
           throw new Error(`pi-bridge: OAuth login failed for provider "${authHook.provider}"`)
         }
-        return {
+        const auth: OpenCodeAuth = {
+          type: "oauth",
           access: result.access,
           refresh: result.refresh,
           expires: result.expires || tokenExpiryMs(result.access),
         }
+        await options.authStore?.set(auth)
+        return toPiCredentials(auth)
       }
 
       if (!method.authorize) {
@@ -169,7 +174,9 @@ export function buildPiOAuth(options: BuildOAuthOptions): PiOAuthConfig | undefi
       if (result.type !== "success") {
         throw new Error(`pi-bridge: API-key authorization failed for provider "${authHook.provider}"`)
       }
-      return toPiCredentials({ type: "api", key: result.key, metadata: result.metadata })
+      const auth: OpenCodeAuth = { type: "api", key: result.key, metadata: result.metadata }
+      await options.authStore?.set(auth)
+      return toPiCredentials(auth)
     },
 
     async refreshToken(credentials, signal) {
@@ -183,6 +190,32 @@ export function buildPiOAuth(options: BuildOAuthOptions): PiOAuthConfig | undefi
       return credentials.access
     },
   }
+}
+
+/**
+ * Reconstruct the credential shape an OpenCode auth loader expects from the
+ * request key a Pi-family host resolved for dynamic model discovery.
+ *
+ * omp's `fetchDynamicModels` exposes only that resolved key, not the original
+ * stored credential. The selected plugin auth method is therefore the only
+ * generic source of its OpenCode shape. Pi normally retains the full login
+ * credential in the in-memory store, but uses this fallback after restart too.
+ */
+export function openCodeAuthFromResolvedKey(
+  authHook: OpenCodeAuthHook,
+  apiKey: string,
+  preferred?: "oauth" | "api",
+): OpenCodeAuth {
+  const method = pickMethod(authHook.methods ?? [], preferred)
+  if (method?.type === "oauth") {
+    return {
+      type: "oauth",
+      access: apiKey,
+      refresh: "",
+      expires: tokenExpiryMs(apiKey),
+    }
+  }
+  return { type: "api", key: apiKey }
 }
 
 /**

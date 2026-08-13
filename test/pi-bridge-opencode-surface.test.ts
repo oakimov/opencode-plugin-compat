@@ -8,7 +8,7 @@
  */
 import { describe, expect, test } from "bun:test"
 import path from "node:path"
-import { buildPiOAuth, createLoaderRunner, toOpenCodeAuth, toPiCredentials, tokenExpiryMs } from "../packages/pi-bridge/src/opencode/auth.ts"
+import { buildPiOAuth, createLoaderRunner, openCodeAuthFromResolvedKey, toOpenCodeAuth, toPiCredentials, tokenExpiryMs } from "../packages/pi-bridge/src/opencode/auth.ts"
 import { createMemoryAuthStore, createPluginInputStub } from "../packages/pi-bridge/src/opencode/host-stub.ts"
 import { derivePackageName, detectAiSdkFactory, detectPluginFactory, instantiateHooks, loadOpenCodePluginModule } from "../packages/pi-bridge/src/opencode/load.ts"
 import { extractModelsFromConfigHook, toPiModel } from "../packages/pi-bridge/src/opencode/models.ts"
@@ -95,9 +95,22 @@ describe("auth translation", () => {
     expect(tokenExpiryMs("not-a-jwt", 1_000)).toBe(1_000 + 3_600_000)
   })
 
-  test("OAuth login drives the plugin's own authorize()/callback() flow", async () => {
+  test("a resolved host key is reconstructed using the selected plugin auth method", async () => {
     const { hooks } = await loadFixtureHooks()
-    const oauth = buildPiOAuth({ authHook: hooks.auth! })!
+    expect(openCodeAuthFromResolvedKey(hooks.auth!, "oauth-access")).toMatchObject({
+      type: "oauth",
+      access: "oauth-access",
+      refresh: "",
+    })
+    expect(openCodeAuthFromResolvedKey(hooks.auth!, "api-access", "api")).toEqual({
+      type: "api",
+      key: "api-access",
+    })
+  })
+
+  test("OAuth login drives the plugin's own authorize()/callback() flow", async () => {
+    const { hooks, stub } = await loadFixtureHooks()
+    const oauth = buildPiOAuth({ authHook: hooks.auth!, authStore: stub.store })!
 
     let shownUrl: string | undefined
     const credentials = await oauth.login({
@@ -110,6 +123,12 @@ describe("auth translation", () => {
     expect(shownUrl).toBe("https://acme.example/login?challenge=abc")
     expect(credentials).toEqual({ access: "acme-access-token", refresh: "acme-refresh-token", expires: 1_800_000_000_000 })
     expect(oauth.getApiKey(credentials)).toBe("acme-access-token")
+    expect(await stub.store.get()).toEqual({
+      type: "oauth",
+      access: "acme-access-token",
+      refresh: "acme-refresh-token",
+      expires: 1_800_000_000_000,
+    })
   })
 
   test("the API-key method's prompts are driven through the host's onPrompt", async () => {

@@ -16,7 +16,7 @@
 import { registerAiSdkProvider } from "./bridge.js"
 import { avoidProviderIdCollision, type PiHostProfile } from "./host/profile.js"
 import { loadPiRuntime } from "./host/runtime.js"
-import { buildPiOAuth, createLoaderRunner, type PiOAuthConfig } from "./opencode/auth.js"
+import { buildPiOAuth, createLoaderRunner, openCodeAuthFromResolvedKey, type PiOAuthConfig } from "./opencode/auth.js"
 import { createPluginInputStub } from "./opencode/host-stub.js"
 import { derivePackageName, instantiateHooks, loadOpenCodePluginModule, substituteApiKey } from "./opencode/load.js"
 import { extractModelsFromConfigHook, type ModelCallData, type PiModelConfig } from "./opencode/models.js"
@@ -111,11 +111,13 @@ export async function registerOpenCodePlugin(pi: PiExtensionApi, spec: OpenCodeP
   const api = spec.api ?? `${providerName}-bridge`
 
   let oauth: PiOAuthConfig | undefined
+  const runLoader = authHook?.loader ? createLoaderRunner(authHook, stub.store) : undefined
   if (authHook) {
     oauth = buildPiOAuth({
       authHook,
       prefer: spec.preferAuthMethod,
-      runLoader: createLoaderRunner(authHook, stub.store),
+      runLoader,
+      authStore: stub.store,
     })
   }
 
@@ -124,8 +126,24 @@ export async function registerOpenCodePlugin(pi: PiExtensionApi, spec: OpenCodeP
   // `callData` records what each expanded model must send at call time.
   const callData = new Map<string, ModelCallData>()
 
-  const harvest = async (): Promise<readonly PiModelConfig[]> => {
+  const harvest = async (apiKey?: string): Promise<readonly PiModelConfig[]> => {
     if (!hooks) return []
+
+    // Both Pi-family hosts refresh dynamic models after login and supply the
+    // resolved credential. Drive the plugin's standard auth.loader first: for
+    // credential-dependent plugins this is the step that warms their model
+    // cache before config publishes it. Preserve the complete credential saved
+    // by this process's login; reconstruct its OpenCode shape only after a host
+    // restart, when omp exposes the resolved key alone.
+    if (apiKey && authHook && runLoader) {
+      const stored = await stub.store.get()
+      const storedKey = stored?.type === "oauth" ? stored.access : stored?.key
+      const auth = stored && storedKey === apiKey
+        ? stored
+        : openCodeAuthFromResolvedKey(authHook, apiKey, spec.preferAuthMethod)
+      await runLoader(auth)
+    }
+
     const result = await extractModelsFromConfigHook(hooks, authHook?.provider, hostProfile, {
       ...(spec.splitDimensions ? { splitDimensions: spec.splitDimensions } : {}),
     })

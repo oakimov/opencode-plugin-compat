@@ -12,6 +12,21 @@ import path from "node:path"
 import { configSearchPaths, loadConfig, registerProvidersFromConfig, resolveConfigPath } from "../packages/pi-bridge/src/config.ts"
 
 const FIXTURE = path.join(import.meta.dir, "fixtures", "pi-bridge-acme-provider.ts")
+const AUTH_CATALOG_FIXTURE = path.join(import.meta.dir, "fixtures", "pi-bridge-auth-catalog-provider.ts")
+
+async function refreshRegisteredModels(config: Record<string, unknown>, apiKey: string) {
+  if (typeof config.fetchDynamicModels === "function") {
+    return config.fetchDynamicModels(apiKey)
+  }
+  if (typeof config.refreshModels === "function") {
+    return config.refreshModels({
+      credential: { type: "oauth", access: apiKey, refresh: "refresh", expires: 1_900_000_000_000 },
+      allowNetwork: true,
+      signal: new AbortController().signal,
+    })
+  }
+  throw new Error("registered provider has no dynamic model refresh")
+}
 
 describe("config path resolution", () => {
   test("PI_BRIDGE_CONFIG wins outright", () => {
@@ -122,4 +137,34 @@ describe("registerProvidersFromConfig", () => {
     expect(registered[0]!.config.oauth).toBeUndefined()
     expect(registered[0]!.config.apiKey).toBe("ACME_API_KEY")
   })
+
+  test("successful login makes a credential-gated catalog available on the host refresh", async () => {
+    const registered: Array<{ config: Record<string, unknown> }> = []
+    const pi = { registerProvider: (_name: string, config: Record<string, unknown>) => registered.push({ config }) }
+
+    await registerProvidersFromConfig(pi, { providers: [{ package: AUTH_CATALOG_FIXTURE }] })
+
+    const config = registered[0]!.config
+    expect(config.models).toBeUndefined()
+    const oauth = config.oauth as {
+      login(callbacks: { onAuth(info: unknown): void }): Promise<{ access: string }>
+    }
+    const credential = await oauth.login({ onAuth: () => {} })
+    const models = await refreshRegisteredModels(config, credential.access)
+
+    expect(models).toHaveLength(1)
+    expect(models[0]!.id).toBe("auth-model")
+  })
+
+  test("a host-restored credential refreshes a gated catalog after bridge restart", async () => {
+    const registered: Array<{ config: Record<string, unknown> }> = []
+    const pi = { registerProvider: (_name: string, config: Record<string, unknown>) => registered.push({ config }) }
+
+    await registerProvidersFromConfig(pi, { providers: [{ package: AUTH_CATALOG_FIXTURE }] })
+    const models = await refreshRegisteredModels(registered[0]!.config, "restored-access-token")
+
+    expect(models).toHaveLength(1)
+    expect(models[0]!.id).toBe("auth-model")
+  })
+
 })
