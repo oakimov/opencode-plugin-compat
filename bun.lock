@@ -20,7 +20,7 @@
     },
     "packages/adapter": {
       "name": "@opencode-compat/adapter",
-      "version": "0.2.3",
+      "version": "0.2.4",
       "dependencies": {
         "@opencode-compat/host-promise-v2": "workspace:*",
         "@opencode-compat/profile": "workspace:*",
@@ -31,7 +31,7 @@
     },
     "packages/cli": {
       "name": "@opencode-compat/cli",
-      "version": "0.2.3",
+      "version": "0.2.4",
       "bin": {
         "opencode-compat": "./bin/compat.ts",
         "compat": "./bin/compat.ts",
@@ -47,7 +47,7 @@
     },
     "packages/facade-plugin": {
       "name": "@opencode-compat/facade-plugin",
-      "version": "0.2.3",
+      "version": "0.2.4",
       "dependencies": {
         "@opencode-compat/adapter": "workspace:*",
         "@opencode-compat/facade-sdk": "workspace:*",
@@ -61,7 +61,7 @@
     },
     "packages/facade-sdk": {
       "name": "@opencode-compat/facade-sdk",
-      "version": "0.2.3",
+      "version": "0.2.4",
       "dependencies": {
         "@opencode-compat/adapter": "workspace:*",
         "@opencode-compat/profile": "workspace:*",
@@ -72,21 +72,21 @@
     },
     "packages/host-promise-v2": {
       "name": "@opencode-compat/host-promise-v2",
-      "version": "0.2.3",
+      "version": "0.2.4",
       "devDependencies": {
         "typescript": "^5.8.3",
       },
     },
     "packages/migrate-zcode": {
       "name": "@opencode-compat/migrate-zcode",
-      "version": "0.2.3",
+      "version": "0.2.4",
       "devDependencies": {
         "typescript": "^5.8.3",
       },
     },
     "packages/ocp": {
       "name": "@opencode-compat/ocp",
-      "version": "0.2.3",
+      "version": "0.2.4",
       "bin": {
         "ocp": "./bin/ocp.ts",
       },
@@ -105,7 +105,7 @@
     },
     "packages/pi-bridge": {
       "name": "@opencode-compat/pi-bridge",
-      "version": "0.2.3",
+      "version": "0.2.4",
       "dependencies": {
         "@ai-sdk/provider": "^3.0.14",
       },
@@ -124,7 +124,7 @@
     },
     "packages/profile": {
       "name": "@opencode-compat/profile",
-      "version": "0.2.3",
+      "version": "0.2.4",
       "devDependencies": {
         "typescript": "^5.8.3",
       },
