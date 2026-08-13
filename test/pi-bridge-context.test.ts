@@ -190,6 +190,52 @@ describe("translateTools", () => {
     ])
   })
 
+  test("replays a stored pi edit call in the same shape the catalog advertises", () => {
+    const hostTools = [{ name: "edit", description: "Edit", parameters: { type: "object" } }] as never
+    const toolInputs = buildPiToolInputVocabulary(hostTools, piProfile())
+    const advertised = translateTools(hostTools, t => t.parameters as Record<string, unknown>, undefined, toolInputs)
+    const properties = Object.keys(
+      (advertised![0].inputSchema as { properties: Record<string, unknown> }).properties,
+    )
+
+    const prompt = translateContextToPrompt(
+      {
+        messages: [{
+          role: "assistant",
+          content: [{
+            type: "toolCall",
+            id: "call_1",
+            name: "edit",
+            // What pi stores after the bridge translated the forward call.
+            arguments: { path: "a.ts", edits: [{ oldText: "before", newText: "after" }] },
+          }],
+        }],
+      } as never,
+      undefined,
+      piProfile(),
+      toolInputs,
+    )
+
+    const call = (prompt[0] as { content: Array<{ input: Record<string, unknown> }> }).content[0]
+    expect(call.input).toEqual({ filePath: "a.ts", oldString: "before", newString: "after" })
+    // The advertised schema is additionalProperties:false, so every replayed
+    // key must be one the model was actually offered.
+    for (const key of Object.keys(call.input)) expect(properties).toContain(key)
+  })
+
+  test("a stored multi-edit call keeps host shape rather than losing replacements", () => {
+    const hostTools = [{ name: "edit", description: "Edit", parameters: { type: "object" } }] as never
+    const toolInputs = buildPiToolInputVocabulary(hostTools, piProfile())
+    const args = { path: "a.ts", edits: [{ oldText: "a", newText: "b" }, { oldText: "c", newText: "d" }] }
+    const prompt = translateContextToPrompt(
+      { messages: [{ role: "assistant", content: [{ type: "toolCall", id: "c1", name: "edit", arguments: args }] }] } as never,
+      undefined,
+      piProfile(),
+      toolInputs,
+    )
+    expect((prompt[0] as { content: Array<{ input: unknown }> }).content[0].input).toEqual(args)
+  })
+
   test("maps Pi's live find tool to the provider's canonical glob name", () => {
     const hostTools = [{ name: "find", description: "Find files", parameters: { type: "object" } }] as never
     const toolInputs = buildPiToolInputVocabulary(hostTools, piProfile())

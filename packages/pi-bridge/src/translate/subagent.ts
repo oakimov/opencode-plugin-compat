@@ -7,7 +7,7 @@
  * `{description, prompt, subagent_type}`. This module translates only that
  * declared role and only when the host advertises it on the current call.
  */
-import type { PiHostProfile } from "../host/profile.js"
+import type { PiHostProfile, PiToolInputProfile } from "../host/profile.js"
 import type { PiTool } from "../pi-provider-types.js"
 
 export const CANONICAL_SUBAGENT_TOOL = "task"
@@ -32,13 +32,12 @@ export type PiSubagentVocabulary = {
   unstructuredOutput?: { field: string; value: unknown }
 }
 
-export type PiToolInputVocabulary = Readonly<
-  Record<string, {
-    inputAliases: Readonly<Record<string, string>>
-    inputShape?: "pi-edit"
-    providerName?: string
-  }>
->
+/**
+ * Live subset of the profile's `toolInputs`, keyed by host tool name. Carries
+ * the profile entry verbatim so a new `PiToolInputProfile` field reaches the
+ * translation boundary without a matching edit here.
+ */
+export type PiToolInputVocabulary = Readonly<Record<string, PiToolInputProfile>>
 
 export type PiTerminalResultVocabulary = {
   hostToolName: string
@@ -146,33 +145,52 @@ export function buildPiSubagentVocabulary(
   }
 }
 
+/**
+ * Does the live tool advertise `key` as a parameter? Used to confirm the host
+ * is currently running the schema an alias set was written against. Fails open
+ * (`true`) when no resolver is supplied or the schema cannot be read, so a host
+ * whose parameters we cannot inspect keeps the profile's declared behaviour.
+ */
+function schemaDeclaresKey(tool: PiTool, key: string, toSchema: SubagentToolSchemaFn | undefined): boolean {
+  if (!toSchema) return true
+  try {
+    const properties = (toSchema(tool) as { properties?: Record<string, unknown> } | undefined)?.properties
+    return properties ? Object.hasOwn(properties, key) : true
+  } catch {
+    return true
+  }
+}
+
 /** Resolve strict host-tool argument aliases independently of subagent support. */
 export function buildPiToolInputVocabulary(
   tools: readonly PiTool[] | undefined,
   profile: PiHostProfile,
+  toSchema?: SubagentToolSchemaFn,
 ): PiToolInputVocabulary | undefined {
   if (!tools || tools.length === 0) return undefined
-  const live = new Set(tools.map(tool => tool.name))
-  const out: Record<string, {
-    inputAliases: Readonly<Record<string, string>>
-    inputShape?: "pi-edit"
-    providerName?: string
-  }> = {}
+  const live = new Map(tools.map(tool => [tool.name, tool] as const))
+  const out: Record<string, PiToolInputProfile> = {}
 
   for (const [name, configured] of Object.entries(profile.tools?.toolInputs ?? {})) {
-    if (!live.has(name) || !configured) continue
-    out[name] = {
-      inputAliases: configured.inputAliases,
-      inputShape: configured.inputShape,
-      providerName: configured.providerName,
-    }
+    const tool = live.get(name)
+    if (!tool || !configured) continue
+    // Aliases written for one of a multi-schema tool's modes must not fire
+    // while a different mode is live; other rules stay mode-independent.
+    out[name] =
+      configured.aliasSchemaKey && !schemaDeclaresKey(tool, configured.aliasSchemaKey, toSchema)
+        ? { ...configured, inputAliases: {} }
+        : configured
   }
 
+  // A coordination tool may also carry a `toolInputs` entry; merge its aliases
+  // over that entry rather than replacing it, so the tool keeps any shape or
+  // drop rules the profile declared for it.
   const coordination = profile.tools?.subagent?.coordinationTool
   if (coordination?.inputAliases && live.has(coordination.name)) {
-    const existing = out[coordination.name]?.inputAliases ?? {}
+    const existing = out[coordination.name]
     out[coordination.name] = {
-      inputAliases: { ...existing, ...coordination.inputAliases },
+      ...existing,
+      inputAliases: { ...existing?.inputAliases, ...coordination.inputAliases },
     }
   }
 
@@ -269,9 +287,11 @@ export function translateCanonicalSubagentCall(
   return { toolName: vocabulary.hostToolName, input: hostInput }
 }
 
-function applyInputAliases(
+/** Rename provider-emitted keys onto host names, then drop harness-only keys. */
+function rewriteInputKeys(
   input: Record<string, unknown>,
   aliases: Readonly<Record<string, string>>,
+  dropInputKeys: readonly string[] = [],
 ): Record<string, unknown> {
   const translated = { ...input }
   for (const [providerName, hostName] of Object.entries(aliases)) {
@@ -279,30 +299,51 @@ function applyInputAliases(
     if (!Object.hasOwn(translated, hostName)) translated[hostName] = translated[providerName]
     delete translated[providerName]
   }
+  for (const key of dropInputKeys) delete translated[key]
   return translated
 }
 
 /**
+ * Accepted spellings of Pi's `edit` replacement fields, most authoritative
+ * first. Pi's own vocabulary is `oldText`/`newText`; OpenCode and Kilo use
+ * `oldString`/`newString`; MiMo (`tool/edit.ts`) and OMP's `replace` mode use
+ * snake_case. All four are hosts this repo supports, so a model carrying a
+ * sibling host's vocabulary is ordinary drift, not a malformed call.
+ */
+const PI_EDIT_OLD_KEYS = ["oldText", "oldString", "old_string"] as const
+const PI_EDIT_NEW_KEYS = ["newText", "newString", "new_string"] as const
+/** Consumed by the conversion, plus replace-all flags Pi has no equivalent for. */
+const PI_EDIT_CONSUMED_KEYS = [
+  ...PI_EDIT_OLD_KEYS,
+  ...PI_EDIT_NEW_KEYS,
+  "replaceAll",
+  "replace_all",
+] as const
+
+/** First string value among the accepted spellings of one logical field. */
+function firstString(input: Record<string, unknown>, names: readonly string[]): string | undefined {
+  for (const name of names) {
+    const value = input[name]
+    if (typeof value === "string") return value
+  }
+  return undefined
+}
+
+/**
  * Pi's edit tool is structurally different from OpenCode's replacement tool:
- * it requires `edits: [{ oldText, newText }]`. Models sometimes retain the
- * OpenCode vocabulary even after receiving Pi's nested schema, so perform the
- * conversion at the last boundary before Pi validates the call.
+ * it requires `edits: [{ oldText, newText }]`. Models sometimes retain another
+ * vocabulary even after receiving Pi's nested schema, so perform the conversion
+ * at the last boundary before Pi validates the call.
  */
 function applyInputShape(input: Record<string, unknown>, shape: "pi-edit" | undefined): Record<string, unknown> {
   if (shape !== "pi-edit" || Array.isArray(input.edits)) return input
 
-  const oldText = typeof input.oldText === "string" ? input.oldText : input.oldString
-  const newText = typeof input.newText === "string" ? input.newText : input.newString
-  if (typeof oldText !== "string" || typeof newText !== "string") return input
+  const oldText = firstString(input, PI_EDIT_OLD_KEYS)
+  const newText = firstString(input, PI_EDIT_NEW_KEYS)
+  if (oldText === undefined || newText === undefined) return input
 
-  const {
-    oldText: _oldText,
-    newText: _newText,
-    oldString: _oldString,
-    newString: _newString,
-    replaceAll: _replaceAll,
-    ...rest
-  } = input
+  const rest = { ...input }
+  for (const key of PI_EDIT_CONSUMED_KEYS) delete rest[key]
   return { ...rest, edits: [{ oldText, newText }] }
 }
 
@@ -322,24 +363,60 @@ export function translateCanonicalToolCall(
     }
   }
 
-  const inputProfile = toolInputs?.[toolName]
   const renamedProfile = Object.entries(toolInputs ?? {}).find(([, profile]) => profile.providerName === toolName)
   if (renamedProfile) {
     const [hostToolName, profile] = renamedProfile
-    const translated = applyInputShape(input, profile.inputShape)
-    return { toolName: hostToolName, input: translated }
+    const translated = rewriteInputKeys(input, profile.inputAliases, profile.dropInputKeys)
+    return { toolName: hostToolName, input: applyInputShape(translated, profile.inputShape) }
   }
 
-  const aliases = inputProfile?.inputAliases
-  if (aliases && Object.keys(aliases).some(name => Object.hasOwn(input, name))) {
-    const translated = applyInputAliases(input, aliases)
-    return { toolName, input: applyInputShape(translated, inputProfile.inputShape) }
+  const inputProfile = toolInputs?.[toolName]
+  if (!inputProfile) return undefined
+  const { inputAliases, dropInputKeys, inputShape } = inputProfile
+
+  const rewrites =
+    Object.keys(inputAliases).some(name => Object.hasOwn(input, name)) ||
+    dropInputKeys?.some(name => Object.hasOwn(input, name)) === true
+  if (rewrites) {
+    const translated = rewriteInputKeys(input, inputAliases, dropInputKeys)
+    return { toolName, input: applyInputShape(translated, inputShape) }
   }
-  if (inputProfile?.inputShape) {
-    const translated = applyInputShape(input, inputProfile.inputShape)
+  if (inputShape) {
+    const translated = applyInputShape(input, inputShape)
     if (translated !== input || Array.isArray(input.edits)) return { toolName, input: translated }
   }
   return undefined
+}
+
+/**
+ * Restate a stored host tool call's arguments in the provider-facing
+ * vocabulary. Only needed where the catalog advertises a schema other than the
+ * host's own: a `pi-edit` tool is offered as OpenCode's flat contract under
+ * `additionalProperties: false`, so replaying pi's nested `{path, edits}` in
+ * history would contradict the schema the model was just given.
+ *
+ * A multi-edit call cannot be expressed in that flat contract, so it is left in
+ * host shape rather than silently dropping replacements; the model only ever
+ * authors single edits through this bridge.
+ */
+export function translateHostToolCallInput(
+  toolName: string,
+  input: Record<string, unknown>,
+  toolInputs: PiToolInputVocabulary | undefined,
+): Record<string, unknown> {
+  if (toolInputs?.[toolName]?.inputShape !== "pi-edit") return input
+  const edits = input["edits"]
+  if (!Array.isArray(edits) || edits.length !== 1) return input
+  const [edit] = edits as ReadonlyArray<{ oldText?: unknown; newText?: unknown }>
+  if (typeof edit?.oldText !== "string" || typeof edit?.newText !== "string") return input
+
+  const { edits: _edits, path, ...rest } = input
+  return {
+    ...rest,
+    ...(typeof path === "string" ? { filePath: path } : {}),
+    oldString: edit.oldText,
+    newString: edit.newText,
+  }
 }
 
 /** Restate a stored host call for the OpenCode plugin's continuation prompt. */

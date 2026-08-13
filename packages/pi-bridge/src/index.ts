@@ -46,6 +46,7 @@ export {
   translateCanonicalSubagentCall,
   translateCanonicalToolCall,
   translateHostSubagentCall,
+  translateHostToolCallInput,
   CANONICAL_SUBAGENT_TOOL,
   type PiSubagentVocabulary,
   type PiTerminalResultVocabulary,

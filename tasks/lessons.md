@@ -76,6 +76,47 @@ Corrections and durable takeaways for this repo. Per `~/.claude/CLAUDE.md`: capt
 - **Argument aliases are not enough when host schemas change shape.** Pi's `edit` requires `path` plus `edits: [{ oldText, newText }]`, while OpenCode-oriented models may emit flat `filePath`/`oldString`/`newString`. Keep the host schema strict and convert the complete structure at the final host boundary; renaming only `filePath` leaves Pi's required `edits` field missing.
 - **Tool-name aliases must cover the entire round trip.** Pi's optional `find` tool is OpenCode's `glob`; advertising only the translated catalog name is insufficient. Translate the catalog, provider tool calls, tool choices, and stored assistant/tool-result history consistently, and only enable the alias when Pi actually has `find` active.
 
+## 2026-08-13 — Host tool vocabulary: reference table and schema contracts
+
+**Read this before diagnosing any "tool arguments rejected" report.** Every finding below cost a wrong first answer, each from guessing at a host contract instead of reading it. All host sources are public; read them rather than infer.
+
+### Where to verify (upstream host sources)
+
+| Host | Repository | Files that answer tool-schema questions |
+|---|---|---|
+| OpenCode (reference) | `anomalyco/opencode` | `packages/opencode/src/tool/{edit,read,write,glob}.ts` |
+| Kilo | `Kilo-Org/kilocode` | `packages/opencode/src/tool/…` (same layout) |
+| MiMo | `XiaomiMiMo/MiMo-Code` | `packages/opencode/src/tool/…` (same layout) |
+| oh-my-pi (omp) 17.2.12 | `can1357/oh-my-pi` | `coding-agent/src/edit/{index,hashline/params,modes/replace}.ts`, `coding-agent/src/utils/edit-mode.ts`, `ai/src/utils/schema/wire.ts` (`toolWireSchema`) |
+| pi (earendil-works) 0.84.1 | `earendil-works/pi` | `coding-agent/src/core/tools/{edit,find,bash,read,write}.ts`, `ai/src/utils/validation.ts` (the `Validation failed for tool "x"` string), `agent/src/agent-loop.ts` (`prepareArguments` runs **before** validation) |
+
+The consumer plugin under test is `oakimov/cursor-opencode-provider`; it defines no tool schemas and normalizes no arguments, so tool vocabulary always comes from the host, never the plugin.
+
+### Verified vocabulary — the four supported hosts disagree
+
+| Host | edit: path | edit: replacement | bash cwd | Normalization path |
+|---|---|---|---|---|
+| OpenCode (ref) | `filePath` | `oldString` / `newString` / `replaceAll?` | — | — |
+| Kilo | `filePath` | `oldString` / `newString` / `replaceAll?` | — | adapter `canonicalToolKey` |
+| MiMo | `file_path` | `old_string` / `new_string` / `replace_all?` | none | adapter `canonicalToolKey` |
+| omp | `path` | **mode-dependent** — hashline `{input}` (default) / replace snake_case | `cwd` | `pi-bridge` profile aliases |
+| pi | `path` | `edits: [{oldText, newText}]` | none (session-level) | `pi-bridge` profile aliases |
+
+Consequences worth remembering:
+
+- **Kilo is OpenCode-identical; MiMo is not.** MiMo forked the whole essential toolset to snake_case. Any claim that "no host uses snake_case" is false.
+- **The clone path already handles case/separator drift generically**: `canonicalToolKey` (`packages/adapter/src/language-model.ts`) strips non-alphanumerics and lowercases, so `filePath` and `file_path` both become `filepath` and align to whatever the host advertised. `pi-bridge` has **no** such normalizer — its aliases are hand-maintained, and only they cover true renames (`filePath`→`path`, `workdir`→`cwd`) that canonicalization cannot express.
+- **A model may carry any sibling host's vocabulary into any other host.** Treat that as ordinary drift, not a malformed call.
+
+### Corrections
+
+- **Verify a host quirk in host source before encoding it as profile data.** A provider echoing an `i` key alongside OMP hashline edit input looks like a schema violation, but omp 17.2.12 `edit/hashline/params.ts` is deliberately permissive (extra keys allowed, only `input` required) and its executor destructures `input` alone — and `edit` has no argument-repair path (only `todo` repairs a missing `op`). Stripping `i` is defensible hygiene, not a fix for a validation error; do not document it as the latter.
+- **Check the whole supported matrix before calling a vocabulary hypothetical.** Snake_case reaching a Pi session was dismissed as speculative — "no host emits it" — and the reasoning was wrong: per the table above, two of the four do. The dismissal nearly shipped a live gap, because `pi-bridge`'s edit conversion accepted `oldText`/`oldString` but not `old_string`, so a model carrying MiMo or OMP-replace vocabulary hit the very `edits: must have required properties edits` failure the conversion exists to prevent. A conversion that already accepts two spellings of a field is evidence the field drifts; enumerate every supported host's spelling rather than arguing from one convention.
+- **Overriding an advertised schema creates a return trip.** `pi-edit` tools are advertised to the provider as OpenCode's flat contract while executing pi's nested `{path, edits}`. The forward path was translated but stored history was replayed verbatim, so the model saw prior calls in a shape its own `additionalProperties: false` catalog did not declare. Wherever the bridge advertises something other than the host's own schema, translate the replay too — and where the advertised contract cannot express the host value (multi-edit), keep host shape rather than dropping data.
+- **A host tool name is not a host tool schema.** OMP's `edit` resolves one of four modes per session *and per model* (`utils/edit-mode.ts`), each advertising its own parameters; the profile's replacement aliases describe `replace` only, while the default is `hashline`. Gating an alias set on the tool being *live* is not enough when the live tool is polymorphic — gate it on the advertised schema, via the same `toolWireSchema` the model is shown, and fail open when no resolver is available. Note which rules are mode-independent (`dropInputKeys`) and keep those unconditional.
+- **Do not advertise a provider-facing field the host cannot execute.** The pi `edit` contract offered `replaceAll`, but pi 0.84.1 `edit-diff.ts` throws a duplicate-match error whenever `oldText` occurs more than once — there is no replace-all path to map onto, and the bridge was silently dropping the flag. Under `additionalProperties: false` the advertised schema *is* the contract; keep it to what the host can honor and state the host's real constraint (`oldString` must match exactly once) in the description.
+- **A vocabulary that restates a profile type will drift from it.** `buildPiToolInputVocabulary` copied `PiToolInputProfile` field-by-field into a duplicated inline type, so every new profile field needed three coordinated edits and the coordination-tool merge silently dropped the ones it did not name. Carry the profile entry verbatim and merge with a spread.
+
 ## 2026-08-13 — Dynamic catalog refresh must drive the plugin auth loader
 
 - **A host invoking post-login model refresh does not make that refresh authenticated unless the bridge consumes the supplied credential.** Both Pi-family hosts automatically refresh after successful login, but `pi-bridge` previously accepted the resolved key and then discarded it when re-running the plugin `config` hook. A fresh install therefore had neither a model cache nor OpenCode's auth file and could remain empty after login. Seed the plugin stub with the complete login credential, and on later host-driven refreshes run `auth.loader` with the resolved credential before harvesting `config.provider[id].models`.

@@ -94,7 +94,7 @@ function buildStreamSimple(spec: AiSdkProviderSpec, runtime: PiRuntime) {
         const apiKey = await resolveApiKey(options?.apiKey, options?.signal)
         const lm = await spec.getLanguageModel(model.id, apiKey)
         const vocabulary = buildPiSubagentVocabulary(context.tools, runtime.toolSchema, runtime.profile)
-        const toolInputs = buildPiToolInputVocabulary(context.tools, runtime.profile)
+        const toolInputs = buildPiToolInputVocabulary(context.tools, runtime.profile, runtime.toolSchema)
         const terminalResult = buildPiTerminalResultVocabulary(context.tools, runtime.profile)
         const base: LanguageModelV3CallOptions = {
           prompt: translateContextToPrompt(context, vocabulary, runtime.profile, toolInputs),

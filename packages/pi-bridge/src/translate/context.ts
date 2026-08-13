@@ -28,6 +28,7 @@ import {
   canonicalSubagentSchema,
   canonicalToolName,
   translateHostSubagentCall,
+  translateHostToolCallInput,
   type PiSubagentVocabulary,
   type PiToolInputVocabulary,
 } from "./subagent.js"
@@ -35,14 +36,22 @@ import {
 /** Resolves a host `Tool`'s parameters (ArkType / TypeBox / JSON Schema) to JSON Schema. */
 export type ToolSchemaFn = (tool: PiTool) => Record<string, unknown>
 
-/** Provider-facing OpenCode edit contract; Pi's nested host schema is internal. */
+/**
+ * Provider-facing OpenCode edit contract; Pi's nested host schema is internal.
+ *
+ * No `replaceAll`: pi 0.84.1 `edit-diff.ts` `applyEditsToNormalizedContent`
+ * rejects any `oldText` matching more than once, so replace-every-occurrence
+ * has no host implementation to map onto. Advertising it under
+ * `additionalProperties: false` would invite a call the bridge can only answer
+ * with pi's confusing duplicate-match error, so the uniqueness requirement is
+ * stated on `oldString` instead.
+ */
 const OPENCODE_EDIT_SCHEMA: Record<string, unknown> = {
   type: "object",
   properties: {
     filePath: { type: "string", description: "Path to the file to edit (relative or absolute)" },
-    oldString: { type: "string", description: "Exact text to replace" },
+    oldString: { type: "string", description: "Exact text to replace. Must match exactly once in the file." },
     newString: { type: "string", description: "Replacement text" },
-    replaceAll: { type: "boolean", description: "Replace every occurrence instead of requiring a unique match" },
   },
   required: ["filePath", "oldString", "newString"],
   additionalProperties: false,
@@ -122,7 +131,7 @@ function assistantMessageToV3(
         type: "tool-call",
         toolCallId: block.id,
         toolName: translated?.toolName ?? canonicalToolName(block.name, vocabulary, toolInputs),
-        input: translated?.input ?? block.arguments,
+        input: translated?.input ?? translateHostToolCallInput(block.name, block.arguments, toolInputs),
       })
     }
     // `redactedThinking` is provider-opaque and has no V3 prompt-part; it is the

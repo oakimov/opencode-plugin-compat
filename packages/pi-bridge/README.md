@@ -135,9 +135,25 @@ fails. The bridge remaps those aliases for live `read` / `write` / `edit` /
 `bash` tools (including `write` to `xd://…` MCP devices) before host
 validation. Pi's `edit` additionally requires `edits: [{ oldText, newText }]`,
 so a flat `{ oldString, newString }` call is converted at that same boundary.
+Pi rejects an `oldText` that matches more than once and has no replace-all
+mode, so the provider-facing `edit` contract omits `replaceAll` rather than
+advertising an option the host cannot execute. Because that contract differs
+from Pi's own schema, stored `edit` calls are translated back to the flat shape
+when replayed as history, so the model never sees a prior call in a shape its
+catalog does not declare; a stored multi-edit call keeps Pi's shape, since the
+flat contract cannot express more than one replacement.
 Pi calls OpenCode's `glob` operation `find`; when `find` is active, the bridge
 advertises it to the provider as `glob` and translates calls/results back to
 `find`. Host-native keys already present win.
+
+OMP's `edit` is different again: it advertises a different schema per resolved
+edit mode (model override, then `PI_EDIT_VARIANT`, then the `edit.mode` setting,
+then the default `hashline`), so the shape can change per session and per model.
+The bridge therefore applies its replacement aliases only when the live schema
+is the `replace` one; under `hashline` (`{input}`) it passes arguments through
+untouched, because a hashline patch cannot be synthesized from OpenCode
+replacement fields and rewriting them would only echo argument names back to the
+model that it never sent. Mode-independent rules still apply in every mode.
 
 When a result auto-delivers, OMP represents the custom completion notice as a
 `developer` message with `attribution: "agent"`. The bridge promotes only the

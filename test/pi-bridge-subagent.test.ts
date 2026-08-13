@@ -221,6 +221,7 @@ describe("Pi-family subagent vocabulary", () => {
     ] as never
     const toolInputs = buildPiToolInputVocabulary(tools, ompProfile())
     expect(toolInputs?.write?.inputAliases).toMatchObject({ filePath: "path" })
+    expect(toolInputs?.edit?.dropInputKeys).toEqual(["i"])
     expect(translateCanonicalToolCall(
       "write",
       { filePath: "xd://mcp__everything_echo", content: '{"message":"ok"}' },
@@ -240,6 +241,15 @@ describe("Pi-family subagent vocabulary", () => {
       input: { path: "a.ts", old_string: "a", new_string: "b", replace_all: true },
     })
     expect(translateCanonicalToolCall(
+      "edit",
+      { i: "Edit lines 1 and 3 at file start", input: "[/tmp/lines-1200.txt#9D54]\nPUT 1.=1:" },
+      undefined,
+      toolInputs,
+    )).toEqual({
+      toolName: "edit",
+      input: { input: "[/tmp/lines-1200.txt#9D54]\nPUT 1.=1:" },
+    })
+    expect(translateCanonicalToolCall(
       "bash",
       { command: "ls", workdir: "/tmp" },
       undefined,
@@ -250,6 +260,79 @@ describe("Pi-family subagent vocabulary", () => {
     })
     // Absent tools stay unmapped so a disabled write cannot steal aliases.
     expect(buildPiToolInputVocabulary([{ name: "hub" }] as never, ompProfile())?.write).toBeUndefined()
+  })
+
+  test("omp replacement aliases follow the live edit mode, and the drop rule does not", () => {
+    // omp resolves `edit` per session/model; each mode advertises its own
+    // schema. Only `replace` accepts old_string/new_string.
+    const replaceMode = [{
+      name: "edit",
+      parameters: {
+        type: "object",
+        properties: { path: {}, old_string: {}, new_string: {}, replace_all: {} },
+      },
+    }] as never
+    const hashlineMode = [{
+      name: "edit",
+      parameters: { type: "object", properties: { input: {} } },
+    }] as never
+    const schemaOf = ((tool: { parameters: unknown }) => tool.parameters) as never
+
+    const replaceInputs = buildPiToolInputVocabulary(replaceMode, ompProfile(), schemaOf)
+    expect(replaceInputs?.edit?.inputAliases).toMatchObject({ oldString: "old_string" })
+    expect(translateCanonicalToolCall(
+      "edit",
+      { filePath: "a.ts", oldString: "a", newString: "b" },
+      undefined,
+      replaceInputs,
+    )).toEqual({
+      toolName: "edit",
+      input: { path: "a.ts", old_string: "a", new_string: "b" },
+    })
+
+    // Under hashline the replacement aliases must not fire: rewriting them
+    // cannot satisfy `{input}` and would echo names the model never sent.
+    const hashlineInputs = buildPiToolInputVocabulary(hashlineMode, ompProfile(), schemaOf)
+    expect(hashlineInputs?.edit?.inputAliases).toEqual({})
+    expect(translateCanonicalToolCall(
+      "edit",
+      { filePath: "a.ts", oldString: "a", newString: "b" },
+      undefined,
+      hashlineInputs,
+    )).toBeUndefined()
+
+    // The harness-only key is mode-independent and still gets stripped.
+    expect(hashlineInputs?.edit?.dropInputKeys).toEqual(["i"])
+    expect(translateCanonicalToolCall(
+      "edit",
+      { i: "intent", input: "[a.ts#9D54]\nPUT 1.=1:" },
+      undefined,
+      hashlineInputs,
+    )).toEqual({ toolName: "edit", input: { input: "[a.ts#9D54]\nPUT 1.=1:" } })
+
+    // Without a schema resolver the profile's declared behaviour is preserved.
+    expect(buildPiToolInputVocabulary(hashlineMode, ompProfile())?.edit?.inputAliases)
+      .toMatchObject({ oldString: "old_string" })
+  })
+
+  test("coordination aliases merge into a tool's profile entry without dropping its other rules", () => {
+    // `hub` carries coordination aliases; give it a profile entry too and the
+    // merge must keep that entry's shape/drop rules rather than replace them.
+    const profile = ompProfile()
+    profile.tools!.toolInputs = {
+      ...profile.tools!.toolInputs,
+      hub: { inputAliases: { jobId: "job_id" }, dropInputKeys: ["i"] },
+    }
+    const toolInputs = buildPiToolInputVocabulary([{ name: "hub" }] as never, profile)
+
+    expect(toolInputs?.hub).toMatchObject({
+      inputAliases: { jobId: "job_id", action: "op" },
+      dropInputKeys: ["i"],
+    })
+    expect(translateCanonicalToolCall("hub", { action: "jobs", jobId: "7", i: "why" }, undefined, toolInputs)).toEqual({
+      toolName: "hub",
+      input: { op: "jobs", job_id: "7" },
+    })
   })
 
   test("pi keeps only the argument renames its own schemas define", () => {
@@ -287,6 +370,46 @@ describe("Pi-family subagent vocabulary", () => {
     })
   })
 
+  test("pi edit accepts a sibling host's replacement vocabulary", () => {
+    // MiMo (`file_path`/`old_string`) and OMP's replace mode use snake_case for
+    // the same logical fields; a model carrying either into a pi session must
+    // still reach pi's nested schema rather than failing validation.
+    const tools = [{ name: "edit" }] as never
+    const toolInputs = buildPiToolInputVocabulary(tools, piProfile())
+
+    expect(translateCanonicalToolCall(
+      "edit",
+      { file_path: "a.ts", old_string: "before", new_string: "after", replace_all: true },
+      undefined,
+      toolInputs,
+    )).toEqual({
+      toolName: "edit",
+      input: { path: "a.ts", edits: [{ oldText: "before", newText: "after" }] },
+    })
+
+    // Host-native path name already correct, snake_case replacement fields.
+    expect(translateCanonicalToolCall(
+      "edit",
+      { path: "a.ts", old_string: "before", new_string: "after" },
+      undefined,
+      toolInputs,
+    )).toEqual({
+      toolName: "edit",
+      input: { path: "a.ts", edits: [{ oldText: "before", newText: "after" }] },
+    })
+
+    // Pi's own vocabulary still wins when more than one spelling is present.
+    expect(translateCanonicalToolCall(
+      "edit",
+      { path: "a.ts", oldText: "pi", old_string: "mimo", newText: "x", new_string: "y" },
+      undefined,
+      toolInputs,
+    )).toEqual({
+      toolName: "edit",
+      input: { path: "a.ts", edits: [{ oldText: "pi", newText: "x" }] },
+    })
+  })
+
   test("pi advertises OpenCode's flat edit schema while executing Pi's nested shape", () => {
     const tools = [{ name: "edit", description: "Edit a file", parameters: {
       type: "object",
@@ -303,14 +426,19 @@ describe("Pi-family subagent vocabulary", () => {
         type: "object",
         properties: {
           filePath: { type: "string", description: "Path to the file to edit (relative or absolute)" },
-          oldString: { type: "string", description: "Exact text to replace" },
+          oldString: { type: "string", description: "Exact text to replace. Must match exactly once in the file." },
           newString: { type: "string", description: "Replacement text" },
-          replaceAll: { type: "boolean", description: "Replace every occurrence instead of requiring a unique match" },
         },
         required: ["filePath", "oldString", "newString"],
         additionalProperties: false,
       },
     }])
+    // pi has no replace-all mode, so the contract must not offer one.
+    expect(
+      (translateTools(tools, toSchema as never, undefined, toolInputs)[0].inputSchema as {
+        properties: Record<string, unknown>
+      }).properties.replaceAll,
+    ).toBeUndefined()
     expect(translateCanonicalToolCall(
       "edit",
       { filePath: "a.ts", oldString: "before", newString: "after" },

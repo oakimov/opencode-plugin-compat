@@ -48,6 +48,16 @@ export type PiTerminalResultToolProfile = {
 export type PiToolInputProfile = {
   /** Provider-emitted argument name -> host argument name. */
   inputAliases: Readonly<Record<string, string>>
+  /**
+   * Host argument that must appear in the live tool's advertised schema before
+   * `inputAliases` may fire. For hosts whose tool schema varies per configured
+   * mode, aliases that target the wrong mode would rewrite a call into a shape
+   * the active schema still rejects — and the host then echoes argument names
+   * the model never sent. Omit when the tool has a single schema.
+   */
+  aliasSchemaKey?: string
+  /** Harness-only provider fields that must not reach the host validator. */
+  dropInputKeys?: readonly string[]
   /** Structural conversion required after aliases have been applied. */
   inputShape?: "pi-edit"
   /** Provider-facing tool name when the host uses a different name. */
@@ -67,6 +77,14 @@ export type PiToolInputProfile = {
 const OMP_ESSENTIAL_TOOL_INPUTS: Readonly<Record<string, PiToolInputProfile>> = {
   read: { inputAliases: { filePath: "path", file_path: "path" } },
   write: { inputAliases: { filePath: "path", file_path: "path" } },
+  // OMP's `edit` advertises a different schema per resolved edit mode
+  // (utils/edit-mode.ts: model override -> PI_EDIT_VARIANT -> `edit.mode` ->
+  // default `hashline`), so the mode can differ per session and even per model.
+  // These aliases describe `replace` mode alone (edit/modes/replace.ts:
+  // `{path, old_string, new_string, replace_all?}`); `old_string` marks that
+  // schema live. Under the default `hashline` mode (`{input: string}`) the
+  // bridge leaves arguments alone — a hashline patch cannot be synthesized from
+  // OpenCode replacement fields, so rewriting them only obscures the error.
   edit: {
     inputAliases: {
       filePath: "path",
@@ -75,6 +93,13 @@ const OMP_ESSENTIAL_TOOL_INPUTS: Readonly<Record<string, PiToolInputProfile>> = 
       newString: "new_string",
       replaceAll: "replace_all",
     },
+    aliasSchemaKey: "old_string",
+    // `i` is not an OMP argument in any mode: neither hashline's
+    // `{input: string}` schema (edit/hashline/params.ts) nor replace's declares
+    // it, and hashline's executor destructures `input` alone. Observed from
+    // provider-side echo, so it is stripped to keep the host call surface equal
+    // to the schema. Unlike the aliases this is mode-independent.
+    dropInputKeys: ["i"],
   },
   bash: { inputAliases: { workdir: "cwd", working_directory: "cwd" } },
 }
