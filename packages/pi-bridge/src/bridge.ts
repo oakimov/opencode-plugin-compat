@@ -161,10 +161,24 @@ export function buildDynamicModels(spec: AiSdkProviderSpec, profile: PiHostProfi
       const result = await safeFetch(apiKey)
       if (!result.succeeded) return cachedModels
 
+      // Pi's provider-composer treats any returned array as an authoritative
+      // replacement — `if (refreshed)` is a truthiness check, and `[]` is
+      // truthy. A technically-successful fetch that comes back empty (cold
+      // config map, an unauthenticated call that resolves rather than
+      // throwing) must not wipe an already-populated catalog.
+      if (result.models.length === 0 && cachedModels.length > 0) return cachedModels
+      if (context?.signal?.aborted) return cachedModels
+
       // Pi does not persist the array returned by an extension refresh on its
       // own. Publish it explicitly so a new process can restore the same
-      // catalog during its cache-only startup phase.
-      await context?.publish?.({ persist: { models: result.models, checkedAt: Date.now() } })
+      // catalog during its cache-only startup phase. A persistence failure
+      // here must not discard a successful network fetch for this session —
+      // only the on-disk cache for the next restart is at risk.
+      try {
+        await context?.publish?.({ persist: { models: result.models, checkedAt: Date.now() } })
+      } catch (err) {
+        console.error(`pi-bridge: failed to persist model catalog for provider "${spec.name}" — ${err instanceof Error ? err.message : String(err)}`)
+      }
       return result.models
     },
   }

@@ -223,6 +223,32 @@ describe("translateTools", () => {
     for (const key of Object.keys(call.input)) expect(properties).toContain(key)
   })
 
+  test("a stored single-edit call with a stray extra key is not replayed with that key", () => {
+    // Pi's own edit schema does not set additionalProperties:false, so a model
+    // can attach an extra field (e.g. an `explanation`) that validates, runs,
+    // and lands in the stored call's arguments. The advertised provider-facing
+    // schema is additionalProperties:false, so replaying that extra key would
+    // contradict the schema the model was just shown.
+    const hostTools = [{ name: "edit", description: "Edit", parameters: { type: "object" } }] as never
+    const toolInputs = buildPiToolInputVocabulary(hostTools, piProfile())
+    const args = {
+      path: "a.ts",
+      edits: [{ oldText: "before", newText: "after" }],
+      explanation: "renaming a variable",
+    }
+    const prompt = translateContextToPrompt(
+      { messages: [{ role: "assistant", content: [{ type: "toolCall", id: "c1", name: "edit", arguments: args }] }] } as never,
+      undefined,
+      piProfile(),
+      toolInputs,
+    )
+    expect((prompt[0] as { content: Array<{ input: unknown }> }).content[0].input).toEqual({
+      filePath: "a.ts",
+      oldString: "before",
+      newString: "after",
+    })
+  })
+
   test("a stored multi-edit call keeps host shape rather than losing replacements", () => {
     const hostTools = [{ name: "edit", description: "Edit", parameters: { type: "object" } }] as never
     const toolInputs = buildPiToolInputVocabulary(hostTools, piProfile())

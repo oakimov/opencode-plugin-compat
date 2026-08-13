@@ -315,6 +315,28 @@ describe("Pi-family subagent vocabulary", () => {
       .toMatchObject({ oldString: "old_string" })
   })
 
+  test("a resolver that cannot confirm the live schema fails closed, not open", () => {
+    // A resolver WAS supplied but returned something unusable — this must not
+    // reapply replace-mode aliases under a live mode we can't actually verify
+    // (e.g. hashline), which would reproduce the schema-mismatch this gate
+    // exists to prevent. Distinct from "no resolver at all" above, which
+    // correctly keeps the profile's declared aliases.
+    const propertylessMode = [{ name: "edit", parameters: { type: "object" } }] as never
+    const propertylessInputs = buildPiToolInputVocabulary(
+      propertylessMode,
+      ompProfile(),
+      ((tool: { parameters: unknown }) => tool.parameters) as never,
+    )
+    expect(propertylessInputs?.edit?.inputAliases).toEqual({})
+
+    const throwingInputs = buildPiToolInputVocabulary(
+      [{ name: "edit" }] as never,
+      ompProfile(),
+      (() => { throw new Error("schema unavailable") }) as never,
+    )
+    expect(throwingInputs?.edit?.inputAliases).toEqual({})
+  })
+
   test("coordination aliases merge into a tool's profile entry without dropping its other rules", () => {
     // `hub` carries coordination aliases; give it a profile entry too and the
     // merge must keep that entry's shape/drop rules rather than replace them.

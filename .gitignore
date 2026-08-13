@@ -28,3 +28,6 @@ coverage/
 /tmp/
 
 .claude/settings.local.json
+
+# local plans
+tasks/plans/

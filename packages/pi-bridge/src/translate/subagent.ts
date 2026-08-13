@@ -147,17 +147,22 @@ export function buildPiSubagentVocabulary(
 
 /**
  * Does the live tool advertise `key` as a parameter? Used to confirm the host
- * is currently running the schema an alias set was written against. Fails open
- * (`true`) when no resolver is supplied or the schema cannot be read, so a host
- * whose parameters we cannot inspect keeps the profile's declared behaviour.
+ * is currently running the schema an alias set was written against.
+ *
+ * Fails open (`true`) only when no resolver is supplied at all — a host we
+ * cannot inspect keeps the profile's declared behaviour. Once a resolver is
+ * given, an unreadable or property-less result fails *closed* (`false`):
+ * treating an unreadable schema as "declares everything" would let a
+ * mode-specific alias set reapply under a different live mode, reproducing
+ * the schema-mismatch the gate exists to prevent.
  */
 function schemaDeclaresKey(tool: PiTool, key: string, toSchema: SubagentToolSchemaFn | undefined): boolean {
   if (!toSchema) return true
   try {
     const properties = (toSchema(tool) as { properties?: Record<string, unknown> } | undefined)?.properties
-    return properties ? Object.hasOwn(properties, key) : true
+    return !!properties && Object.hasOwn(properties, key)
   } catch {
-    return true
+    return false
   }
 }
 
@@ -409,14 +414,15 @@ export function translateHostToolCallInput(
   if (!Array.isArray(edits) || edits.length !== 1) return input
   const [edit] = edits as ReadonlyArray<{ oldText?: unknown; newText?: unknown }>
   if (typeof edit?.oldText !== "string" || typeof edit?.newText !== "string") return input
+  const path = input["path"]
+  if (typeof path !== "string") return input
 
-  const { edits: _edits, path, ...rest } = input
-  return {
-    ...rest,
-    ...(typeof path === "string" ? { filePath: path } : {}),
-    oldString: edit.oldText,
-    newString: edit.newText,
-  }
+  // The advertised contract is `additionalProperties: false`. Pi's own edit
+  // schema does not reject unknown keys, so a stored call can carry a
+  // model-authored extra (e.g. `explanation`) beyond `path`/`edits`; replaying
+  // it here would contradict the schema the model was just shown. Emit only
+  // the three keys that schema declares.
+  return { filePath: path, oldString: edit.oldText, newString: edit.newText }
 }
 
 /** Restate a stored host call for the OpenCode plugin's continuation prompt. */

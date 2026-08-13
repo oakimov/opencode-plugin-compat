@@ -66,4 +66,78 @@ describe("Pi dynamic model refresh", () => {
     expect(retained).toEqual([MODEL])
     expect(publications).toHaveLength(0)
   })
+
+  test("a successful fetch returning [] does not wipe or persist over a stored catalog", async () => {
+    const publications: Array<Record<string, unknown>> = []
+    const refresh = piRefresh({ fetchModels: async () => [] })
+
+    const retained = await refresh({
+      stored: { models: [MODEL] },
+      allowNetwork: true,
+      signal: new AbortController().signal,
+      publish: async (publication: Record<string, unknown>) => {
+        publications.push(publication)
+        return true
+      },
+    })
+
+    // Pi's provider-composer applies any returned array via `if (refreshed)`,
+    // and `[]` is truthy — so retaining is not enough; nothing may be
+    // persisted either, or the next cache-only startup would restore empty.
+    expect(retained).toEqual([MODEL])
+    expect(publications).toHaveLength(0)
+  })
+
+  test("a successful fetch returning [] with no prior cache still returns/persists []", async () => {
+    const publications: Array<Record<string, unknown>> = []
+    const refresh = piRefresh({ models: [], fetchModels: async () => [] })
+
+    const result = await refresh({
+      allowNetwork: true,
+      signal: new AbortController().signal,
+      publish: async (publication: Record<string, unknown>) => {
+        publications.push(publication)
+        return true
+      },
+    })
+
+    expect(result).toEqual([])
+    expect(publications).toHaveLength(1)
+    expect(publications[0]!.persist).toMatchObject({ models: [] })
+  })
+
+  test("a persist failure still returns the freshly fetched list for this session", async () => {
+    const refresh = piRefresh({ fetchModels: async () => [MODEL] })
+
+    const fresh = await refresh({
+      stored: { models: [] },
+      allowNetwork: true,
+      signal: new AbortController().signal,
+      publish: async () => {
+        throw new Error("disk full")
+      },
+    })
+
+    expect(fresh).toEqual([MODEL])
+  })
+
+  test("an aborted signal after a successful fetch retains the stored catalog and skips persist", async () => {
+    const publications: Array<Record<string, unknown>> = []
+    const refresh = piRefresh({ fetchModels: async () => [MODEL] })
+    const controller = new AbortController()
+    controller.abort()
+
+    const result = await refresh({
+      stored: { models: [] },
+      allowNetwork: true,
+      signal: controller.signal,
+      publish: async (publication: Record<string, unknown>) => {
+        publications.push(publication)
+        return true
+      },
+    })
+
+    expect(result).toEqual([])
+    expect(publications).toHaveLength(0)
+  })
 })
