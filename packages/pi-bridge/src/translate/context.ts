@@ -32,6 +32,14 @@ import {
   type PiSubagentVocabulary,
   type PiToolInputVocabulary,
 } from "./subagent.js"
+import {
+  CANONICAL_QUESTION_TOOL,
+  canonicalQuestionDescription,
+  canonicalQuestionSchema,
+  canonicalQuestionToolName,
+  translateHostQuestionCall,
+  type PiQuestionVocabulary,
+} from "./question.js"
 
 /** Resolves a host `Tool`'s parameters (ArkType / TypeBox / JSON Schema) to JSON Schema. */
 export type ToolSchemaFn = (tool: PiTool) => Record<string, unknown>
@@ -114,6 +122,7 @@ function assistantMessageToV3(
   message: PiAssistantMessage,
   vocabulary: PiSubagentVocabulary | undefined,
   toolInputs?: PiToolInputVocabulary,
+  question?: PiQuestionVocabulary,
 ) {
   const content: Array<
     | { type: "text"; text: string }
@@ -126,11 +135,19 @@ function assistantMessageToV3(
     else if (block.type === "thinking") content.push({ type: "reasoning", text: block.thinking })
     else if (block.type === "image") content.push({ type: "file", data: block.data, mediaType: block.mimeType })
     else if (block.type === "toolCall") {
-      const translated = translateHostSubagentCall(block.name, block.arguments, vocabulary)
+      const translated =
+        translateHostSubagentCall(block.name, block.arguments, vocabulary) ??
+        translateHostQuestionCall(block.name, block.arguments, question)
       content.push({
         type: "tool-call",
         toolCallId: block.id,
-        toolName: translated?.toolName ?? canonicalToolName(block.name, vocabulary, toolInputs),
+        toolName:
+          translated?.toolName ??
+          canonicalToolName(
+            canonicalQuestionToolName(block.name, question),
+            vocabulary,
+            toolInputs,
+          ),
         input: translated?.input ?? translateHostToolCallInput(block.name, block.arguments, toolInputs),
       })
     }
@@ -153,6 +170,7 @@ export function translateContextToPrompt(
   vocabulary?: PiSubagentVocabulary,
   profile?: PiHostProfile,
   toolInputs?: PiToolInputVocabulary,
+  question?: PiQuestionVocabulary,
 ): LanguageModelV3Prompt {
   const prompt: LanguageModelV3Prompt = []
 
@@ -186,7 +204,7 @@ export function translateContextToPrompt(
       const text = flattenToPlainText(message.content)
       if (text.length > 0) prompt.push({ role: "system", content: text })
     } else if (message.role === "assistant") {
-      prompt.push(assistantMessageToV3(message, vocabulary, toolInputs))
+      prompt.push(assistantMessageToV3(message, vocabulary, toolInputs, question))
     } else if (message.role === "toolResult") {
       prompt.push({
         role: "tool",
@@ -194,7 +212,11 @@ export function translateContextToPrompt(
           {
             type: "tool-result",
             toolCallId: message.toolCallId,
-            toolName: canonicalToolName(message.toolName, vocabulary, toolInputs),
+            toolName: canonicalToolName(
+              canonicalQuestionToolName(message.toolName, question),
+              vocabulary,
+              toolInputs,
+            ),
             output: toolResultOutputFromPi(message),
           },
         ],
@@ -211,23 +233,33 @@ export function translateTools(
   toSchema: ToolSchemaFn,
   vocabulary?: PiSubagentVocabulary,
   toolInputs?: PiToolInputVocabulary,
+  question?: PiQuestionVocabulary,
 ): LanguageModelV3FunctionTool[] | undefined {
   if (!tools || tools.length === 0) return undefined
-  return tools.map(tool =>
-    vocabulary && tool.name === vocabulary.hostToolName
-      ? {
-          type: "function" as const,
-          name: "task",
-          description: canonicalSubagentDescription(vocabulary),
-          inputSchema: canonicalSubagentSchema(vocabulary) as JSONSchema7,
-        }
-      : {
-          type: "function" as const,
-          name: canonicalToolName(tool.name, vocabulary, toolInputs),
-          description: tool.description,
-          inputSchema: providerToolSchema(tool, toSchema, toolInputs) as unknown as JSONSchema7,
-        },
-  )
+  return tools.map(tool => {
+    if (vocabulary && tool.name === vocabulary.hostToolName) {
+      return {
+        type: "function" as const,
+        name: "task",
+        description: canonicalSubagentDescription(vocabulary),
+        inputSchema: canonicalSubagentSchema(vocabulary) as JSONSchema7,
+      }
+    }
+    if (question && tool.name === question.hostToolName) {
+      return {
+        type: "function" as const,
+        name: CANONICAL_QUESTION_TOOL,
+        description: canonicalQuestionDescription(question),
+        inputSchema: canonicalQuestionSchema() as JSONSchema7,
+      }
+    }
+    return {
+      type: "function" as const,
+      name: canonicalToolName(tool.name, vocabulary, toolInputs),
+      description: tool.description,
+      inputSchema: providerToolSchema(tool, toSchema, toolInputs) as unknown as JSONSchema7,
+    }
+  })
 }
 
 /** Translate the host's `toolChoice` into AI-SDK V3's shape. */
@@ -235,12 +267,20 @@ export function translateToolChoice(
   choice: PiToolChoice | undefined,
   vocabulary?: PiSubagentVocabulary,
   toolInputs?: PiToolInputVocabulary,
+  question?: PiQuestionVocabulary,
 ): LanguageModelV3ToolChoice | undefined {
   if (choice === undefined || choice === "auto") return undefined
   if (choice === "none") return { type: "none" }
   if (choice === "any" || choice === "required") return { type: "required" }
   if (typeof choice === "object" && "name" in choice) {
-    return { type: "tool", toolName: canonicalToolName(choice.name, vocabulary, toolInputs) }
+    return {
+      type: "tool",
+      toolName: canonicalToolName(
+        canonicalQuestionToolName(choice.name, question),
+        vocabulary,
+        toolInputs,
+      ),
+    }
   }
   return undefined
 }

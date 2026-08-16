@@ -89,6 +89,7 @@ import {
   adaptLanguageModelForProfile,
   wrapProviderSdkForProfile,
 } from "./language-model"
+import { installPathBridge } from "./runtime-host"
 
 /** Resolve the active host profile (throws if OCP load is not supported). */
 export function requireHost(options?: DetectOptions): HostProfile {
@@ -106,6 +107,9 @@ export function requireHost(options?: DetectOptions): HostProfile {
  *
  * Returned `language` / `sdk` are host-adapted (MiMo stream preamble / bash
  * description when required; Kilo/OpenCode pass-through).
+ *
+ * Also installs the path bridge so unchanged OpenCode plugins resolve
+ * project/global config dirs for the detected host (CreatePlan, skills, …).
  */
 export function wirePromiseV2(
   options?: DetectOptions & { pluginOptions?: Record<string, unknown> },
@@ -117,6 +121,7 @@ export function wirePromiseV2(
         "See docs/ocp/0.1.md §7.",
     )
   }
+  installPathBridge(profile.id, options?.env as Record<string, string | undefined> | undefined)
   const host = createPromiseV2Host(options?.pluginOptions ?? {})
   return {
     ctx: host.ctx,

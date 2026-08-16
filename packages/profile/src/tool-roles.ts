@@ -11,6 +11,9 @@ export const DEFAULT_TOOL_ROLES: HostToolRoles = {
   subagent: "task",
   todoWrite: "todowrite",
   todoRead: "todoread",
+  question: "question",
+  planEnter: "plan_enter",
+  planExit: "plan_exit",
 }
 
 /**

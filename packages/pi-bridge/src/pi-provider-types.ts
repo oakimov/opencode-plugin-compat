@@ -170,6 +170,34 @@ export type PiEventStream = {
 /** The minimal slice of the host's `ExtensionAPI` this bridge depends on. */
 export type PiToolInfoLike = string | { name: string }
 
+/** Zod-like schema builder injected on omp/pi ExtensionAPI (`pi.zod`). */
+export type PiZodLike = {
+  object: (shape: Record<string, unknown>) => unknown
+  string: () => { describe: (text: string) => unknown }
+}
+
+/**
+ * Minimal `registerTool` definition. Hosts accept Zod (preferred) or TypeBox /
+ * JSON Schema; we keep parameters untyped so the bridge can pass either.
+ */
+export type PiRegisterToolDefinition = {
+  name: string
+  label: string
+  description: string
+  parameters: unknown
+  loadMode?: "essential" | "discoverable" | string
+  approval?: "read" | "write" | "exec" | string
+  hidden?: boolean
+  defaultInactive?: boolean
+  execute: (
+    toolCallId: string,
+    params: unknown,
+    signal: AbortSignal | undefined,
+    onUpdate: unknown,
+    ctx: Record<string, unknown> | undefined,
+  ) => Promise<unknown>
+}
+
 export type PiExtensionApi = {
   registerProvider(name: string, config: Record<string, unknown>): void
   /** Available after the extension factory; used to activate host-registered tools on session_start. */
@@ -177,4 +205,15 @@ export type PiExtensionApi = {
   getActiveTools?: () => string[]
   getAllTools?: () => readonly PiToolInfoLike[]
   setActiveTools?: (toolNames: string[]) => void | Promise<void>
+  /** omp/pi: register an LLM-callable tool into the host catalog. */
+  registerTool?: (tool: PiRegisterToolDefinition) => void
+  /** omp/pi: injected Zod builder for tool parameter schemas. */
+  zod?: PiZodLike
+  /** omp: settings getter (`plan.enabled`, …). Absent on plain pi. */
+  getSetting?: (key: string) => unknown
+  /** omp's self-reference namespace; its AgentRegistry is the live singleton. */
+  pi?: {
+    AgentRegistry?: { global(): unknown }
+    MAIN_AGENT_ID?: string
+  }
 }

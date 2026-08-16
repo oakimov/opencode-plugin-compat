@@ -216,6 +216,8 @@ export async function runSetupCli(rest: string[]): Promise<number> {
       dryRun: opts.dryRun,
       deep: opts.deep,
       reify: opts.reify,
+      providerShim: opts.providerShim,
+      absolutePlugins: opts.absolutePlugins,
     })
     console.log(result.message)
     if (opts.dryRun || !result.ok) {
@@ -510,6 +512,9 @@ export function main(argv: string[] = process.argv): number {
         mode: opts.mode,
         dryRun: opts.dryRun,
         deep: opts.deep,
+        reify: opts.reify,
+        providerShim: opts.providerShim,
+        absolutePlugins: opts.absolutePlugins,
       })
       console.log(result.message)
       return result.ok ? 0 : 1

@@ -222,6 +222,36 @@ disabled, all tools remain untouched. If pi advertises both `subagent` and an
 independent tool named `task`, the latter remains available to the provider as
 `pi_host_task`; canonical `task` still launches the subagent executor.
 
+### Interactive prompts (`ask` ↔ `question`)
+
+omp advertises interactive multi-choice prompts as `ask` with
+`{questions:[{id, question, options, multi?}]}`. OpenCode plugins expect
+`question` with `{questions:[{question, header, options[{label,description}],
+multiple?}]}`. When the omp profile's `tools.question` role is live (`ask` in
+the catalog), pi-bridge remaps the catalog, calls, tool choice, and history the
+same way it remaps subagents — including synthesizing missing `id` values and
+mapping `multiple` ↔ `multi`. Plain pi has no question role by default.
+
+### Path bridge
+
+On load, pi-bridge installs `Symbol.for("opencode.compat.path-bridge")` so an
+unmodified provider resolves project/global config under `.omp` / `.pi` (and
+agent roots via `PI_CODING_AGENT_DIR` / `PI_CONFIG_DIR`) instead of inventing
+`.opencode`. CreatePlan and similar host-calculated paths follow that bridge.
+
+### Cursor SwitchMode / GenerateImage tools
+
+When `pi-bridge.json` includes `cursor-opencode-provider`, pi-bridge registers
+the tools that provider already bridges on:
+
+| Tool | Host | Behavior |
+|---|---|---|
+| `plan_enter` / `plan_exit` | **omp only** | Drive native omp plan mode (ACP-shaped `setPlanModeState` + proposal handler via `AgentRegistry`) |
+| `cursor_image_save` | **omp and pi** | Commit staged Cursor image bytes (`image_id` only) |
+
+Plain **pi** has no plan mode, so SwitchMode stays refused there. Image save
+works on both hosts when the Cursor provider is loaded in-process.
+
 ---
 
 ## Verify

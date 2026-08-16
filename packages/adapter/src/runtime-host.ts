@@ -8,6 +8,9 @@ export type RuntimeToolRoles = {
     subagent?: string
     todoWrite?: string
     todoRead?: string
+    question?: string
+    planEnter?: string
+    planExit?: string
   }
 }
 
@@ -16,6 +19,11 @@ export function toolRolesForHostId(id: string): RuntimeToolRoles | undefined {
   switch (id) {
     case "mimo":
       return { tools: { subagent: "actor", todoWrite: "task", todoRead: "task" } }
+    // omp advertises interactive prompts as `ask`; OpenCode plugins expect `question`.
+    // Path/schema translation for that role lives in pi-bridge; the shim only
+    // needs the name so catalog remaps stay consistent if a clone path sees it.
+    case "omp":
+      return { tools: { question: "ask" } }
     default:
       return undefined
   }
@@ -66,6 +74,10 @@ function xdgConfig(env: Record<string, string | undefined>): string {
     : path.join(env.HOME || env.USERPROFILE || homedir(), ".config")
 }
 
+function homeDir(env: Record<string, string | undefined>): string {
+  return env.HOME || env.USERPROFILE || homedir()
+}
+
 function hostConfigRoot(id: string, env: Record<string, string | undefined>): string {
   if (id === "mimo") {
     if (env.MIMOCODE_CONFIG_DIR) return path.resolve(env.MIMOCODE_CONFIG_DIR)
@@ -76,6 +88,14 @@ function hostConfigRoot(id: string, env: Record<string, string | undefined>): st
     if (env.KILO_CONFIG_DIR) return path.resolve(env.KILO_CONFIG_DIR)
     return path.join(xdgConfig(env), "kilo")
   }
+  // Pi-family durable config lives under ~/.omp or ~/.pi (or PI_CONFIG_DIR /
+  // PI_CODING_AGENT_DIR). Provider CreatePlan / skill discovery follow this
+  // bridge rather than inventing `.opencode` under a pi workspace.
+  if (id === "omp" || id === "pi") {
+    if (env.PI_CODING_AGENT_DIR) return path.resolve(env.PI_CODING_AGENT_DIR)
+    const configDir = env.PI_CONFIG_DIR || (id === "pi" ? ".pi" : ".omp")
+    return path.join(homeDir(env), configDir, "agent")
+  }
   if (env.OPENCODE_CONFIG_DIR) return path.resolve(env.OPENCODE_CONFIG_DIR)
   return path.join(xdgConfig(env), "opencode")
 }
@@ -83,18 +103,21 @@ function hostConfigRoot(id: string, env: Record<string, string | undefined>): st
 function hostProjectNames(id: string): string[] {
   if (id === "mimo") return [".mimocode"]
   if (id === "kilo") return [".kilo", ".kilocode"]
+  if (id === "omp") return [".omp"]
+  if (id === "pi") return [".pi"]
   return [".opencode"]
 }
 
 function hostConfigFiles(id: string): string[] {
   if (id === "mimo") return ["config.json", "mimocode.json", "mimocode.jsonc"]
   if (id === "kilo") return ["config.json", "kilo.json", "kilo.jsonc", "opencode.json", "opencode.jsonc"]
+  if (id === "omp" || id === "pi") return ["settings.json", "pi-bridge.json"]
   return ["opencode.json", "opencode.jsonc"]
 }
 
 /** Install native host paths for an unchanged OpenCode plugin before it loads. */
 export function installPathBridge(id: string, env: Record<string, string | undefined> = process.env): void {
-  if (id !== "opencode" && id !== "mimo" && id !== "kilo") return
+  if (id !== "opencode" && id !== "mimo" && id !== "kilo" && id !== "omp" && id !== "pi") return
   const globalRoot = hostConfigRoot(id, env)
   ;(globalThis as typeof globalThis & Record<typeof PATH_BRIDGE_KEY, unknown>)[PATH_BRIDGE_KEY] = {
     projectConfigDirs(workspaceRoot: string) {

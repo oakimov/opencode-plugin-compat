@@ -130,22 +130,115 @@ describe("MiMo/Kilo host-dev cleanup", () => {
     expect(localBody.indexOf("host_dev_clean_plugin_installs")).toBeLessThan(
       localBody.indexOf("host_dev_link_cache_to_provider"),
     )
-    expect(localBody.indexOf("host_dev_reinstall_provider_dependencies")).toBeLessThan(
-      localBody.indexOf("host_dev_refresh_provider_stock"),
+    // The wrapper must exist before the config is pointed at it, and the slot
+    // must be written before setup runs against it.
+    expect(localBody.indexOf("ocp_dev_build_wrapper")).toBeLessThan(
+      localBody.indexOf("ocp_dev_apply_slot"),
     )
-    expect(localBody.indexOf("host_dev_patch_config_local")).toBeLessThan(
+    expect(localBody.indexOf("ocp_dev_apply_slot")).toBeLessThan(
       localBody.indexOf("host_dev_run_ocp_setup"),
     )
     expect(npmBody.indexOf("host_dev_clean_plugin_installs")).toBeLessThan(
       npmBody.indexOf("host_dev_reinstall_plugin_npm"),
     )
     expect(npmBody).toContain('host_dev_reinstall_plugin_npm "$host_cli" "$plugin"')
-    expect(npmBody.indexOf("host_dev_patch_config_npm")).toBeLessThan(
+    expect(npmBody.indexOf("ocp_dev_apply_slot")).toBeLessThan(
       npmBody.indexOf("host_dev_reinstall_plugin_npm"),
     )
-    expect(npmBody.indexOf("host_dev_patch_config_npm")).toBeLessThan(
+    expect(npmBody.indexOf("ocp_dev_apply_slot")).toBeLessThan(
       npmBody.indexOf("host_dev_run_ocp_setup"),
     )
     expect(npmBody).not.toContain("host_dev_restore_config")
+  })
+
+  test("local mode never mutates the shared provider checkout", () => {
+    const source = readFileSync(helper, "utf8")
+    const localBody = source.slice(
+      source.indexOf("host_dev_local()"),
+      source.indexOf("host_dev_npm()"),
+    )
+
+    // Native OpenCode reads the stock checkout by absolute path, and both
+    // clones read it too. Any of these in the local path reintroduces the
+    // last-writer-wins breakage this design removed.
+    for (const destructive of [
+      "host_dev_wire_provider_facades",
+      "host_dev_refresh_provider_stock",
+      "host_dev_remove_provider_dependencies",
+      "host_dev_reinstall_provider_dependencies",
+    ]) {
+      expect(localBody).not.toContain(destructive)
+    }
+
+    // Guard the checkout before touching anything, and re-assert afterwards.
+    expect(localBody.indexOf("ocp_dev_assert_stock_clean")).toBeLessThan(
+      localBody.indexOf("ocp_dev_build_wrapper"),
+    )
+    expect(localBody.lastIndexOf("ocp_dev_assert_stock_clean")).toBeGreaterThan(
+      localBody.indexOf("host_dev_run_ocp_setup"),
+    )
+
+    // The cache module must point at the per-host wrapper, not the stock tree:
+    // pointing it at the checkout would serve an uninstrumented provider.
+    expect(localBody).toContain('host_dev_link_cache_to_provider "$module_dir" "$wrapper"')
+  })
+
+  test("the facade-into-stock helper is gone entirely", () => {
+    // It is not enough for local mode to stop calling it; leaving it defined
+    // invites a future caller to reintroduce the breakage.
+    expect(readFileSync(helper, "utf8")).not.toContain("host_dev_wire_provider_facades()")
+  })
+})
+
+describe("ocp-dev apply_slot stock eviction", () => {
+  const ocpCommon = resolve(import.meta.dir, "../scripts/ocp-dev-common.sh")
+
+  test("removes absolute stock checkout paths from plugin[] so absolute-plugins cannot dirty stock", () => {
+    const root = mkdtempSync(join(tmpdir(), "ocp-slot-"))
+    const stock = join(root, "stock-provider")
+    const stockEntry = join(stock, "dist", "index.js")
+    const wrapperEntry = join(root, "wrapper", "dist", "index.js")
+    const configPath = join(root, "kilo.jsonc")
+    const stateDir = join(root, "state")
+    try {
+      mkdirSync(join(stock, "dist"), { recursive: true })
+      writeFileSync(stockEntry, "export default {}\n")
+      writeFileSync(
+        configPath,
+        JSON.stringify(
+          {
+            plugin: [stockEntry, "/other/user-plugin.js"],
+            provider: { cursor: { npm: `file://${stockEntry}` } },
+          },
+          null,
+          2,
+        ),
+      )
+
+      const result = bash(
+        'source "$1"; export OCP_DEV_STATE_DIR="$2"; ocp_dev_apply_slot kilo "$3" local "$4" "file://$4" "$5" "$6"',
+        [ocpCommon, stateDir, configPath, wrapperEntry, stock, join(root, "wrapper")],
+      )
+      expect(result.exitCode).toBe(0)
+      expect(result.stdout.toString()).toContain("stock checkout plugin path")
+
+      const config = JSON.parse(readFileSync(configPath, "utf8")) as {
+        plugin: string[]
+        provider?: { cursor?: { npm?: string } }
+      }
+      expect(config.plugin).toEqual(["/other/user-plugin.js", wrapperEntry])
+      expect(config.plugin.some((entry) => entry.includes("stock-provider"))).toBe(false)
+      expect(config.provider?.cursor?.npm).toBe(`file://${wrapperEntry}`)
+
+      const manifestPath = join(stateDir, "kilo", "state.json")
+      expect(existsSync(manifestPath)).toBe(true)
+      const manifest = JSON.parse(readFileSync(manifestPath, "utf8")) as {
+        config: { stockPluginEntriesBefore?: string[]; pluginAdded?: string }
+      }
+      expect(manifest.config.pluginAdded).toBe(wrapperEntry)
+      expect(manifest.config.stockPluginEntriesBefore).toEqual([stockEntry])
+    } finally {
+      rmSync(root, { recursive: true, force: true })
+    }
   })
 })

@@ -22,6 +22,7 @@ import type { PiModelConfig } from "./opencode/models.js"
 import { translateContextToPrompt, translateToolChoice, translateTools } from "./translate/context.js"
 import { emptyUsage, runV3StreamToPi } from "./translate/stream.js"
 import { buildPiSubagentVocabulary, buildPiTerminalResultVocabulary, buildPiToolInputVocabulary } from "./translate/subagent.js"
+import { buildPiQuestionVocabulary } from "./translate/question.js"
 import type { PiContextLike, PiExtensionApi, PiModelLike, PiSimpleStreamOptions } from "./pi-provider-types.js"
 
 export interface AiSdkProviderSpec {
@@ -95,17 +96,18 @@ function buildStreamSimple(spec: AiSdkProviderSpec, runtime: PiRuntime) {
         const lm = await spec.getLanguageModel(model.id, apiKey)
         const vocabulary = buildPiSubagentVocabulary(context.tools, runtime.toolSchema, runtime.profile)
         const toolInputs = buildPiToolInputVocabulary(context.tools, runtime.profile, runtime.toolSchema)
+        const question = buildPiQuestionVocabulary(context.tools, runtime.profile)
         const terminalResult = buildPiTerminalResultVocabulary(context.tools, runtime.profile)
         const base: LanguageModelV3CallOptions = {
-          prompt: translateContextToPrompt(context, vocabulary, runtime.profile, toolInputs),
-          tools: translateTools(context.tools, runtime.toolSchema, vocabulary, toolInputs),
-          toolChoice: translateToolChoice(options?.toolChoice, vocabulary, toolInputs),
+          prompt: translateContextToPrompt(context, vocabulary, runtime.profile, toolInputs, question),
+          tools: translateTools(context.tools, runtime.toolSchema, vocabulary, toolInputs, question),
+          toolChoice: translateToolChoice(options?.toolChoice, vocabulary, toolInputs, question),
           abortSignal: options?.signal,
           headers: aiSdkHeadersFromPi(options),
         }
         const callOptions = spec.buildCallOptions ? await spec.buildCallOptions({ model, context, options, base }) : base
         const result = await lm.doStream(callOptions)
-        await runV3StreamToPi({ model, v3Stream: result.stream, piStream, vocabulary, toolInputs, terminalResult })
+        await runV3StreamToPi({ model, v3Stream: result.stream, piStream, vocabulary, toolInputs, terminalResult, question })
       } catch (err) {
         const message = errorAssistantMessage(model, err)
         piStream.push({ type: "start", partial: message })

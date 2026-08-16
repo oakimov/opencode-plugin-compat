@@ -127,6 +127,46 @@ bridge accepts the common provider spelling `action` and translates it before
 host validation, so `{action: "jobs"}` executes as `{op: "jobs"}`. If both are
 present, the explicit host-native `op` value wins.
 
+## Interactive prompts (`ask` ↔ `question`)
+
+omp advertises interactive multi-choice prompts as `ask` with
+`{questions:[{id, question, options, multi?}]}`. OpenCode plugins expect
+`question` with `{questions:[{question, header, options[{label,description}],
+multiple?}]}`. When the omp profile's `tools.question` role is live (`ask` in
+the catalog), the bridge remaps the catalog, calls, named tool choice, and
+history — synthesizing missing `id` values and mapping `multiple` ↔ `multi`.
+Plain pi has no question role by default.
+
+## Cursor SwitchMode / CreatePlan / GenerateImage tools
+
+When `pi-bridge.json` includes `cursor-opencode-provider`, the extension
+registers the tools that provider already bridges on:
+
+| Tool | Host | Behavior |
+|---|---|---|
+| `plan_enter` / `plan_exit` | **omp only** | Drive native omp plan mode (ACP-shaped session APIs via `AgentRegistry`) |
+| `cursor_plan_stage` | **omp only** | Stage Cursor CreatePlan markdown under omp's session-local `local://` root immediately before the provider calls native `write xd://propose` |
+| `cursor_image_save` | **omp and pi** | Commit staged Cursor image bytes (`image_id` only) |
+
+The CreatePlan bridge keeps Cursor's interaction open while
+`cursor_plan_stage` writes the native plan artifact and opens an interactive
+approval/refinement selector through omp's extension UI. Approval restores the
+pre-plan tools and queues an implementation turn; refinement keeps plan mode
+active. The bridge owns this UI directly because npm omp runs its bundled
+`InteractiveMode` — source changes in a separate checkout cannot affect it.
+This avoids both a tool-less detached plan and a repeated CreatePlan retry loop.
+Plain **pi** has no plan mode, so SwitchMode stays refused there. Image save
+works on both hosts when the Cursor provider is loaded in-process. Force
+registration in tests with `PI_BRIDGE_CURSOR_HOST_TOOLS=1`.
+
+## Path bridge
+
+On extension load, the bridge installs `Symbol.for("opencode.compat.path-bridge")`
+for the detected host so unmodified providers resolve project/global config under
+`.omp` / `.pi` (agent roots via `PI_CODING_AGENT_DIR` / `PI_CONFIG_DIR`) instead
+of inventing `.opencode`. CreatePlan and similar host-calculated paths follow
+that bridge.
+
 OpenCode plugins also emit camelCase essential-tool args (`filePath`,
 `oldString`, `workdir`). Pi-family hosts validate against `path` / `cwd` /
 snake_case schemas and drop unrecognized keys when more than one string field

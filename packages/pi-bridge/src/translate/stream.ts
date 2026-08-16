@@ -21,6 +21,7 @@ import {
   type PiTerminalResultVocabulary,
   type PiToolInputVocabulary,
 } from "./subagent.js"
+import type { PiQuestionVocabulary } from "./question.js"
 
 let syntheticToolCallSequence = 0
 
@@ -88,6 +89,7 @@ export async function runV3StreamToPi(options: {
   vocabulary?: PiSubagentVocabulary
   toolInputs?: PiToolInputVocabulary
   terminalResult?: PiTerminalResultVocabulary
+  question?: PiQuestionVocabulary
 }): Promise<void> {
   const { model, piStream } = options
   const partial: AssistantMessage = {
@@ -188,7 +190,7 @@ export async function runV3StreamToPi(options: {
         case "tool-call": {
           const idx = toolCallIndexById.get(part.toolCallId) ?? openToolCallBlock(part.toolCallId)
           const input = parseToolInput(part.input)
-          const translated = translateCanonicalToolCall(part.toolName, input, options.vocabulary, options.toolInputs)
+          const translated = translateCanonicalToolCall(part.toolName, input, options.vocabulary, options.toolInputs, options.question)
           const toolCall: PiToolCall = {
             type: "toolCall",
             id: part.toolCallId,

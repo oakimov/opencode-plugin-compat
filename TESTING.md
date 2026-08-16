@@ -36,11 +36,63 @@ From this repo root:
 ./scripts/kilo-dev.sh npm
 ```
 
-Defaults: provider checkout at `../cursor-opencode-provider` or `~/Projects/cursor-opencode-provider` (override with `OCP_DEV_PROVIDER_PATH`). The helpers update only the selected plugin/provider fields in the current canonical host config; they do not capture or restore a config backup.
+Or drive every host at once — `shim`/`unshim` detect which hosts are actually
+installed on this machine (`mimo`, `kilo`, `pi`, `omp`) and act on all of them:
 
-Both modes start by deleting every cached version of the selected consumer plugin and the local provider checkout's complete `node_modules`. Dependencies are reinstalled from the checkout lockfile before any rebuild or shim change, so stale facade links and transitive packages cannot survive between runs.
+```bash
+./scripts/ocp-dev.sh shim              # wire every installed host (local mode)
+./scripts/ocp-dev.sh shim --mode npm   # ...against published packages instead
+./scripts/ocp-dev.sh shim kilo mimo    # or just the named ones
 
-`local` force-registers the provider checkout path, rebuilds `dist/` from source, and then runs `ocp setup --mode file`. `npm` restores stock local build output, replaces stale local/pinned plugin fields with `<plugin>@latest` before installation, force-installs that spec, and runs `ocp setup --mode npm`. Unrelated current host settings are preserved in both directions. Neither config nor provider entry backups are restored: current config plus a clean rebuild/reinstall are the only sources of truth. MiMo and Kilo local mode share that checkout — `hostHint` is last setup wins (runtime still detects host from argv/env).
+./scripts/ocp-dev.sh unshim            # return every installed host to factory state
+./scripts/ocp-dev.sh unshim pi         # or just one
+
+./scripts/ocp-dev.sh status            # what is wired, and is the checkout clean?
+./scripts/ocp-dev.sh repair-stock      # restore a checkout an older script dirtied
+./scripts/ocp-dev.sh revert kilo       # narrow: clone config slot + wrapper only
+```
+
+`shim` keeps going if one host fails and reports a summary, so an uninstalled or
+misconfigured host does not block the rest.
+
+`unshim` is the full reset. For MiMo/Kilo it removes the config slot and wrapper
+via the manifest; for Pi/OMP it uninstalls the bridge and consumer plugin from
+the host's own package manager, deletes the bridge config, and unlinks the host
+AI package from the local `pi-bridge` checkout. It finishes by restoring the
+provider checkout if an older script left it dirty. Every step tolerates
+already-absent state, so it is safe to re-run.
+
+Defaults: provider checkout from `OCP_DEV_PROVIDER_PATH` if set, else `../cursor-opencode-provider`, else `~/Projects/cursor-opencode-provider`.
+
+**The provider checkout is read-only in local mode.** Every host gets a private
+instrumented copy under `${OCP_DEV_STATE_DIR:-~/.cache/ocp-dev}/<host>/provider`
+(a copy of `dist/` plus per-package symlinks into the checkout's
+`node_modules`), and the host config points at that copy. Consequences:
+
+- **Native OpenCode keeps working.** It loads the stock
+  `…/cursor-opencode-provider/dist/index.js` by absolute path; nothing in local
+  mode writes to that file or its `node_modules`.
+- **MiMo and Kilo can be wired at the same time**, each with its own correct
+  `hostHint`. The old "last setup wins" caveat is gone.
+- Local mode never reinstalls or rebuilds the checkout. It builds `dist/` only
+  if missing. Use `ocp-dev.sh repair-stock` (or `clean-test-state.sh`) when you
+  actually want a clean reinstall/rebuild.
+
+Each run records `state.json` next to the wrapper, capturing the exact config
+entry it added and the prior `provider.cursor`. That manifest is what makes
+`revert` exact and what lets a mode switch evict the previous entry — user
+plugin entries in `plugin` are always preserved.
+
+`local` generates the wrapper and runs `ocp setup --mode file`, so facade
+symlinks land inside the wrapper (this is deliberate: it exercises this
+checkout's facade code). `npm` writes the `<plugin>@latest` slot, force-installs
+it into the host's own package cache, runs `ocp setup --mode npm`, and drops the
+now-stale wrapper. Switching modes in either direction replaces a single slot;
+neither direction touches the checkout.
+
+If a checkout was dirtied by an older version of these scripts — an in-place
+`dist/index.js` shim, or `node_modules/@opencode-ai/*` symlinked to facades —
+local mode refuses to run and points at `repair-stock`.
 
 ---
 

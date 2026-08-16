@@ -45,6 +45,15 @@ export type PiTerminalResultToolProfile = {
   input: Readonly<Record<string, unknown>>
 }
 
+/**
+ * Interactive prompt role. OpenCode plugins expect `question`; omp advertises
+ * the same role as `ask` (`multi` instead of `multiple`, required `id` per item).
+ */
+export type PiQuestionToolProfile = {
+  /** Tool name the host advertises when its interactive prompt is active. */
+  name: string
+}
+
 export type PiToolInputProfile = {
   /** Provider-emitted argument name -> host argument name. */
   inputAliases: Readonly<Record<string, string>>
@@ -138,6 +147,11 @@ export type PiHostProfile = {
      * activates this mapping only when the named tool is advertised live.
      */
     subagent?: PiSubagentToolProfile
+    /**
+     * Interactive prompt role. Activated only when the named tool is live
+     * (omp: `ask` → OpenCode `question`).
+     */
+    question?: PiQuestionToolProfile
     /**
      * Some hosts require a terminal tool call instead of accepting a normal
      * assistant stop. The bridge activates this only when the tool is live.
@@ -273,6 +287,8 @@ export function ompProfile(): PiHostProfile {
       // OMP subagents do not settle on a plain assistant response. `yield`
       // with an empty typed result tells the host to use that response text.
       terminalResult: { name: "yield", input: { type: "result", result: {} } },
+      // OpenCode plugins expect `question`; omp advertises the same role as `ask`.
+      question: { name: "ask" },
       toolInputs: OMP_ESSENTIAL_TOOL_INPUTS,
     },
     messages: {

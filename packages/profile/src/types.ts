@@ -56,6 +56,16 @@ export type HostToolRoles = {
   todoWrite: string
   /** Reads work items / todos. Default `todoread`; MiMo: `task`. */
   todoRead: string
+  /**
+   * Interactive multi-choice prompt. Default `question`.
+   * Pi-family omp advertises this role as `ask` (translated in pi-bridge, not
+   * via HostToolRoles — HostId does not include pi/omp).
+   */
+  question: string
+  /** Enter plan mode. Default `plan_enter`. Absent on many forks until advertised. */
+  planEnter: string
+  /** Exit plan mode / return to build. Default `plan_exit`. */
+  planExit: string
 }
 
 export type HostHooks = {

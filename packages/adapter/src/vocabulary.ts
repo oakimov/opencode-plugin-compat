@@ -50,9 +50,20 @@ export type Vocabulary = {
   readonly subagentHost?: string
   readonly todoWriteHost?: string
   readonly todoReadHost?: string
+  readonly questionHost?: string
+  readonly planEnterHost?: string
+  readonly planExitHost?: string
 }
 
-const ROLES: readonly ToolRole[] = ["subagent", "todoWrite", "todoRead"]
+/** Roles whose host name may differ from the OpenCode canonical name. */
+const ROLES: readonly ToolRole[] = [
+  "subagent",
+  "todoWrite",
+  "todoRead",
+  "question",
+  "planEnter",
+  "planExit",
+]
 
 /**
  * Resolve the rotated roles for this call.
@@ -99,6 +110,9 @@ export function buildVocabulary(
     subagentHost: bindings.find((b) => b.role === "subagent")?.host,
     todoWriteHost: bindings.find((b) => b.role === "todoWrite")?.host,
     todoReadHost: bindings.find((b) => b.role === "todoRead")?.host,
+    questionHost: bindings.find((b) => b.role === "question")?.host,
+    planEnterHost: bindings.find((b) => b.role === "planEnter")?.host,
+    planExitHost: bindings.find((b) => b.role === "planExit")?.host,
   }
 }
 
@@ -204,12 +218,99 @@ function canonicalTodoReadSchema(): Record<string, unknown> {
   return { type: "object", properties: {}, additionalProperties: false }
 }
 
+/** Upstream OpenCode `question` — flat prompts with `multiple`, not omp `multi`. */
+function canonicalQuestionSchema(): Record<string, unknown> {
+  return {
+    type: "object",
+    properties: {
+      questions: {
+        type: "array",
+        description: "Questions to ask",
+        items: {
+          type: "object",
+          properties: {
+            question: { type: "string", description: "Complete question" },
+            header: { type: "string", description: "Very short label (max 30 chars)" },
+            options: {
+              type: "array",
+              description: "Available choices",
+              items: {
+                type: "object",
+                properties: {
+                  label: { type: "string", description: "Display text (1-5 words, concise)" },
+                  description: { type: "string", description: "Explanation of choice" },
+                },
+                required: ["label", "description"],
+                additionalProperties: false,
+              },
+            },
+            multiple: {
+              type: "boolean",
+              description: "Allow selecting multiple choices",
+            },
+          },
+          required: ["question", "header", "options"],
+          additionalProperties: false,
+        },
+      },
+    },
+    required: ["questions"],
+    additionalProperties: false,
+  }
+}
+
+function canonicalPlanEnterSchema(): Record<string, unknown> {
+  return {
+    type: "object",
+    properties: {
+      explanation: {
+        type: "string",
+        description: "Optional reason for entering plan mode",
+      },
+    },
+    additionalProperties: false,
+  }
+}
+
+function canonicalPlanExitSchema(): Record<string, unknown> {
+  return {
+    type: "object",
+    properties: {
+      explanation: {
+        type: "string",
+        description: "Optional reason for leaving plan mode",
+      },
+    },
+    additionalProperties: false,
+  }
+}
+
+function catalogSchemaFor(role: ToolRole, hostSchema: unknown): unknown {
+  switch (role) {
+    case "subagent":
+      return canonicalSubagentSchema(hostSchema)
+    case "todoWrite":
+      return canonicalTodoWriteSchema()
+    case "todoRead":
+      return canonicalTodoReadSchema()
+    case "question":
+      return canonicalQuestionSchema()
+    case "planEnter":
+      return canonicalPlanEnterSchema()
+    case "planExit":
+      return canonicalPlanExitSchema()
+  }
+}
+
 const CANONICAL_DESCRIPTIONS: Record<ToolRole, string> = {
   subagent:
     "Launch a new agent to handle complex, multi-step tasks autonomously. The agent runs independently and returns its final result.",
   todoWrite:
     "Update the todo list for the current session. Always provide the complete list; it replaces the previous one.",
   todoRead: "Read the current todo list for this session.",
+  question: "Ask the user one or more clarifying questions before continuing.",
+  planEnter: "Enter plan mode to design an approach before making changes.",
+  planExit: "Leave plan mode and return to build/agent mode.",
 }
 
 /**
@@ -238,17 +339,11 @@ export function translateCatalog<T>(tools: readonly T[], vocab: Vocabulary): T[]
   for (const binding of vocab.bindings) {
     const source = bySource.get(binding.host)
     if (!source) continue
-    const inputSchema =
-      binding.role === "subagent"
-        ? canonicalSubagentSchema(source.inputSchema)
-        : binding.role === "todoWrite"
-          ? canonicalTodoWriteSchema()
-          : canonicalTodoReadSchema()
     out.push({
       ...source,
       name: binding.canonical,
       description: CANONICAL_DESCRIPTIONS[binding.role],
-      inputSchema,
+      inputSchema: catalogSchemaFor(binding.role, source.inputSchema),
     } as unknown as T)
   }
 
@@ -463,7 +558,43 @@ export function translateCall(
     }))
   }
 
+  if (vocab.questionHost && toolName === DEFAULT_TOOL_ROLES.question) {
+    return [{ toolCallId, toolName: vocab.questionHost, input: questionCallInput(input) }]
+  }
+
+  if (vocab.planEnterHost && toolName === DEFAULT_TOOL_ROLES.planEnter) {
+    return [{ toolCallId, toolName: vocab.planEnterHost, input }]
+  }
+
+  if (vocab.planExitHost && toolName === DEFAULT_TOOL_ROLES.planExit) {
+    return [{ toolCallId, toolName: vocab.planExitHost, input }]
+  }
+
   return undefined
+}
+
+/**
+ * OpenCode `question` uses `multiple`; omp `ask` uses `multi` and requires `id`
+ * per question. Map only the known deltas; leave unknown host fields alone.
+ */
+function questionCallInput(input: Record<string, unknown>): Record<string, unknown> {
+  const questions = input["questions"]
+  if (!Array.isArray(questions)) return input
+  return {
+    ...input,
+    questions: questions.map((entry, index) => {
+      if (!isRecord(entry)) return entry
+      const out: Record<string, unknown> = { ...entry }
+      if (typeof out["id"] !== "string" || !out["id"]) {
+        out["id"] = `q${index + 1}`
+      }
+      if (Object.hasOwn(out, "multiple") && !Object.hasOwn(out, "multi")) {
+        out["multi"] = out["multiple"]
+        delete out["multiple"]
+      }
+      return out
+    }),
+  }
 }
 
 /* -------------------------------------------------------------------------- */

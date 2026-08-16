@@ -1,5 +1,14 @@
 # Shared helpers for MiMo / Kilo local-dev wiring (OCP checkout + local consumer plugin).
 # Sourced by scripts/mimo-dev.sh and scripts/kilo-dev.sh — do not execute directly.
+#
+# Local mode is NON-DESTRUCTIVE to the provider checkout: every host gets a
+# private instrumented copy under the dev state dir and the host config points
+# at that. The stock checkout is read-only here, so native OpenCode — which
+# reads the same tree — keeps working, and two clones can be wired at once.
+# See tasks/plans/multi-host-local-dev-isolation.md.
+
+# shellcheck source=scripts/ocp-dev-common.sh
+source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/ocp-dev-common.sh"
 
 host_dev_die() {
   echo "host-dev: $*" >&2
@@ -20,13 +29,20 @@ host_dev_ocp_cli() {
 host_dev_default_provider_path() {
   local ocp_root="$1"
   local sibling
+  # Explicit override wins over discovery. This used to be checked *after* the
+  # sibling checkout, so OCP_DEV_PROVIDER_PATH was silently ignored whenever a
+  # sibling existed — contradicting TESTING.md and making it impossible to
+  # point a dev run at any other checkout.
+  if [[ -n "${OCP_DEV_PROVIDER_PATH:-}" ]]; then
+    if [[ -d "${OCP_DEV_PROVIDER_PATH}/dist" ]]; then
+      echo "${OCP_DEV_PROVIDER_PATH}"
+      return 0
+    fi
+    host_dev_die "OCP_DEV_PROVIDER_PATH is set but has no dist/: ${OCP_DEV_PROVIDER_PATH}"
+  fi
   sibling="$(dirname "$ocp_root")/cursor-opencode-provider"
   if [[ -d "$sibling/dist" ]]; then
     echo "$sibling"
-    return 0
-  fi
-  if [[ -n "${OCP_DEV_PROVIDER_PATH:-}" && -d "${OCP_DEV_PROVIDER_PATH}/dist" ]]; then
-    echo "${OCP_DEV_PROVIDER_PATH}"
     return 0
   fi
   local fallback="${HOME}/Projects/cursor-opencode-provider"
@@ -226,164 +242,13 @@ host_dev_reinstall_provider_dependencies() {
   ) || host_dev_die "provider dependency install failed in ${provider_path}"
 }
 
-host_dev_patch_config_local() {
-  local host="$1"
-  local provider_path="$2"
-  local config_file entry
-  config_file="$(host_dev_config_file "$host")"
-  entry="${provider_path}/dist/index.js"
-  if [[ ! -f "$entry" ]]; then
-    host_dev_die "provider entry missing: $entry (run bun run build in the provider checkout)"
-  fi
-  if ! command -v bun >/dev/null 2>&1; then
-    host_dev_die "bun is required to patch host config"
-  fi
-  bun - "$config_file" "$entry" "$host" "$provider_path" <<'BUN'
-import { readFileSync, writeFileSync, mkdirSync, unlinkSync } from "node:fs"
-import { dirname, join } from "node:path"
-
-const [configPath, entryPath, host, providerPath] = process.argv.slice(2)
-
-let raw = "{}"
-try {
-  raw = readFileSync(configPath, "utf8")
-} catch {
-  mkdirSync(dirname(configPath), { recursive: true })
-}
-
-const stripComments = (s) =>
-  s.replace(/\/\*[\s\S]*?\*\//g, "").replace(/(^|\s)\/\/.*$/gm, "$1")
-const data = JSON.parse(stripComments(raw))
-
-data.plugin = [entryPath]
-
-const fileUrl = `file://${entryPath}`
-data.provider = data.provider ?? {}
-data.provider.cursor = {
-  npm: fileUrl,
-  name: "Cursor",
-  models: data.provider.cursor?.models ?? {},
-}
-
-writeFileSync(configPath, `${JSON.stringify(data, null, 2)}\n`, "utf8")
-console.log(`host-dev: wrote local plugin + provider.cursor into ${configPath}`)
-
-// Kilo's plugin installer can create a second opencode.json even when
-// kilo.jsonc is the canonical config. Delete only the exact generated shape;
-// any alternate config containing user settings is preserved.
-if (host === "kilo") {
-  for (const name of ["opencode.json", "opencode.jsonc", "config.json"]) {
-    const candidate = join(dirname(configPath), name)
-    if (candidate === configPath) continue
-    try {
-      const alternate = JSON.parse(stripComments(readFileSync(candidate, "utf8")))
-      const keys = Object.keys(alternate)
-      const plugins = alternate.plugin
-      if (
-        keys.length === 1 &&
-        keys[0] === "plugin" &&
-        Array.isArray(plugins) &&
-        plugins.length === 1 &&
-        (plugins[0] === providerPath || plugins[0] === entryPath)
-      ) {
-        unlinkSync(candidate)
-        console.log(`host-dev: removed redundant generated config ${candidate}`)
-      }
-    } catch {
-      // Missing, JSONC not parseable by the same host subset, or user-owned:
-      // leave it untouched.
-    }
-  }
-}
-BUN
-}
-
-host_dev_patch_config_npm() {
-  local host="$1"
-  local plugin="$2"
-  local config_file
-  config_file="$(host_dev_config_file "$host")"
-  if ! command -v bun >/dev/null 2>&1; then
-    host_dev_die "bun is required to patch host config"
-  fi
-  bun - "$config_file" "$host" "$plugin" <<'BUN'
-import { readFileSync, writeFileSync, mkdirSync, unlinkSync } from "node:fs"
-import { dirname, join } from "node:path"
-
-const [configPath, host, plugin] = process.argv.slice(2)
-const pluginSpec = `${plugin}@latest`
-const stripComments = (s) =>
-  s.replace(/\/\*[\s\S]*?\*\//g, "").replace(/(^|\s)\/\/.*$/gm, "$1")
-
-let raw = "{}"
-try {
-  raw = readFileSync(configPath, "utf8")
-} catch {
-  mkdirSync(dirname(configPath), { recursive: true })
-}
-const data = JSON.parse(stripComments(raw))
-data.plugin = [pluginSpec]
-
-const cursor = data.provider?.cursor
-if (
-  cursor &&
-  typeof cursor === "object" &&
-  typeof cursor.npm === "string" &&
-  cursor.npm.startsWith("file:")
-) {
-  delete data.provider.cursor
-  if (Object.keys(data.provider).length === 0) delete data.provider
-}
-
-writeFileSync(configPath, `${JSON.stringify(data, null, 2)}\n`, "utf8")
-console.log(`host-dev: wrote ${pluginSpec} into ${configPath}`)
-
-if (host === "kilo") {
-  for (const name of ["opencode.json", "opencode.jsonc", "config.json"]) {
-    const candidate = join(dirname(configPath), name)
-    if (candidate === configPath) continue
-    try {
-      const alternate = JSON.parse(stripComments(readFileSync(candidate, "utf8")))
-      const keys = Object.keys(alternate)
-      const plugins = alternate.plugin
-      if (
-        keys.length === 1 &&
-        keys[0] === "plugin" &&
-        Array.isArray(plugins) &&
-        plugins.length === 1 &&
-        (plugins[0] === plugin || plugins[0] === pluginSpec)
-      ) {
-        unlinkSync(candidate)
-        console.log(`host-dev: removed redundant generated config ${candidate}`)
-      }
-    } catch {
-      // Preserve missing, malformed, or user-owned alternate configs.
-    }
-  }
-}
-BUN
-}
-
-host_dev_wire_provider_facades() {
-  local ocp_root="$1"
-  local provider_path="$2"
-  local facade_root="${ocp_root}/packages"
-  local ai_dir="${provider_path}/node_modules/@opencode-ai"
-  mkdir -p "$(dirname "$ai_dir")"
-  rm -rf "$ai_dir"
-  mkdir -p "$ai_dir"
-  ln -sfn "${facade_root}/facade-plugin" "${ai_dir}/plugin"
-  ln -sfn "${facade_root}/facade-sdk" "${ai_dir}/sdk"
-  echo "host-dev: @opencode-ai/* → local OCP facades in ${provider_path}"
-}
-
 # Rebuild the out-of-box provider dist, then remove generated OCP artifacts.
 # Rebuild/reinstall is the only stock source of truth; OCP never restores a
 # captured entry backup.
 #
-# IMPORTANT: call this while the provider still has its real `@opencode-ai/*`
-# dependencies (before wiring OCP facades). Facade typings are not a full
-# substitute for `@opencode-ai/plugin` during `tsc`.
+# Restore-only: `clean-test-state.sh` and `ocp-dev.sh repair-stock` call this to
+# undo a checkout dirtied by an older in-place script. Local wiring must NOT —
+# it shares this tree with native OpenCode. See host_dev_ensure_stock_build.
 host_dev_refresh_provider_stock() {
   local provider_path="$1"
   local dist="${provider_path}/dist"
@@ -421,25 +286,6 @@ host_dev_refresh_provider_stock() {
   echo "host-dev: stock entry ready for ocp setup at ${entry}"
 }
 
-host_dev_verify_provider_shim() {
-  local host="$1"
-  local provider_path="$2"
-  local dist="${provider_path}/dist"
-  local entry="${dist}/index.js"
-  local meta="${dist}/ocp-shim-meta.json"
-
-  [[ -f "$entry" ]] || host_dev_die "missing shim entry after setup: ${entry}"
-  [[ -f "${dist}/ocp-lm-runtime.js" ]] || host_dev_die "missing ocp-lm-runtime.js after setup"
-  grep -q "generated by ocp setup" "$entry" || host_dev_die "dist/index.js is not an OCP shim after setup"
-  [[ ! -e "${dist}/index.ocp-original.js" ]] || host_dev_die "legacy index.ocp-original.js must not exist after setup"
-  if [[ -f "$meta" ]]; then
-    echo "host-dev: shim meta → $(tr '\n' ' ' <"$meta")"
-  fi
-  echo "host-dev: verified Option B shim for host=${host} under ${dist}"
-  echo "host-dev: NOTE: MiMo/Kilo local mode share this provider checkout; hostHint is last setup wins."
-  echo "  Runtime still detects mimo/kilo from argv/env (OPENCODE_COMPAT_HOST override). Re-run this"
-  echo "  host's *-dev.sh local before testing if detection falls back to hostHint."
-}
 
 host_dev_link_cache_to_provider() {
   local module_dir="$1"
@@ -455,8 +301,31 @@ host_dev_run_ocp_setup() {
   local host="$2"
   local mode="$3"
   local packages_dir="$4"
-  echo "host-dev: ocp setup --host ${host} --mode ${mode}"
-  bun "$ocp_cli" setup --host "$host" --mode "$mode" --dir "$packages_dir"
+  shift 4
+  echo "host-dev: ocp setup --host ${host} --mode ${mode} $*"
+  bun "$ocp_cli" setup --host "$host" --mode "$mode" --dir "$packages_dir" "$@"
+}
+
+# Build the stock dist only when it is missing. Unlike the old
+# refresh-provider-stock path this never reinstalls dependencies and never
+# deletes anything: the checkout is shared with native OpenCode, so a dev run
+# for one host must not rebuild the world underneath it. Use
+# `ocp-dev.sh repair-stock` when a genuine restore is wanted.
+host_dev_ensure_stock_build() {
+  local provider_path="$1"
+  local entry="${provider_path}/dist/index.js"
+
+  if [[ -f "$entry" ]]; then
+    echo "host-dev: stock dist present (left untouched): ${entry}"
+    return 0
+  fi
+
+  echo "host-dev: stock dist missing — building once in ${provider_path}"
+  (
+    cd "$provider_path"
+    if command -v bun >/dev/null 2>&1; then bun run build; else npm run build; fi
+  ) || host_dev_die "provider build failed in ${provider_path}"
+  [[ -f "$entry" ]] || host_dev_die "provider entry missing after build: ${entry}"
 }
 
 host_dev_reinstall_plugin_npm() {
@@ -469,6 +338,7 @@ host_dev_reinstall_plugin_npm() {
 host_dev_local() {
   local host="$1"
   local ocp_root ocp_cli provider_path plugin packages_dir pkg_root module_dir host_cli config_file
+  local wrapper wrapper_entry
   ocp_root="$(host_dev_repo_root)"
   ocp_cli="$(host_dev_ocp_cli "$ocp_root")"
   [[ -f "$ocp_cli" ]] || host_dev_die "missing OCP CLI: $ocp_cli"
@@ -478,29 +348,47 @@ host_dev_local() {
   pkg_root="$(host_dev_plugin_cache_pkg "$packages_dir" "$plugin")"
   module_dir="$(host_dev_plugin_module_dir "$pkg_root" "$plugin")"
   host_cli="$(host_dev_resolve_host_cli "$host")"
-
-  host_dev_clean_plugin_installs "$packages_dir" "$plugin"
-  host_dev_reinstall_provider_dependencies "$provider_path"
-  host_dev_link_cache_to_provider "$module_dir" "$provider_path"
-  # Rebuild against the freshly installed real @opencode-ai/* deps, then wire facades.
-  host_dev_refresh_provider_stock "$provider_path"
-  host_dev_wire_provider_facades "$ocp_root" "$provider_path"
-  host_dev_patch_config_local "$host" "$provider_path"
-  host_dev_run_ocp_setup "$ocp_cli" "$host" file "$packages_dir"
-  host_dev_verify_provider_shim "$host" "$provider_path"
-
   config_file="$(host_dev_config_file "$host")"
+  wrapper="$(ocp_dev_wrapper_dir "$host")"
+  wrapper_entry="${wrapper}/dist/index.js"
+
+  # Refuse to build on top of a checkout an older script already shimmed.
+  ocp_dev_assert_stock_clean "$provider_path"
+  host_dev_ensure_stock_build "$provider_path"
+
+  # Host package cache is per-host, so cleaning it affects no one else.
+  host_dev_clean_plugin_installs "$packages_dir" "$plugin"
+
+  # Private instrumented copy — the stock checkout is never written.
+  ocp_dev_build_wrapper "$host" "$provider_path" "$ocp_root"
+  host_dev_link_cache_to_provider "$module_dir" "$wrapper"
+
+  ocp_dev_apply_slot "$host" "$config_file" local \
+    "$wrapper_entry" "file://${wrapper_entry}" "$provider_path" "$wrapper"
+
+  # Facade overrides land in this host's own package cache AND — because the
+  # config now names the wrapper — inside the wrapper's node_modules. That is
+  # what we want in local mode: it exercises this checkout's facade code, which
+  # is the whole point of --mode file. It is safe only because the wrapper's
+  # node_modules is a real directory of per-package symlinks; were it a symlink
+  # to the stock node_modules, this step would rewrite the shared checkout.
+  host_dev_run_ocp_setup "$ocp_cli" "$host" file "$packages_dir"
+
+  ocp_dev_assert_stock_clean "$provider_path"
+
   echo ""
   echo "host-dev: ${host} is on LOCAL OCP + LOCAL ${plugin}"
-  echo "  provider: ${provider_path}"
+  echo "  wrapper:  ${wrapper_entry}"
+  echo "  stock:    ${provider_path}  (untouched)"
   echo "  config:   ${config_file}"
   echo "  verify:   ${host_cli} models | head"
-  echo "  revert:   ${OCP_DEV_ROOT:-$(host_dev_repo_root)}/scripts/${host}-dev.sh npm"
+  echo "  status:   ${ocp_root}/scripts/ocp-dev.sh status"
+  echo "  revert:   ${ocp_root}/scripts/ocp-dev.sh revert ${host}"
 }
 
 host_dev_npm() {
   local host="$1"
-  local ocp_root ocp_cli provider_path plugin packages_dir host_cli
+  local ocp_root ocp_cli provider_path plugin packages_dir host_cli config_file
   ocp_root="$(host_dev_repo_root)"
   ocp_cli="$(host_dev_ocp_cli "$ocp_root")"
   [[ -f "$ocp_cli" ]] || host_dev_die "missing OCP CLI: $ocp_cli"
@@ -508,18 +396,37 @@ host_dev_npm() {
   plugin="$(host_dev_plugin_name)"
   packages_dir="$(host_dev_cache_packages_dir "$host")"
   host_cli="$(host_dev_resolve_host_cli "$host")"
+  config_file="$(host_dev_config_file "$host")"
 
+  # npm mode installs from the registry into this host's own package cache and
+  # does not use the local checkout at all. The old reinstall/rebuild here was
+  # really a repair for the damage local mode used to do; local mode no longer
+  # touches the checkout, so the repair belongs in `ocp-dev.sh repair-stock`.
   host_dev_clean_plugin_installs "$packages_dir" "$plugin"
-  host_dev_reinstall_provider_dependencies "$provider_path"
-  host_dev_refresh_provider_stock "$provider_path"
-  host_dev_patch_config_npm "$host" "$plugin"
+
+  # Writing the npm slot evicts whatever local mode recorded, so switching
+  # modes cannot leave two provider entries in `plugin`.
+  ocp_dev_apply_slot "$host" "$config_file" npm \
+    "${plugin}@latest" "$plugin" "$provider_path" ""
+
   host_dev_reinstall_plugin_npm "$host_cli" "$plugin"
-  host_dev_patch_config_npm "$host" "$plugin"
   host_dev_run_ocp_setup "$ocp_cli" "$host" npm "$packages_dir"
+
+  # Local wrapper state is now stale; drop it so `status` does not imply the
+  # host is still on a wrapper it no longer loads.
+  local wrapper
+  wrapper="$(ocp_dev_wrapper_dir "$host")"
+  if [[ -d "$wrapper" ]]; then
+    ocp_dev_assert_managed_path "$wrapper"
+    rm -rf "$wrapper"
+    echo "host-dev: removed stale local wrapper ${wrapper}"
+  fi
 
   echo ""
   echo "host-dev: ${host} is on published npm OCP facades + npm ${plugin}"
+  echo "  stock:  ${provider_path}  (untouched)"
   echo "  verify: ${host_cli} models | head"
+  echo "  status: ${ocp_root}/scripts/ocp-dev.sh status"
 }
 
 host_dev_usage() {

@@ -9,6 +9,10 @@
  */
 import type { PiHostProfile, PiToolInputProfile } from "../host/profile.js"
 import type { PiTool } from "../pi-provider-types.js"
+import {
+  translateCanonicalQuestionCall,
+  type PiQuestionVocabulary,
+} from "./question.js"
 
 export const CANONICAL_SUBAGENT_TOOL = "task"
 
@@ -358,9 +362,13 @@ export function translateCanonicalToolCall(
   input: Record<string, unknown>,
   vocabulary: PiSubagentVocabulary | undefined,
   toolInputs?: PiToolInputVocabulary,
+  question?: PiQuestionVocabulary,
 ): TranslatedSubagentCall | undefined {
   const subagent = translateCanonicalSubagentCall(toolName, input, vocabulary)
   if (subagent) return subagent
+
+  const asked = translateCanonicalQuestionCall(toolName, input, question)
+  if (asked) return asked
 
   if (vocabulary) {
     for (const [hostName, providerName] of Object.entries(vocabulary.hostToolAliases)) {

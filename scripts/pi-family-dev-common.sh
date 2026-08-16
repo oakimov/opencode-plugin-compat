@@ -256,14 +256,24 @@ pi_family_dev_pi_remove_if_present() {
   pi_family_dev_die "failed to remove Pi package source: $source"
 }
 
+# Best-effort uninstall. Do not probe with `plugin list --json` first: that
+# command can hang indefinitely under lock contention while uninstall of a
+# missing package is idempotent (exit 0, "Uninstalled …").
 pi_family_dev_omp_remove_if_present() {
   local host_cli="$1"
   local package_name="$2"
-  local installed
-  installed="$("$host_cli" plugin list --json 2>/dev/null)" || pi_family_dev_die "failed to list OMP plugins"
-  if [[ "$installed" == *"\"${package_name}\""* ]]; then
-    "$host_cli" plugin uninstall "$package_name"
+  local output
+  if output="$("$host_cli" plugin uninstall "$package_name" 2>&1)"; then
+    [[ -n "$output" ]] && echo "$output"
+    return 0
   fi
+  # Tolerate already-absent / not-installed wording if a future omp version
+  # stops treating missing packages as success.
+  if [[ "$output" == *[Nn]ot*installed* || "$output" == *[Nn]o*such* || "$output" == *[Nn]ot*found* ]]; then
+    return 0
+  fi
+  echo "$output" >&2
+  pi_family_dev_die "failed to uninstall OMP plugin: $package_name"
 }
 
 pi_family_dev_install_local() {
@@ -320,6 +330,49 @@ pi_family_dev_install_npm() {
   pi_family_dev_patch_config "$(pi_family_dev_config_file "$host")" "$plugin" "$plugin"
 }
 
+# Return this host to factory state: drop the bridge and the consumer plugin
+# from the host's own package manager, remove the bridge config, and unlink the
+# host AI package symlinked into the local pi-bridge checkout. Each step is
+# tolerant of already-absent state so it is safe to run repeatedly.
+pi_family_dev_uninstall() {
+  local host="$1"
+  local host_cli="$2"
+  local bridge="$3"
+  local plugin="$4"
+  local config_file ai_package target
+
+  case "$host" in
+    pi)
+      pi_family_dev_pi_remove_if_present "$host_cli" "npm:@opencode-compat/pi-bridge"
+      pi_family_dev_pi_remove_if_present "$host_cli" "npm:${plugin}"
+      pi_family_dev_pi_remove_if_present "$host_cli" "$bridge"
+      ai_package="@earendil-works/pi-ai"
+      ;;
+    omp)
+      pi_family_dev_omp_remove_if_present "$host_cli" "@opencode-compat/pi-bridge"
+      pi_family_dev_omp_remove_if_present "$host_cli" "$plugin"
+      ai_package="@oh-my-pi/pi-ai"
+      ;;
+    *) pi_family_dev_die "unknown host: $host" ;;
+  esac
+
+  config_file="$(pi_family_dev_config_file "$host")"
+  if [[ -f "$config_file" ]]; then
+    rm -f "$config_file"
+    echo "pi-family-dev: removed bridge config ${config_file}"
+  fi
+
+  # Only ever remove our own symlink; a real installed package here belongs to
+  # the checkout and is not ours to delete.
+  target="${bridge}/node_modules/${ai_package}"
+  if [[ -L "$target" ]]; then
+    rm -f "$target"
+    echo "pi-family-dev: unlinked ${ai_package} from ${bridge}"
+  fi
+
+  echo "pi-family-dev: ${host} returned to factory state"
+}
+
 pi_family_dev_usage() {
   local name="$1"
   cat <<EOF
@@ -351,8 +404,8 @@ pi_family_dev_main() {
       pi_family_dev_usage "${host}-dev.sh"
       return 0
       ;;
-    local | --local | npm | --npm) ;;
-    *) pi_family_dev_die "unknown command: $command (expected local or npm)" ;;
+    local | --local | npm | --npm | unshim | --unshim) ;;
+    *) pi_family_dev_die "unknown command: $command (expected local, npm, or unshim)" ;;
   esac
 
   local root bridge provider plugin host_cli config_file mode mode_label
@@ -362,6 +415,11 @@ pi_family_dev_main() {
   host_cli="$(pi_family_dev_resolve_host_cli "$host")"
   config_file="$(pi_family_dev_config_file "$host")"
   mode="${command#--}"
+
+  if [[ "$mode" == "unshim" ]]; then
+    pi_family_dev_uninstall "$host" "$host_cli" "$bridge" "$plugin"
+    return 0
+  fi
 
   pi_family_dev_assert_package_dir "$bridge" "pi-bridge"
   if [[ "$mode" == "local" ]]; then

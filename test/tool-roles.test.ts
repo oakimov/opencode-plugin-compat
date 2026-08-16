@@ -24,6 +24,7 @@ const MIMO_TOOLS = ["read", "grep", "actor", "task", "cron"]
 describe("toolRolesOf", () => {
   test("only MiMo overrides; every other host keeps upstream defaults", () => {
     expect(toolRolesOf(mimoProfile())).toEqual({
+      ...DEFAULT_TOOL_ROLES,
       subagent: "actor",
       todoWrite: "task",
       todoRead: "task",
@@ -48,10 +49,18 @@ describe("toolRolesOf", () => {
 
   test("a sparse override fills only the roles it names", () => {
     expect(toolRolesOf({ tools: { subagent: "actor" } })).toEqual({
+      ...DEFAULT_TOOL_ROLES,
       subagent: "actor",
-      todoWrite: "todowrite",
-      todoRead: "todoread",
     })
+  })
+
+  test("question / planEnter / planExit default to OpenCode names", () => {
+    expect(DEFAULT_TOOL_ROLES.question).toBe("question")
+    expect(DEFAULT_TOOL_ROLES.planEnter).toBe("plan_enter")
+    expect(DEFAULT_TOOL_ROLES.planExit).toBe("plan_exit")
+    expect(resolveToolRole("question", ["question", "ask"], opencodeProfile())).toBe("question")
+    expect(resolveToolRole("planEnter", ["plan_enter"], opencodeProfile())).toBe("plan_enter")
+    expect(resolveToolRole("planExit", ["plan_exit"], opencodeProfile())).toBe("plan_exit")
   })
 })
 
