@@ -1,7 +1,8 @@
 import { homedir } from "node:os"
 import path from "node:path"
 
-const PATH_BRIDGE_KEY = Symbol.for("opencode.compat.path-bridge")
+const PATH_BRIDGE_KEY = Symbol.for("opencode.host.path-bridge")
+const LEGACY_PATH_BRIDGE_KEY = Symbol.for("opencode.compat.path-bridge")
 
 export type RuntimeToolRoles = {
   tools?: {
@@ -19,11 +20,6 @@ export function toolRolesForHostId(id: string): RuntimeToolRoles | undefined {
   switch (id) {
     case "mimo":
       return { tools: { subagent: "actor", todoWrite: "task", todoRead: "task" } }
-    // omp advertises interactive prompts as `ask`; OpenCode plugins expect `question`.
-    // Path/schema translation for that role lives in pi-bridge; the shim only
-    // needs the name so catalog remaps stay consistent if a clone path sees it.
-    case "omp":
-      return { tools: { question: "ask" } }
     default:
       return undefined
   }
@@ -74,8 +70,16 @@ function xdgConfig(env: Record<string, string | undefined>): string {
     : path.join(env.HOME || env.USERPROFILE || homedir(), ".config")
 }
 
-function homeDir(env: Record<string, string | undefined>): string {
-  return env.HOME || env.USERPROFILE || homedir()
+function xdgData(env: Record<string, string | undefined>): string {
+  return env.XDG_DATA_HOME && env.XDG_DATA_HOME.length > 0
+    ? env.XDG_DATA_HOME
+    : path.join(env.HOME || env.USERPROFILE || homedir(), ".local", "share")
+}
+
+function xdgCache(env: Record<string, string | undefined>): string {
+  return env.XDG_CACHE_HOME && env.XDG_CACHE_HOME.length > 0
+    ? env.XDG_CACHE_HOME
+    : path.join(env.HOME || env.USERPROFILE || homedir(), ".cache")
 }
 
 function hostConfigRoot(id: string, env: Record<string, string | undefined>): string {
@@ -88,14 +92,6 @@ function hostConfigRoot(id: string, env: Record<string, string | undefined>): st
     if (env.KILO_CONFIG_DIR) return path.resolve(env.KILO_CONFIG_DIR)
     return path.join(xdgConfig(env), "kilo")
   }
-  // Pi-family durable config lives under ~/.omp or ~/.pi (or PI_CONFIG_DIR /
-  // PI_CODING_AGENT_DIR). Provider CreatePlan / skill discovery follow this
-  // bridge rather than inventing `.opencode` under a pi workspace.
-  if (id === "omp" || id === "pi") {
-    if (env.PI_CODING_AGENT_DIR) return path.resolve(env.PI_CODING_AGENT_DIR)
-    const configDir = env.PI_CONFIG_DIR || (id === "pi" ? ".pi" : ".omp")
-    return path.join(homeDir(env), configDir, "agent")
-  }
   if (env.OPENCODE_CONFIG_DIR) return path.resolve(env.OPENCODE_CONFIG_DIR)
   return path.join(xdgConfig(env), "opencode")
 }
@@ -103,25 +99,36 @@ function hostConfigRoot(id: string, env: Record<string, string | undefined>): st
 function hostProjectNames(id: string): string[] {
   if (id === "mimo") return [".mimocode"]
   if (id === "kilo") return [".kilo", ".kilocode"]
-  if (id === "omp") return [".omp"]
-  if (id === "pi") return [".pi"]
   return [".opencode"]
 }
 
 function hostConfigFiles(id: string): string[] {
   if (id === "mimo") return ["config.json", "mimocode.json", "mimocode.jsonc"]
   if (id === "kilo") return ["config.json", "kilo.json", "kilo.jsonc", "opencode.json", "opencode.jsonc"]
-  if (id === "omp" || id === "pi") return ["settings.json", "pi-bridge.json"]
   return ["opencode.json", "opencode.jsonc"]
 }
 
 /** Install native host paths for an unchanged OpenCode plugin before it loads. */
 export function installPathBridge(id: string, env: Record<string, string | undefined> = process.env): void {
-  if (id !== "opencode" && id !== "mimo" && id !== "kilo" && id !== "omp" && id !== "pi") return
+  if (id !== "opencode" && id !== "mimo" && id !== "kilo") return
   const globalRoot = hostConfigRoot(id, env)
-  ;(globalThis as typeof globalThis & Record<typeof PATH_BRIDGE_KEY, unknown>)[PATH_BRIDGE_KEY] = {
+  const app = id === "mimo" ? "mimocode" : id
+  const dataRoot = id === "mimo" && env.MIMOCODE_HOME
+    ? path.resolve(env.MIMOCODE_HOME)
+    : path.join(xdgData(env), app)
+  const cacheRoot = id === "mimo" && env.MIMOCODE_HOME
+    ? path.resolve(env.MIMOCODE_HOME, "cache")
+    : path.join(xdgCache(env), app)
+  const fallbackCwd = process.cwd()
+  const bridge = {
+    globalDataDir() {
+      return dataRoot
+    },
+    globalCacheDir() {
+      return cacheRoot
+    },
     projectConfigDirs(workspaceRoot: string) {
-      const root = path.resolve(workspaceRoot || process.cwd())
+      const root = path.resolve(workspaceRoot || fallbackCwd)
       return unique(hostProjectNames(id).map((name) => path.join(root, name)))
     },
     globalConfigDirs() {
@@ -129,4 +136,8 @@ export function installPathBridge(id: string, env: Record<string, string | undef
     },
     configFileNames: hostConfigFiles(id),
   }
+  ;(globalThis as typeof globalThis & Record<typeof PATH_BRIDGE_KEY, unknown>)[PATH_BRIDGE_KEY] = bridge
+  // Transitional compatibility for unchanged providers published before the
+  // structural host contract was renamed. Remove after those releases age out.
+  ;(globalThis as typeof globalThis & Record<typeof LEGACY_PATH_BRIDGE_KEY, unknown>)[LEGACY_PATH_BRIDGE_KEY] = bridge
 }

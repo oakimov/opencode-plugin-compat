@@ -211,6 +211,19 @@ describe("runV3StreamToPi", () => {
     expect(last.type).toBe("error")
     expect(last.error.errorMessage).toBe("transport reset")
   })
+
+  test("maps V3 reasoning onto Pi usage.reasoning", async () => {
+    const piStream = new FakeAssistantMessageEventStream()
+    await runV3StreamToPi({
+      model: MODEL,
+      v3Stream: v3Parts([
+        { type: "finish", usage: { inputTokens: { total: 8, noCache: 3, cacheRead: 5, cacheWrite: 0 }, outputTokens: { total: 4, text: 1, reasoning: 3 } }, finishReason: { unified: "stop", raw: "stop" } },
+      ]) as never,
+      piStream: piStream as never,
+    })
+    const done = piStream.events.at(-1) as { message: { usage: { input: number; cacheRead: number; reasoning?: number } } }
+    expect(done.message.usage).toMatchObject({ input: 3, cacheRead: 5, reasoning: 3 })
+  })
 })
 
 describe("emptyUsage", () => {

@@ -152,7 +152,7 @@ describe("pi-bridge ask ↔ question", () => {
 
 describe("installPiPathBridge", () => {
   test("installs .omp project + agent global dirs", () => {
-    const key = Symbol.for("opencode.compat.path-bridge")
+    const key = Symbol.for("opencode.host.path-bridge")
     delete (globalThis as Record<PropertyKey, unknown>)[key]
     installPiPathBridge("omp", { HOME: "/tmp/home-omp" })
     const bridge = (globalThis as Record<PropertyKey, unknown>)[key] as {
@@ -166,7 +166,7 @@ describe("installPiPathBridge", () => {
   })
 
   test("pi uses .pi and honors PI_CODING_AGENT_DIR", () => {
-    const key = Symbol.for("opencode.compat.path-bridge")
+    const key = Symbol.for("opencode.host.path-bridge")
     installPiPathBridge("pi", {
       HOME: "/tmp/home-pi",
       PI_CODING_AGENT_DIR: "/custom/agent",
@@ -177,5 +177,23 @@ describe("installPiPathBridge", () => {
     }
     expect(bridge.projectConfigDirs("/ws")).toEqual(["/ws/.pi"])
     expect(bridge.globalConfigDirs()).toEqual(["/custom/agent"])
+  })
+
+  test("data/cache roots use the host agent root and dual-write the legacy key", () => {
+    const key = Symbol.for("opencode.host.path-bridge")
+    const legacy = Symbol.for("opencode.compat.path-bridge")
+    delete (globalThis as Record<PropertyKey, unknown>)[legacy]
+    installPiPathBridge("omp", {
+      HOME: "/tmp/home",
+      XDG_CACHE_HOME: "/xdg/cache",
+    })
+    const bridge = (globalThis as Record<PropertyKey, unknown>)[key] as {
+      globalDataDir: () => string
+      globalCacheDir: () => string
+    }
+    expect(bridge.globalDataDir()).toBe("/tmp/home/.omp/agent")
+    expect(bridge.globalCacheDir()).toBe("/tmp/home/.omp/agent/cache/opencode-providers")
+    expect((globalThis as Record<PropertyKey, unknown>)[legacy])
+      .toBe((globalThis as Record<PropertyKey, unknown>)[key])
   })
 })

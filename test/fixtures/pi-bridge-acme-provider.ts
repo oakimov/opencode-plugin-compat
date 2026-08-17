@@ -15,7 +15,33 @@ export function createAcme(options: Record<string, unknown> = {}) {
   return {
     options,
     languageModel(modelId: string) {
-      return { specificationVersion: "v3", modelId, provider: "acme", options }
+      return {
+        specificationVersion: "v3",
+        modelId,
+        provider: "acme",
+        options,
+        supportedUrls: {},
+        async doStream() {
+          return {
+            stream: new ReadableStream({
+              start(controller) {
+                controller.enqueue({ type: "text-start", id: "t" })
+                controller.enqueue({ type: "text-delta", id: "t", delta: "hello from generic provider" })
+                controller.enqueue({ type: "text-end", id: "t" })
+                controller.enqueue({
+                  type: "finish",
+                  finishReason: { unified: "stop", raw: "stop" },
+                  usage: {
+                    inputTokens: { total: 0, noCache: 0, cacheRead: 0, cacheWrite: 0 },
+                    outputTokens: { total: 4, text: 4, reasoning: 0 },
+                  },
+                })
+                controller.close()
+              },
+            }),
+          }
+        },
+      }
     },
   }
 }

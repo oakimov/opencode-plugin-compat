@@ -352,6 +352,70 @@ describe("adaptLanguageModel / wrapProvider*", () => {
     })
   })
 
+  test.each([
+    ["opencode", opencodeProfile({ home: "/tmp", env: {} })],
+    ["kilo", kiloProfile({ home: "/tmp", env: {} })],
+    ["mimo", mimoProfile({ home: "/tmp", env: {} })],
+  ] as const)("%s preserves same-session lifecycle/full catalog affinity", async (_host, profile) => {
+    const seen: Array<Record<string, unknown>> = []
+    const model = {
+      async doStream(call: Record<string, unknown>) {
+        seen.push(call)
+        return {
+          stream: new ReadableStream({
+            start(controller) { controller.close() },
+          }),
+        }
+      },
+    }
+    const adapted = adaptLanguageModel(model, policyFromProfile(profile), profile)
+    const signal = new AbortController().signal
+    const shared = {
+      headers: { "x-opencode-session": "same-session", "x-provider": "generic" },
+      providerOptions: { generic: { session: "same-session" } },
+      abortSignal: signal,
+      prompt: [],
+    }
+
+    await adapted.doStream({ ...shared })
+    const fullCatalog = [
+      { name: "read", inputSchema: { type: "object" } },
+      { name: profile.tools?.subagent ?? "task", inputSchema: { type: "object" } },
+      { name: "custom-tool", inputSchema: { type: "object" } },
+      ...(profile.tools?.todoWrite
+        ? [{ name: profile.tools.todoWrite, inputSchema: { type: "object" } }]
+        : [{ name: "todowrite", inputSchema: { type: "object" } }]),
+    ]
+    await adapted.doStream({ ...shared, tools: fullCatalog })
+
+    expect(seen).toHaveLength(2)
+    expect(seen[0]?.tools).toBeUndefined()
+    expect(seen[0]?.headers).toEqual(shared.headers)
+    expect(seen[0]?.providerOptions).toEqual(shared.providerOptions)
+    expect(seen[0]?.abortSignal).toBe(signal)
+    expect(seen[1]?.headers).toEqual(shared.headers)
+    expect(seen[1]?.providerOptions).toEqual(shared.providerOptions)
+    expect(seen[1]?.abortSignal).toBe(signal)
+
+    const names = (seen[1]?.tools as Array<{ name: string }>).map(tool => tool.name)
+    expect(names).toContain("read")
+    expect(names).toContain("custom-tool")
+    expect(names).not.toContain("actor")
+    expect(names).toEqual([...names].sort())
+    if (profile.tools?.subagent) expect(names).toContain("task")
+    if (profile.tools?.todoWrite) {
+      expect(names).toContain("todowrite")
+      expect(names).toContain("todoread")
+    }
+    // Translation must never mutate the host-owned source catalog.
+    expect(fullCatalog.map(tool => tool.name)).toEqual([
+      "read",
+      profile.tools?.subagent ?? "task",
+      "custom-tool",
+      profile.tools?.todoWrite ?? "todowrite",
+    ])
+  })
+
   test("MiMo doStream inserts preamble + bash description", async () => {
     const model = {
       async doStream() {
@@ -393,7 +457,7 @@ describe("adaptLanguageModel / wrapProvider*", () => {
 
   test("MiMo doGenerate expands content array and adopts schema keys", async () => {
     const model = {
-      async doGenerate() {
+      async doGenerate(_call?: Record<string, unknown>) {
         return {
           content: [
             {
@@ -424,7 +488,7 @@ describe("adaptLanguageModel / wrapProvider*", () => {
     })
     expect(result.content).toHaveLength(2)
     expect(result.content[0].type).toBe("tool-input-start")
-    expect(result.content[1].input).toEqual({
+    expect(result.content[1].input as unknown).toEqual({
       file_path: "/tmp/a",
       old_string: "a",
       new_string: "b",
@@ -463,7 +527,7 @@ describe("adaptLanguageModel / wrapProvider*", () => {
           label: opts.label,
           languageModel() {
             return {
-              async doGenerate() {
+      async doGenerate(_call?: Record<string, unknown>) {
                 return {
                   content: [
                     {
@@ -490,7 +554,7 @@ describe("adaptLanguageModel / wrapProvider*", () => {
     const out = await model.doGenerate()
     expect(out.content[0].type).toBe("tool-input-start")
     expect(
-      (out.content[1].input as { description: string }).description,
+      (out.content[1].input as unknown as { description: string }).description,
     ).toBe(defaultBashDescription("uname"))
   })
 })

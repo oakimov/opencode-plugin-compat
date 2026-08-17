@@ -4,7 +4,7 @@
  * See docs/ocp/0.1.md and docs/plans/.
  */
 export const PKG = "@opencode-compat/adapter" as const
-export const VERSION = "0.2.4" as const
+export const VERSION = "0.3.0" as const
 
 export {
   detect,
@@ -51,6 +51,7 @@ export {
   translateCall,
   translateCatalog,
   translatePrompt,
+  translateResultOutput,
   type HostTodo,
   type RoleBinding,
   type TodoItem,

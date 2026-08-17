@@ -46,7 +46,7 @@ function translateUsage(usage: LanguageModelV3Usage, model: Model): PiUsage {
   }
   cost.total = cost.input + cost.output + cost.cacheRead + cost.cacheWrite
   const out: PiUsage = { input, output, cacheRead, cacheWrite, totalTokens, cost }
-  if (usage.outputTokens.reasoning !== undefined) out.reasoningTokens = usage.outputTokens.reasoning
+  if (usage.outputTokens.reasoning !== undefined) out.reasoning = usage.outputTokens.reasoning
   return out
 }
 

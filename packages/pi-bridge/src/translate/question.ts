@@ -68,11 +68,8 @@ export function canonicalQuestionSchema(): Record<string, unknown> {
   }
 }
 
-export function canonicalQuestionDescription(vocabulary: PiQuestionVocabulary): string {
-  return (
-    "Ask the user one or more clarifying questions before continuing. " +
-    `Host tool: ${vocabulary.hostToolName}. ${vocabulary.hostDescription}`
-  )
+export function canonicalQuestionDescription(_vocabulary: PiQuestionVocabulary): string {
+  return "Ask the user one or more clarifying questions before continuing."
 }
 
 /** Resolve the live question role from catalog + profile. */

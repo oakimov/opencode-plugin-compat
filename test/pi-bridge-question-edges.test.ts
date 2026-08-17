@@ -234,7 +234,7 @@ describe("catalog / toolChoice / history integration", () => {
     )
     expect(tools?.map((t) => t.name).sort()).toEqual(["question", "read"])
     const q = tools?.find((t) => t.name === "question")
-    expect(q?.description).toContain("ask")
+    expect(q?.description).toContain("clarifying questions")
     const schema = q?.inputSchema as {
       properties: { questions: { items: { properties: Record<string, unknown> } } }
     }
@@ -248,11 +248,11 @@ describe("catalog / toolChoice / history integration", () => {
   })
 
   test("translateToolChoice remaps named ask → question", () => {
-    expect(translateToolChoice({ name: "ask" }, undefined, undefined, question)).toEqual({
+    expect(translateToolChoice({ type: "tool", name: "ask" }, undefined, undefined, question)).toEqual({
       type: "tool",
       toolName: "question",
     })
-    expect(translateToolChoice({ name: "read" }, undefined, undefined, question)).toEqual({
+    expect(translateToolChoice({ type: "tool", name: "read" }, undefined, undefined, question)).toEqual({
       type: "tool",
       toolName: "read",
     })
@@ -333,7 +333,7 @@ describe("catalog / toolChoice / history integration", () => {
       question,
     )
     expect(translated?.toolName).toBe("ask")
-    expect((translated?.input.questions as Array<{ id: string; multi?: boolean }>)[0]).toEqual({
+    expect((translated?.input.questions as Array<Record<string, unknown>> | undefined)?.[0]).toEqual({
       question: "Go?",
       header: "Go",
       options: [{ label: "Y", description: "" }],
@@ -344,7 +344,7 @@ describe("catalog / toolChoice / history integration", () => {
 })
 
 describe("installPiPathBridge edges", () => {
-  const key = Symbol.for("opencode.compat.path-bridge")
+  const key = Symbol.for("opencode.host.path-bridge")
 
   test("PI_CONFIG_DIR overrides home segment; coding agent dir wins", () => {
     delete (globalThis as Record<PropertyKey, unknown>)[key]

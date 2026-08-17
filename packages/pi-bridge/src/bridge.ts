@@ -87,7 +87,8 @@ function errorAssistantMessage(model: PiModelLike, err: unknown) {
   }
 }
 
-function buildStreamSimple(spec: AiSdkProviderSpec, runtime: PiRuntime) {
+/** Generic testable seam used by both Pi-family registrations. */
+export function buildStreamSimple(spec: AiSdkProviderSpec, runtime: PiRuntime) {
   return (model: PiModelLike, context: PiContextLike, options?: PiSimpleStreamOptions) => {
     const piStream = runtime.createAssistantMessageEventStream()
     void (async () => {

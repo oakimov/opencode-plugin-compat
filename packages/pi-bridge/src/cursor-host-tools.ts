@@ -118,7 +118,20 @@ async function resolvePlanHost(
   return host
 }
 
-function mapPlanModeError(error: unknown): never {
+/**
+ * The user reviewed the plan and asked for changes. Not a failure of the tool
+ * and not a mode-switch rejection: the plan exists, it just was not approved
+ * for execution, so its own message must reach the model verbatim.
+ */
+export class PlanNotApprovedError extends Error {
+  constructor(message: string) {
+    super(message)
+    this.name = "PlanNotApprovedError"
+  }
+}
+
+export function mapPlanModeError(error: unknown): never {
+  if (error instanceof PlanNotApprovedError) throw error
   const message = error instanceof Error ? error.message : String(error)
   // Host approval denials should surface as Cursor's user-reject reason so the
   // provider's SwitchMode bridge maps them to rejected{}, not a generic failure.
@@ -235,15 +248,17 @@ async function reviewNativeOmpPlan(
     ["Approve and execute", "Refine plan"],
   )
   if (choice !== "Approve and execute") {
-    return textResult(
-      `Plan refinement requested. Update ${planFilePath}, then propose it again when ready.`,
-      {
-        action: "plan_refine",
-        planFilePath,
-        title: resolvedTitle,
-        planExists: true,
-      },
-    )
+    // The provider's CreatePlan contract is success = the user approved
+    // execution, error = the plan was written but not accepted. Returning a
+    // success result here made Cursor treat a refinement request as approval
+    // and start implementing the plan the user had just declined.
+    // Distinguish a dismissed/cancelled prompt from an explicit "Refine plan"
+    // choice so the model is not told the user asked for changes when they
+    // simply closed the dialog.
+    const message = choice === "Refine plan"
+      ? `Plan refinement requested. Update ${planFilePath}, then propose it again when ready.`
+      : `Plan review was cancelled. The plan at ${planFilePath} was not approved for execution.`
+    throw new PlanNotApprovedError(message)
   }
 
   const session = host.getSession()
@@ -407,9 +422,9 @@ export function registerCursorHostTools(
  */
 export function activateCursorHostTools(pi: PiExtensionApi, toolNames: readonly string[]): void {
   if (toolNames.length === 0) return
-  if (!pi.on || !pi.getActiveTools || !pi.getAllTools || !pi.setActiveTools) return
+  if (!pi.getActiveTools || !pi.getAllTools || !pi.setActiveTools) return
 
-  pi.on("session_start", async () => {
+  const apply = async () => {
     const available = new Set(
       pi.getAllTools!().map(tool => (typeof tool === "string" ? tool : tool.name)),
     )
@@ -420,5 +435,7 @@ export function activateCursorHostTools(pi: PiExtensionApi, toolNames: readonly 
     const next = [...new Set([...active, ...wanted])]
     if (next.length === active.length && next.every((name, index) => name === active[index])) return
     await pi.setActiveTools!(next)
-  })
+  }
+
+  pi.on?.("session_start", apply)
 }

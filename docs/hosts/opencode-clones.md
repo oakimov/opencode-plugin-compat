@@ -147,7 +147,7 @@ Useful flags:
 
 ```bash
 ocp setup --host mimo --mode npm --dry-run          # preview only
-ocp setup --host kilo --mode npm --version 0.2.4    # pin the facade train explicitly
+ocp setup --host kilo --mode npm --version 0.3.0    # pin the facade train explicitly
 ocp setup --dir ~/.cache/mimocode/packages --mode npm   # explicit install root
 ```
 
@@ -158,7 +158,7 @@ Full option list: `--dir`, `--host`, `--mode auto|npm|file`, `--version`,
 `compat setup`, print-only `compat overrides` / `opencode-compat overrides`.
 
 `--version` pins the `@opencode-compat/facade-*` specs written into overrides.
-The default is the **current OCP package train** (today **`0.2.4`**), so you
+The default is the **current OCP package train** (today **`0.3.0`**), so you
 normally omit it. Outside this monorepo always prefer **`--mode npm`** so
 overrides resolve from the public registry rather than local `file:` paths.
 
@@ -193,35 +193,20 @@ ocp setup --host mimo --mode npm             # or --host kilo
 
 ### 2.7 Local development
 
-To run an **unpublished OCP checkout** and/or a **local plugin build** against a
-real host, use `--mode file` (or the `scripts/*-dev.sh` helpers) instead of
-`--mode npm`:
+Users stay on **`--mode npm`** ([§2.3](#23-install-a-plugin-and-wire-it)). To
+run an unpublished OCP checkout against a real host, use the repo helper — not
+hand `ocp setup --mode file` against the stock plugin cache:
 
 ```bash
-git clone https://github.com/oakimov/opencode-plugin-compat.git
-cd opencode-plugin-compat && bun install && bun run build
-
-# npm-cache plugin, local facades:
-mimo plugin -g cursor-opencode-provider
-bun packages/ocp/bin/ocp.ts setup --host mimo --mode file
-
-# or point the host config at a checkout and let --absolute-plugins wire it:
-#   "plugin": ["/path/to/cursor-opencode-provider/dist/index.js"]
-bun packages/ocp/bin/ocp.ts setup --host mimo
+./scripts/ocp-dev.sh run mimo        # this checkout + local provider wrapper
+./scripts/ocp-dev.sh run kilo
+./scripts/ocp-dev.sh run --mode npm  # back to published packages
+./scripts/ocp-dev.sh unshim          # drop the OCP/provider slot only
 ```
 
-The `mimo-dev.sh` / `kilo-dev.sh` helpers deliberately start clean in both
-directions: they remove all cached versions of the selected plugin and the
-local provider checkout's `node_modules`, reinstall checkout dependencies from
-the lockfile, then apply the requested state. `local` registers the checkout
-path; `npm` writes and force-installs `<plugin>@latest` without restoring a
-captured config. Unrelated current config fields are preserved. This is
-destructive only to those validated dependency/cache targets and the generated
-provider `dist` output.
-
-The full local-dev loop — helper scripts, switching back to npm, cache layout,
-and rebuild/reinstall reset steps — is in
-[**TESTING.md**](../../TESTING.md).
+That inserts one slot in the existing host config. The provider checkout stays
+stock; the instrumented copy lives under `~/.cache/ocp-dev/<host>/provider`.
+Full loop: [**TESTING.md**](../../TESTING.md).
 
 ---
 

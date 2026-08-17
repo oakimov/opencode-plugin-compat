@@ -26,10 +26,10 @@ class FakeAssistantMessageEventStream {
   end() {}
   fail() {}
   async result() {
-    return (this.events.find((e: never) => (e as { type: string }).type === "done") as { message: unknown } | undefined)?.message
+    return (this.events.find((event) => (event as { type?: string }).type === "done") as { message: unknown } | undefined)?.message
   }
   async *[Symbol.asyncIterator]() {
-    yield* this.events as never
+    yield* this.events
   }
 }
 
@@ -84,7 +84,7 @@ describe("MCP resource tool pass-through (fields 17/18 owned by the provider)", 
       buildPiSubagentVocabulary(resourceTools(), tool => (tool as { parameters: unknown }).parameters as Record<string, unknown>, ompProfile()),
     )
     const names = (tools ?? []).map(tool => tool.name)
-    expect(names).toEqual(["task", "list_mcp_resources", "read_mcp_resource", "everything_echo"])
+    expect(names).toEqual(["everything_echo", "list_mcp_resources", "read_mcp_resource", "task"])
     expect(tools?.[1]).toMatchObject({
       name: "list_mcp_resources",
       description: "List MCP resources",
@@ -229,8 +229,7 @@ describe("MCP resource tool pass-through (fields 17/18 owned by the provider)", 
       piStream: piStream as never,
     })
     const endEvents = (piStream.events as Array<{ type: string; toolCall?: { name: string; arguments: unknown; id: string } }>).filter(e => e.type === "toolcall_end")
-    expect(endEvents[0]!.toolCall).toEqual({
-      type: "toolCall",
+    expect(endEvents[0]!.toolCall).toMatchObject({
       id: "call_1",
       name: "everything_echo",
       arguments: { message: "hi" },

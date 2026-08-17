@@ -147,6 +147,7 @@ function assistantMessageToV3(
             canonicalQuestionToolName(block.name, question),
             vocabulary,
             toolInputs,
+            block.arguments,
           ),
         input: translated?.input ?? translateHostToolCallInput(block.name, block.arguments, toolInputs),
       })
@@ -228,6 +229,8 @@ export function translateContextToPrompt(
 }
 
 /** Translate host tools into AI-SDK V3 function tools. */
+const TODO_READ_SCHEMA: JSONSchema7 = { type: "object", properties: {}, additionalProperties: false }
+
 export function translateTools(
   tools: PiTool[] | undefined,
   toSchema: ToolSchemaFn,
@@ -236,30 +239,42 @@ export function translateTools(
   question?: PiQuestionVocabulary,
 ): LanguageModelV3FunctionTool[] | undefined {
   if (!tools || tools.length === 0) return undefined
-  return tools.map(tool => {
+  const translated: LanguageModelV3FunctionTool[] = []
+  for (const tool of tools) {
     if (vocabulary && tool.name === vocabulary.hostToolName) {
-      return {
-        type: "function" as const,
+      translated.push({
+        type: "function",
         name: "task",
         description: canonicalSubagentDescription(vocabulary),
         inputSchema: canonicalSubagentSchema(vocabulary) as JSONSchema7,
-      }
+      })
+      continue
     }
     if (question && tool.name === question.hostToolName) {
-      return {
-        type: "function" as const,
+      translated.push({
+        type: "function",
         name: CANONICAL_QUESTION_TOOL,
         description: canonicalQuestionDescription(question),
         inputSchema: canonicalQuestionSchema() as JSONSchema7,
-      }
+      })
+      continue
     }
-    return {
-      type: "function" as const,
+    translated.push({
+      type: "function",
       name: canonicalToolName(tool.name, vocabulary, toolInputs),
       description: tool.description,
       inputSchema: providerToolSchema(tool, toSchema, toolInputs) as unknown as JSONSchema7,
+    })
+    for (const extra of toolInputs?.[tool.name]?.extraProviderNames ?? []) {
+      translated.push({
+        type: "function",
+        name: extra,
+        description: tool.description,
+        inputSchema: extra === "todoread" ? TODO_READ_SCHEMA : providerToolSchema(tool, toSchema, toolInputs) as unknown as JSONSchema7,
+      })
     }
-  })
+  }
+  return translated.sort((left, right) => left.name.localeCompare(right.name))
 }
 
 /** Translate the host's `toolChoice` into AI-SDK V3's shape. */

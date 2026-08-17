@@ -19,7 +19,8 @@ install, local development, per-host internals, and verification.
 |------|------|
 | [`ocp/0.1.md`](./ocp/0.1.md) | **Canonical** OCP contract (`0.1.x` train) — HostProfile, classic hooks, tiers, Promise v2, conformance |
 | [`../packages/pi-bridge/README.md`](../packages/pi-bridge/README.md) | pi-bridge config reference + pi/omp host-difference table |
-| [`../TESTING.md`](../TESTING.md) | Manual local dev — unpublished OCP checkout + local plugins on MiMo/Kilo |
+| [`../TESTING.md`](../TESTING.md) | Manual local dev — unpublished OCP checkout + local plugins |
+| [`guides/cursor-ocp-self-verify.md`](./guides/cursor-ocp-self-verify.md) | Paste-ready agent prompt: exercise Cursor-through-OCP, then score the provider debug log |
 | [`guides/npm-publish.md`](./guides/npm-publish.md) | Publishing the public `@opencode-compat/*` train (OIDC Trusted Publishing on `v*` tags) |
 
 ## Companion guides (not OCP runtime)

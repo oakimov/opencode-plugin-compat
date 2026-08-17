@@ -222,7 +222,7 @@ function canonicalAgentNames(vocabulary: PiSubagentVocabulary): string[] {
   for (const [canonical, host] of Object.entries(vocabulary.agentAliases)) {
     if ((host === null && names.size > 0) || (host !== null && names.has(host))) names.add(canonical)
   }
-  return [...names]
+  return [...names].sort()
 }
 
 /** OpenCode's flat `task` schema, carrying a live agent enum when available. */
@@ -255,7 +255,7 @@ export function canonicalSubagentDescription(vocabulary: PiSubagentVocabulary): 
   const lifecycle = vocabulary.coordinationToolName
     ? ` Each call starts a new agent; never call task to poll or resume one. Results auto-deliver. Use the host's built-in ${vocabulary.coordinationToolName} tool for status and follow-up; it is not an MCP server.`
     : ""
-  return `Launch a specialized agent for an isolated delegated task.${catalog}${lifecycle} Host details: ${vocabulary.hostDescription}`
+  return `Launch a specialized agent for an isolated delegated task.${catalog}${lifecycle}`
 }
 
 function hostAgentFor(canonical: unknown, vocabulary: PiSubagentVocabulary): string | null | undefined {
@@ -357,6 +357,15 @@ function applyInputShape(input: Record<string, unknown>, shape: "pi-edit" | unde
 }
 
 /** Translate any provider-facing tool call into the live host vocabulary. */
+function hostToolForProviderName(
+  toolName: string,
+  toolInputs: PiToolInputVocabulary | undefined,
+): [string, PiToolInputProfile] | undefined {
+  return Object.entries(toolInputs ?? {}).find(([, profile]) =>
+    profile.providerName === toolName || profile.extraProviderNames?.includes(toolName) === true,
+  )
+}
+
 export function translateCanonicalToolCall(
   toolName: string,
   input: Record<string, unknown>,
@@ -376,10 +385,11 @@ export function translateCanonicalToolCall(
     }
   }
 
-  const renamedProfile = Object.entries(toolInputs ?? {}).find(([, profile]) => profile.providerName === toolName)
+  const renamedProfile = hostToolForProviderName(toolName, toolInputs)
   if (renamedProfile) {
     const [hostToolName, profile] = renamedProfile
-    const translated = rewriteInputKeys(input, profile.inputAliases, profile.dropInputKeys)
+    const source = toolName === "todoread" ? { op: "view", ...input } : input
+    const translated = rewriteInputKeys(source, profile.inputAliases, profile.dropInputKeys)
     return { toolName: hostToolName, input: applyInputShape(translated, profile.inputShape) }
   }
 
@@ -461,8 +471,13 @@ export function canonicalToolName(
   toolName: string,
   vocabulary: PiSubagentVocabulary | undefined,
   toolInputs?: PiToolInputVocabulary,
+  input?: Record<string, unknown>,
 ): string {
-  const renamed = toolInputs?.[toolName]?.providerName
+  const profile = toolInputs?.[toolName]
+  if (profile?.extraProviderNames?.includes("todoread") === true && input?.["op"] === "view") {
+    return "todoread"
+  }
+  const renamed = profile?.providerName
   if (renamed) return renamed
   if (!vocabulary) return toolName
   if (toolName === vocabulary.hostToolName) return CANONICAL_SUBAGENT_TOOL

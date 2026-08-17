@@ -143,9 +143,14 @@ function liftSubagentTypeSchema(schema: unknown): unknown {
     const props = isRecord(variant) ? variant["properties"] : undefined
     if (!isRecord(props)) continue
     const subagentType = props["subagent_type"]
-    if (subagentType !== undefined) return subagentType
+    if (subagentType !== undefined) return sortSchemaEnum(subagentType)
   }
   return { type: "string", description: "The type of specialized agent to use for this task." }
+}
+
+function sortSchemaEnum(schema: unknown): unknown {
+  if (!isRecord(schema) || !Array.isArray(schema["enum"])) return schema
+  return { ...schema, enum: [...schema["enum"]].map(String).sort() }
 }
 
 function operationSchemaOf(schema: unknown): unknown {
@@ -175,6 +180,10 @@ function canonicalSubagentSchema(hostSchema: unknown): Record<string, unknown> {
       },
       prompt: { type: "string", description: "The task for the agent to perform." },
       subagent_type: liftSubagentTypeSchema(hostSchema),
+      task_id: {
+        type: "string",
+        description: "Opaque id of a prior subagent run to continue; omit for a new run.",
+      },
     },
     required: ["description", "prompt", "subagent_type"],
     additionalProperties: false,
@@ -328,17 +337,14 @@ export function translateCatalog<T>(tools: readonly T[], vocab: Vocabulary): T[]
   }
 
   const replaced = new Set(vocab.bindings.map((b) => b.host))
+  const emitted = new Set<string>()
   const out: T[] = []
 
-  for (const tool of tools) {
-    const name = nameOf(tool)
-    if (name && replaced.has(name)) continue
-    out.push(tool)
-  }
-
-  for (const binding of vocab.bindings) {
+  const emitCanonical = (binding: RoleBinding): void => {
+    if (emitted.has(binding.canonical)) return
     const source = bySource.get(binding.host)
-    if (!source) continue
+    if (!source) return
+    emitted.add(binding.canonical)
     out.push({
       ...source,
       name: binding.canonical,
@@ -347,7 +353,21 @@ export function translateCatalog<T>(tools: readonly T[], vocab: Vocabulary): T[]
     } as unknown as T)
   }
 
-  return out
+  for (const tool of tools) {
+    const name = nameOf(tool)
+    if (name && replaced.has(name)) {
+      for (const binding of vocab.bindings) {
+        if (binding.host === name) emitCanonical(binding)
+      }
+      continue
+    }
+    out.push(tool)
+    if (name) emitted.add(name)
+  }
+
+  for (const binding of vocab.bindings) emitCanonical(binding)
+
+  return out.sort((left, right) => (nameOf(left) ?? "").localeCompare(nameOf(right) ?? ""))
 }
 
 /* -------------------------------------------------------------------------- */
@@ -442,7 +462,12 @@ function subagentCall(
     prompt: input["prompt"],
     subagent_type: input["subagent_type"],
   }
-  if (typeof input["model"] === "string") operation["model"] = input["model"]
+  // Canonical OpenCode task has no model override field. Do not forward an
+  // unadvertised value into new host calls; legacy history is handled below.
+  // Canonical OpenCode task continuation uses task_id. MiMo's actor operation
+  // names the same opaque identity actor_id; translate it here so unchanged
+  // providers never need to know the fork vocabulary.
+  if (typeof input["task_id"] === "string") operation["actor_id"] = input["task_id"]
   for (const key of Object.keys(operation)) {
     if (operation[key] === undefined) delete operation[key]
   }
@@ -609,6 +634,40 @@ function extractHostId(output: unknown): string | undefined {
   return match ? match[0] : undefined
 }
 
+/**
+ * Rewrite host tool-result payloads back into canonical subagent vocabulary.
+ * Primarily remaps an actor `actor_id` field in a structured result to the
+ * canonical `task_id` so a provider can continue the same run across turns.
+ */
+function rewriteActorVocabulary(text: string): string {
+  return text
+    .split("</actor_result>").join("</task>")
+    .split("<actor_result").join("<task")
+    .split("actor_id").join("task_id")
+}
+
+export function translateResultOutput(output: unknown, binding?: RoleBinding): unknown {
+  if (binding?.role !== "subagent") return output
+  if (typeof output === "string") return rewriteActorVocabulary(output)
+  if (!isRecord(output)) return output
+  if (typeof output["output"] === "string") {
+    return { ...output, output: rewriteActorVocabulary(output["output"]) }
+  }
+  if (typeof output["result"] === "string") {
+    return { ...output, result: rewriteActorVocabulary(output["result"]) }
+  }
+  const payload = isRecord(output["output"]) ? (output["output"] as Record<string, unknown>) : output
+  if (!isRecord(payload)) return output
+  const inner: Record<string, unknown> = { ...payload }
+  if (typeof inner["actor_id"] === "string") {
+    inner["task_id"] = inner["actor_id"]
+    delete inner["actor_id"]
+  }
+  for (const key of Object.keys(inner)) {
+    if (typeof inner[key] === "string") inner[key] = rewriteActorVocabulary(inner[key])
+  }
+  return { ...output, output: inner }
+}
 function stringifyOutput(output: unknown): string {
   if (typeof output === "string") return output
   if (!output) return ""
@@ -725,20 +784,28 @@ export function translatePrompt<T>(prompt: readonly T[], vocab: Vocabulary): T[]
         continue
       }
 
+      // A subagent result carries the host's actor_id; rewrite it once here so
+      // every later path (restated or folded) exposes canonical task_id.
+      let active: Record<string, unknown> = part
+      if (binding.role === "subagent" && active["type"] === "tool-result") {
+        const rewritten = translateResultOutput(active, binding)
+        if (isRecord(rewritten)) active = rewritten
+      }
+
       const original = originalCallId(toolCallId)
       if (!original) {
-        out.push(restateSingle(part, binding))
+        out.push(restateSingle(active, binding))
         continue
       }
 
       const existing = foldedInto.get(original)
       if (existing) {
-        mergeFoldedPart(existing, part)
+        mergeFoldedPart(existing, active)
         continue
       }
 
-      const folded: Record<string, unknown> = {
-        ...part,
+      let folded: Record<string, unknown> = {
+        ...active,
         toolCallId: original,
         toolName: binding.canonical,
       }
@@ -746,7 +813,7 @@ export function translatePrompt<T>(prompt: readonly T[], vocab: Vocabulary): T[]
       // was diffed into, and the plugin only needs the call to exist and carry
       // a result. Restating it as an empty snapshot keeps the history
       // well-formed without inventing todos the plugin never sent.
-      if (part["type"] === "tool-call") folded["input"] = { todos: [] }
+      if (active["type"] === "tool-call") folded["input"] = { todos: [] }
       foldedInto.set(original, folded)
       out.push(folded)
     }
@@ -763,11 +830,17 @@ function restateSingle(part: Record<string, unknown>, binding: RoleBinding): Rec
 
   const operation = operationOf(part["input"])
   if (!operation) return restated
-  restated["input"] = {
+  const input: Record<string, unknown> = {
     description: operation["description"],
     prompt: operation["prompt"],
     subagent_type: operation["subagent_type"],
   }
+  if (typeof operation["actor_id"] === "string") input["task_id"] = operation["actor_id"]
+  // Preserve old stored host calls that carried model even though canonical
+  // OpenCode task never advertised it. This is history compatibility only; new
+  // outbound calls above never synthesize the field.
+  if (typeof operation["model"] === "string") input["model"] = operation["model"]
+  restated["input"] = input
   return restated
 }
 

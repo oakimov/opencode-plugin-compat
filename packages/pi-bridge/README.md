@@ -161,11 +161,15 @@ registration in tests with `PI_BRIDGE_CURSOR_HOST_TOOLS=1`.
 
 ## Path bridge
 
-On extension load, the bridge installs `Symbol.for("opencode.compat.path-bridge")`
-for the detected host so unmodified providers resolve project/global config under
-`.omp` / `.pi` (agent roots via `PI_CODING_AGENT_DIR` / `PI_CONFIG_DIR`) instead
-of inventing `.opencode`. CreatePlan and similar host-calculated paths follow
-that bridge.
+On extension load, the bridge installs `Symbol.for("opencode.host.path-bridge")`
+for the detected host so unmodified providers resolve project/global config,
+durable **data**, and **cache** under `.omp` / `.pi` (agent roots via
+`PI_CODING_AGENT_DIR` / `PI_CONFIG_DIR`) instead of inventing `.opencode`. The
+bridge exposes `globalConfigDirs`, `globalDataDir`, `globalCacheDir`,
+`projectConfigDirs`, and `configFileNames`; provider auth, plan files,
+conversation snapshots, and model caches follow those roots. A legacy
+`opencode.compat.path-bridge` key is set to the same object for older provider
+releases.
 
 OpenCode plugins also emit camelCase essential-tool args (`filePath`,
 `oldString`, `workdir`). Pi-family hosts validate against `path` / `cwd` /
@@ -222,11 +226,10 @@ MiMo/Kilo development helpers while retaining the Pi family's separate runtime
 mechanism:
 
 ```bash
-./scripts/pi-dev.sh local
-./scripts/pi-dev.sh npm
-
-./scripts/omp-dev.sh local
-./scripts/omp-dev.sh npm
+./scripts/ocp-dev.sh run pi
+./scripts/ocp-dev.sh run pi --mode npm
+./scripts/ocp-dev.sh run omp
+./scripts/ocp-dev.sh run omp --mode npm
 ```
 
 `local` installs locked dependencies, builds this checkout plus the local
@@ -278,7 +281,7 @@ package from the installed host CLI's dependency tree into
 `packages/pi-bridge/node_modules`.
 
 For repeatable switching and portable host-runtime discovery, prefer
-`pi-dev.sh` / `omp-dev.sh` over performing these steps by hand.
+`./scripts/ocp-dev.sh run pi` / `run omp` over performing these steps by hand.
 
 ## Config reference
 

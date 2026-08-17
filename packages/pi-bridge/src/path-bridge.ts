@@ -1,7 +1,6 @@
 /**
- * Install the same `Symbol.for("opencode.compat.path-bridge")` surface the
- * OpenCode-clone adapter installs, so an unmodified provider (e.g.
- * cursor-opencode-provider) resolves project/global config dirs under
+ * Install the same structural host-path surface as the OpenCode-clone adapter,
+ * so an unmodified OpenCode provider resolves project/global config dirs under
  * `.omp` / `.pi` instead of inventing `.opencode`.
  *
  * Kept inside pi-bridge rather than importing `@opencode-compat/adapter` — the
@@ -11,7 +10,8 @@ import { homedir } from "node:os"
 import path from "node:path"
 import type { PiHostId } from "./host/profile.js"
 
-const PATH_BRIDGE_KEY = Symbol.for("opencode.compat.path-bridge")
+const PATH_BRIDGE_KEY = Symbol.for("opencode.host.path-bridge")
+const LEGACY_PATH_BRIDGE_KEY = Symbol.for("opencode.compat.path-bridge")
 
 function unique(values: Array<string | undefined>): string[] {
   return [
@@ -40,9 +40,17 @@ export function installPiPathBridge(
 ): void {
   const projectName = id === "pi" ? ".pi" : ".omp"
   const globalRoot = agentRoot(id, env)
-  ;(globalThis as typeof globalThis & Record<typeof PATH_BRIDGE_KEY, unknown>)[PATH_BRIDGE_KEY] = {
+  const cacheRoot = path.join(globalRoot, "cache", "opencode-providers")
+  const fallbackCwd = process.cwd()
+  const bridge = {
+    globalDataDir() {
+      return globalRoot
+    },
+    globalCacheDir() {
+      return cacheRoot
+    },
     projectConfigDirs(workspaceRoot: string) {
-      const root = path.resolve(workspaceRoot || process.cwd())
+      const root = path.resolve(workspaceRoot || fallbackCwd)
       return unique([path.join(root, projectName)])
     },
     globalConfigDirs() {
@@ -50,4 +58,6 @@ export function installPiPathBridge(
     },
     configFileNames: ["settings.json", "pi-bridge.json"],
   }
+  ;(globalThis as typeof globalThis & Record<typeof PATH_BRIDGE_KEY, unknown>)[PATH_BRIDGE_KEY] = bridge
+  ;(globalThis as typeof globalThis & Record<typeof LEGACY_PATH_BRIDGE_KEY, unknown>)[LEGACY_PATH_BRIDGE_KEY] = bridge
 }

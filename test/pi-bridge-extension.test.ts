@@ -38,4 +38,21 @@ describe("Pi bridge search-tool activation", () => {
     expect(active).toEqual(["read", "bash", "edit", "write"])
     expect(setCalls).toBe(0)
   })
+
+  test("does not call tool actions during extension load", () => {
+    const pi: PiExtensionApi = {
+      registerProvider: () => {},
+      on: () => {},
+      getActiveTools: () => {
+        throw new Error("Extension runtime not initialized. Action methods cannot be called during extension loading.")
+      },
+      getAllTools: () => {
+        throw new Error("Extension runtime not initialized. Action methods cannot be called during extension loading.")
+      },
+      setActiveTools: async () => {
+        throw new Error("Extension runtime not initialized. Action methods cannot be called during extension loading.")
+      },
+    }
+    expect(() => activateOpenCodeSearchTools(pi)).not.toThrow()
+  })
 })

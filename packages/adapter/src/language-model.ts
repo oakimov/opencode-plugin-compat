@@ -402,16 +402,29 @@ type PreparedCall = {
  * checked against the schema the host will validate them with, not the
  * canonical one the plugin saw.
  */
+function toolsInFixedOrder<T>(tools: readonly T[]): T[] {
+  return [...tools].sort((left, right) => {
+    const a = (left as { name?: unknown } | null)?.name
+    const b = (right as { name?: unknown } | null)?.name
+    return String(a ?? "").localeCompare(String(b ?? ""))
+  })
+}
+
 function prepareCall(args: unknown[], roles: Pick<HostProfile, "tools"> | undefined): PreparedCall {
   const call = args[0]
   const toolSchemas = toolSchemasFromCall(call)
-  if (!roles?.tools || !call || typeof call !== "object") {
+  if (!call || typeof call !== "object") {
     return { args, toolSchemas, context: undefined }
   }
 
   const record = call as { tools?: unknown; prompt?: unknown; [key: string]: unknown }
   const tools = Array.isArray(record.tools) ? record.tools : undefined
   if (!tools) return { args, toolSchemas, context: undefined }
+  if (!roles?.tools) {
+    const next = [...args]
+    next[0] = { ...record, tools: toolsInFixedOrder(tools) }
+    return { args: next, toolSchemas, context: undefined }
+  }
 
   const advertised: string[] = []
   for (const tool of tools) {
@@ -420,7 +433,12 @@ function prepareCall(args: unknown[], roles: Pick<HostProfile, "tools"> | undefi
   }
 
   const vocab = buildVocabulary(roles, advertised)
-  if (!vocab) return { args, toolSchemas, context: undefined }
+  const ordered = vocab ? translateCatalog(tools, vocab) : toolsInFixedOrder(tools)
+  if (!vocab) {
+    const next = [...args]
+    next[0] = { ...record, tools: ordered }
+    return { args: next, toolSchemas, context: undefined }
+  }
 
   const prompt = Array.isArray(record.prompt) ? record.prompt : undefined
   const hostTodos = reconstructHostTodos(record.prompt, vocab)
@@ -428,7 +446,7 @@ function prepareCall(args: unknown[], roles: Pick<HostProfile, "tools"> | undefi
   const next = [...args]
   next[0] = {
     ...record,
-    tools: translateCatalog(tools, vocab),
+    tools: ordered,
     ...(prompt ? { prompt: translatePrompt(prompt, vocab) } : {}),
   }
 

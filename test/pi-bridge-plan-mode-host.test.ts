@@ -205,7 +205,7 @@ describe("omp plan-mode host binder", () => {
     expect(imported).toContain("@oh-my-pi/pi-coding-agent")
   })
 
-  test("enter enables plan mode without installing omp's validation-only proposal handler", async () => {
+  test("enter enables plan mode and installs preparePlanForReview as the proposal handler", async () => {
     const session = fakeSession({
       tools: ["read", "bash", "edit", "plan_enter", "plan_exit"],
       hasWrite: true,
@@ -225,7 +225,11 @@ describe("omp plan-mode host binder", () => {
       reentry: false,
       previousTools: ["read", "bash", "edit", "plan_enter", "plan_exit"],
     })
-    expect(session.proposalHandler).toBeNull()
+    expect(session.proposalHandler).toBeTypeOf("function")
+    expect(await session.proposalHandler?.("PLAN")).toEqual({
+      content: [{ type: "text", text: "ready:PLAN" }],
+      details: { title: "PLAN" },
+    })
     expect(session.activeTools).toContain("write")
     expect(session.activeTools).not.toContain("plan_enter")
     // The provider's held Cursor Run owns the mode-switch continuation and

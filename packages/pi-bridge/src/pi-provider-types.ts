@@ -44,7 +44,7 @@ export type PiUsage = {
   cacheRead: number
   cacheWrite: number
   totalTokens: number
-  reasoningTokens?: number
+  reasoning?: number
   cost: { input: number; output: number; cacheRead: number; cacheWrite: number; total: number }
 }
 

@@ -42,6 +42,7 @@ export type OmpPlanModeSession = {
   getEnabledToolNames?(): string[]
   setActiveToolsByName?(names: string[]): void | Promise<void>
   hasBuiltInTool?(name: string): boolean
+  getToolByName?(name: string): { execute?: (...args: unknown[]) => Promise<unknown> } | undefined
   isStreaming?: boolean
 }
 
@@ -355,12 +356,7 @@ export async function enterOmpPlanMode(
     reentry: previous !== undefined || state.hasEntered,
     previousTools,
   })
-  // Cursor's CreatePlan bridge owns review through its host tools. Do not install
-  // omp's validation-only proposal handler here: it emits review metadata for
-  // InteractiveMode, but an npm-installed omp cannot consume source-only UI
-  // changes from another checkout. `write xd://propose` is therefore not used by
-  // this bridge; cursor_plan_stage opens the extension UI directly.
-  host.setPlanProposalHandler(null)
+  host.setPlanProposalHandler(title => host.preparePlanForReview(title))
 
   state.hasEntered = true
   return {

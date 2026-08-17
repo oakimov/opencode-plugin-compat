@@ -54,7 +54,7 @@ Also: [`fixtures/`](./fixtures) (conformance), [`docs/hosts/`](./docs/hosts) (ho
 | [`docs/hosts/pi-family.md`](./docs/hosts/pi-family.md) | **pi / oh-my-pi** — install, config, model variants, verification |
 | [`packages/pi-bridge/README.md`](./packages/pi-bridge/README.md) | pi-bridge config reference + pi/omp host-difference table |
 | [`docs/ocp/0.1.md`](./docs/ocp/0.1.md) | OCP contract — HostProfile, classic hooks, tiers, Promise v2, conformance |
-| [`TESTING.md`](./TESTING.md) | **Manual local dev** — unpublished OCP + local plugins (`scripts/*-dev.sh`) |
+| [`TESTING.md`](./TESTING.md) | **Manual local dev** — unpublished OCP + local plugins (`./scripts/ocp-dev.sh`) |
 | [`docs/guides/kilocode-telemetry-disable.md`](./docs/guides/kilocode-telemetry-disable.md) | Disable Kilo PostHog telemetry (config / `KILO_TELEMETRY_LEVEL`) |
 | [`docs/guides/mimocode-telemetry-disable.md`](./docs/guides/mimocode-telemetry-disable.md) | Disable MiMo Xiaomi usage analytics (`MIMOCODE_ENABLE_ANALYSIS=false`) |
 | [`docs/guides/zcode-telemetry-block.md`](./docs/guides/zcode-telemetry-block.md) | ZCode telemetry block (**docs-only** firewall/DNS) |
@@ -76,34 +76,18 @@ bun run pack:check          # publish dry-run (see docs/guides/npm-publish.md)
 
 Requires [Bun](https://bun.sh) ≥ 1.2. CLI bins import `dist/` — run `bun run build` after a clean checkout.
 
-For end-to-end checks against a real host with local checkouts, see [**TESTING.md**](./TESTING.md). The MiMo/Kilo helper scripts clean cached plugin installs and provider `node_modules` before every local shim or npm restore, then reinstall from the selected local path or explicit npm `@latest` source.
-
-After an interrupted or ad-hoc test run, restore a consumer checkout before
-building it again:
+For end-to-end checks against a real host with local checkouts, see [**TESTING.md**](./TESTING.md).
 
 ```bash
-./scripts/clean-test-state.sh --provider /path/to/cursor-opencode-provider
+./scripts/ocp-dev.sh run                 # wire every installed host (local OCP + local provider)
+./scripts/ocp-dev.sh run --mode npm      # switch those hosts to published packages
+./scripts/ocp-dev.sh run kilo mimo       # only the named hosts
+./scripts/ocp-dev.sh unshim              # factory restore; existing host config is preserved
 ```
 
-Pass `--host mimo` or `--host kilo` to also remove that provider's cached
-install, recognizable OCP overrides, and local checkout references from the
-host config. The provider is rebuilt from its own lockfile, so compatibility
-facades and generated entry shims cannot remain in its test dependencies.
-
-Pi-family development uses the same `local|npm` switch with the hosts' native
-package managers and `pi-bridge.json`—never clone facades or `ocp setup`:
-
-```bash
-./scripts/pi-dev.sh local    # local pi-bridge + local provider checkout
-./scripts/pi-dev.sh npm      # published pi-bridge + published provider
-./scripts/omp-dev.sh local
-./scripts/omp-dev.sh npm
-```
-
-Local mode defaults to a sibling `cursor-opencode-provider` checkout; override
-it with `OCP_DEV_PROVIDER_PATH`. See the
-[Pi-family guide](./docs/hosts/pi-family.md#development-helper-scripts) for
-version pins and config-path overrides.
+Hosts: `opencode`, `mimo`, `kilo`, `pi`, `omp`. Local mode defaults to a sibling
+`cursor-opencode-provider` checkout; override with `OCP_DEV_PROVIDER_PATH`.
+Config edits only insert or remove the OCP/provider slot.
 
 ## Related
 

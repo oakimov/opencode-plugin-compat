@@ -9,6 +9,7 @@ import {
   translateCall,
   translateCatalog,
   translatePrompt,
+  translateResultOutput,
   type HostTodo,
   type Vocabulary,
 } from "@opencode-compat/adapter"
@@ -96,26 +97,27 @@ describe("translateCatalog", () => {
 
   test("canonical task is flat and carries the host's own subagent types", () => {
     const out = translateCatalog(tools, mimoVocab())
-    const task = out.find((tool) => (tool as { name: string }).name === "task") as {
+    const task = out.find((tool) => (tool as { name: string }).name === "task") as unknown as {
       inputSchema: { properties: Record<string, unknown>; required: string[] }
     }
     expect(Object.keys(task.inputSchema.properties).sort()).toEqual([
       "description",
       "prompt",
       "subagent_type",
+      "task_id",
     ])
     expect(task.inputSchema.required).toEqual(["description", "prompt", "subagent_type"])
     // Custom agents must survive translation — this is the "must not impact
     // other subagent types" constraint.
     expect(task.inputSchema.properties["subagent_type"]).toEqual({
       type: "string",
-      enum: ["general", "reviewer", "my-custom-agent"],
+      enum: ["general", "my-custom-agent", "reviewer"],
     })
   })
 
   test("todowrite is the upstream positional snapshot", () => {
     const out = translateCatalog(tools, mimoVocab())
-    const todowrite = out.find((tool) => (tool as { name: string }).name === "todowrite") as {
+    const todowrite = out.find((tool) => (tool as { name: string }).name === "todowrite") as unknown as {
       inputSchema: { properties: { todos: { items: { properties: Record<string, unknown> } } } }
     }
     expect(Object.keys(todowrite.inputSchema.properties.todos.items.properties).sort()).toEqual([
@@ -150,6 +152,55 @@ describe("translateCall", () => {
     ])
   })
 
+  test("canonical task schema advertises an optional opaque task_id", () => {
+    const vocab = mimoVocab()
+    const translated = translateCatalog(
+      [{ name: "actor", description: "A", inputSchema: { type: "object" } }],
+      vocab,
+    )
+    const schema = (translated[0] as { inputSchema: Record<string, any> }).inputSchema as {
+      properties: Record<string, any>
+      additionalProperties: boolean
+    }
+    expect(schema.properties.task_id.type).toBe("string")
+    expect(schema.additionalProperties).toBe(false)
+  })
+
+  test("new canonical task calls never forward an unadvertised model field", () => {
+    const calls = translateCall(
+      "c-model",
+      "task",
+      {
+        description: "Inspect code",
+        prompt: "Inspect",
+        subagent_type: "reviewer",
+        model: "legacy-model",
+      },
+      mimoVocab(),
+    )
+    expect(calls?.[0]).toMatchObject({ toolName: "actor" })
+    const operation = (calls?.[0]?.input as { operation: Record<string, unknown> }).operation
+    expect(operation.model).toBeUndefined()
+  })
+
+  test("canonical task resume id becomes actor id", () => {
+    const calls = translateCall(
+      "c-resume",
+      "task",
+      {
+        description: "Continue review",
+        prompt: "Continue",
+        subagent_type: "reviewer",
+        task_id: "actor_previous",
+      },
+      mimoVocab(),
+    )
+    expect(calls?.[0]).toMatchObject({
+      toolName: "actor",
+      input: { operation: { action: "run", actor_id: "actor_previous" } },
+    })
+  })
+
   test("a backgrounded subagent becomes spawn", () => {
     const calls = translateCall(
       "c1",
@@ -157,7 +208,7 @@ describe("translateCall", () => {
       { description: "d", prompt: "p", subagent_type: "general", background: true },
       mimoVocab(),
     )
-    expect((calls?.[0].input.operation as { action: string }).action).toBe("spawn")
+    expect((calls?.[0]?.input.operation as { action: string }).action).toBe("spawn")
   })
 
   test("todoread becomes a list operation", () => {
@@ -362,15 +413,20 @@ describe("translatePrompt", () => {
     ]
 
     const out = translatePrompt(prompt, mimoVocab()) as Array<{ content: Array<Record<string, unknown>> }>
-    expect(out[0].content).toHaveLength(1)
-    expect(out[0].content[0]).toMatchObject({
+    expect(out[0]?.content).toHaveLength(1)
+    expect(out[0]?.content[0]).toMatchObject({
       toolCallId: "c1",
       toolName: "todowrite",
       input: { todos: [] },
     })
-    expect(out[1].content).toHaveLength(1)
-    expect(out[1].content[0]).toMatchObject({ toolCallId: "c1", toolName: "todowrite" })
-    expect(out[1].content[0].output).toBe("Created T1\nCreated T2")
+    // First result becomes the folded canonical part; the second merges into it.
+    expect(out[1]?.content).toHaveLength(1)
+    expect(out[1]?.content[0]).toMatchObject({
+      toolCallId: "c1",
+      toolName: "todowrite",
+      type: "tool-result",
+    })
+    expect(out[1]?.content[0]?.output).toBe("Created T1\nCreated T2")
   })
 
   test("a subagent call is restated flat under its canonical name", () => {
@@ -390,10 +446,133 @@ describe("translatePrompt", () => {
       },
     ]
     const out = translatePrompt(prompt, mimoVocab()) as Array<{ content: Array<Record<string, unknown>> }>
-    expect(out[0].content[0]).toMatchObject({
+    expect(out[0]?.content[0]).toMatchObject({
       toolCallId: "s1",
       toolName: "task",
       input: { description: "d", prompt: "p", subagent_type: "reviewer" },
+    })
+  })
+
+  test("host actor_id is restored as canonical task_id on restatement", () => {
+    const prompt = [
+      {
+        role: "assistant",
+        content: [
+          {
+            type: "tool-call",
+            toolCallId: "s-resume",
+            toolName: "actor",
+            input: {
+              operation: {
+                action: "run",
+                description: "Continue review",
+                prompt: "Continue",
+                subagent_type: "reviewer",
+                actor_id: "actor-123",
+              },
+            },
+          },
+        ],
+      },
+    ]
+    const out = translatePrompt(prompt, mimoVocab()) as Array<{ content: Array<Record<string, unknown>> }>
+    expect(out[0]?.content[0]).toMatchObject({
+      toolCallId: "s-resume",
+      toolName: "task",
+      input: {
+        description: "Continue review",
+        prompt: "Continue",
+        subagent_type: "reviewer",
+        task_id: "actor-123",
+      },
+    })
+  })
+
+  test("legacy host history preserves model without adding it to new calls", () => {
+    const prompt = [{
+      role: "assistant",
+      content: [{
+        type: "tool-call",
+        toolCallId: "s-legacy-model",
+        toolName: "actor",
+        input: {
+          operation: {
+            action: "run",
+            description: "Old call",
+            prompt: "Continue old call",
+            subagent_type: "reviewer",
+            model: "legacy-model",
+          },
+        },
+      }],
+    }]
+    const out = translatePrompt(prompt, mimoVocab()) as Array<{ content: Array<Record<string, any>> }>
+    expect(out[0]?.content[0]?.input.model).toBe("legacy-model")
+  })
+
+  test("actor_id is rewritten to task_id on a restated subagent result", () => {
+    const prompt = [
+      {
+        role: "tool",
+        content: [
+          {
+            type: "tool-result",
+            toolCallId: "s-out",
+            toolName: "actor",
+            output: { actor_id: "actor-123", state: "finished" },
+          },
+        ],
+      },
+    ]
+    const out = translatePrompt(prompt, mimoVocab()) as Array<{ content: Array<Record<string, unknown>> }>
+    const translated = out[0]?.content[0] as { output: { actor_id?: string; task_id?: string; state: string } }
+    expect(translated).toMatchObject({
+      toolCallId: "s-out",
+      toolName: "task",
+    })
+    expect(translated.output).toEqual({ task_id: "actor-123", state: "finished" })
+  })
+
+  test("translateResultOutput rewrites MiMo actor result text to canonical task form", () => {
+    const binding = mimoVocab().bindings.find((b) => b.role === "subagent")
+    const host = [
+      "actor_id: explore-1 (for resuming to continue this task if needed)",
+      "",
+      '<actor_result status="completed">',
+      "hello",
+      "</actor_result>",
+    ].join("\n")
+    const result = translateResultOutput({ type: "tool-result", toolName: "actor", output: host }, binding)
+    expect(result).toEqual({
+      type: "tool-result",
+      toolName: "actor",
+      output: [
+        "task_id: explore-1 (for resuming to continue this task if needed)",
+        "",
+        '<task status="completed">',
+        "hello",
+        "</task>",
+      ].join("\n"),
+    })
+    const prompt = [{
+      role: "tool",
+      content: [{ type: "tool-result", toolCallId: "s-text", toolName: "actor", output: host }],
+    }]
+    const out = translatePrompt(prompt, mimoVocab()) as Array<{ content: Array<{ output: string }> }>
+    expect(out[0]?.content[0]?.output).toContain("task_id: explore-1")
+    expect(out[0]?.content[0]?.output).toContain("<task status=")
+    expect(out[0]?.content[0]?.output).not.toContain("actor_id")
+    expect(out[0]?.content[0]?.output).not.toContain("actor_result")
+  })
+
+  test("translateResultOutput rewrites structured actor_id directly", () => {
+    const result = translateResultOutput(
+      { output: { actor_id: "actor-456", status: "ok" } },
+      mimoVocab().bindings.find((b) => b.role === "subagent"),
+    )
+    expect(result).toEqual({ output: { task_id: "actor-456", status: "ok" } })
+    expect(translateResultOutput({ output: { status: "ok" } }, undefined)).toEqual({
+      output: { status: "ok" },
     })
   })
 

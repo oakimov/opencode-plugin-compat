@@ -5,7 +5,6 @@
  * registered when no config file exists.
  */
 import { loadConfig, registerProvidersFromConfig, resolveConfigPath } from "./config.js"
-import { activateCursorHostTools, registerCursorHostTools } from "./cursor-host-tools.js"
 import { detectPiHost } from "./host/detect.js"
 import type { PiHostId } from "./host/profile.js"
 import { installPiPathBridge } from "./path-bridge.js"
@@ -19,9 +18,9 @@ import type { PiExtensionApi } from "./pi-provider-types.js"
  * remains authoritative: a tool absent from getAllTools() is not enabled.
  */
 export function activateOpenCodeSearchTools(pi: PiExtensionApi): void {
-  if (!pi.on || !pi.getActiveTools || !pi.getAllTools || !pi.setActiveTools) return
+  if (!pi.getActiveTools || !pi.getAllTools || !pi.setActiveTools) return
 
-  pi.on("session_start", async () => {
+  const apply = async () => {
     const available = new Set(
       pi.getAllTools!().map(tool => typeof tool === "string" ? tool : tool.name),
     )
@@ -32,7 +31,9 @@ export function activateOpenCodeSearchTools(pi: PiExtensionApi): void {
     const next = [...new Set([...active, ...additionalBuiltinTools])]
     if (next.length === active.length && next.every((name, index) => name === active[index])) return
     await pi.setActiveTools!(next)
-  })
+  }
+
+  pi.on?.("session_start", apply)
 }
 
 function resolveHostIdForTools(detected?: PiHostId): PiHostId | undefined {
@@ -47,18 +48,26 @@ function resolveHostIdForTools(detected?: PiHostId): PiHostId | undefined {
  * plugins (or when tests force registration). omp gets plan_enter/plan_exit;
  * both hosts get cursor_image_save.
  */
-export function maybeRegisterCursorHostTools(
+export async function maybeRegisterCursorHostTools(
   pi: PiExtensionApi,
   hostId: PiHostId,
   config: { providers?: Array<{ package?: string; providerName?: string }> } | null | undefined,
-): string[] {
+): Promise<string[]> {
   const mentionsCursor = (config?.providers ?? []).some(entry => {
-    const needle = `${entry.package ?? ""} ${entry.providerName ?? ""}`.toLowerCase()
-    return needle.includes("cursor-opencode-provider") || needle.includes("cursor")
+    const raw = (entry.package ?? "").toLowerCase()
+    // Accept npm version suffixes (`cursor-opencode-provider@1.2.3`) and path/
+    // `file://` locations ending in the provider directory.
+    const packageName = raw.replace(/@[^/]+$/, "")
+    return packageName === "cursor-opencode-provider"
+      || packageName.startsWith("cursor-opencode-provider/")
+      || packageName.includes("/cursor-opencode-provider/")
+      || packageName.endsWith("/cursor-opencode-provider")
   })
   // Staging lives in-process with the bridged provider — only advertise when
-  // Cursor is configured (or tests force registration via env).
+  // Cursor is configured (or tests force registration via env). The Cursor host
+  // tool module stays a dynamic import so generic Pi loads never parse it.
   if (!mentionsCursor && process.env.PI_BRIDGE_CURSOR_HOST_TOOLS !== "1") return []
+  const { activateCursorHostTools, registerCursorHostTools } = await import("./cursor-host-tools.js")
   const names = registerCursorHostTools(pi, { hostId, hostPi: pi.pi })
   activateCursorHostTools(pi, names)
   return names
@@ -91,8 +100,12 @@ export default async function piBridgeExtension(pi: PiExtensionApi): Promise<voi
   if (config) {
     activateOpenCodeSearchTools(pi)
     const resolvedHost = resolveHostIdForTools(hostId)
+    if (resolvedHost === "omp") {
+      const { activateHashlineTool, registerHashlineTool } = await import("./hashline-tool.js")
+      activateHashlineTool(pi, registerHashlineTool(pi, { hostPi: pi.pi }))
+    }
     if (resolvedHost) {
-      maybeRegisterCursorHostTools(pi, resolvedHost, config)
+      await maybeRegisterCursorHostTools(pi, resolvedHost, config)
     }
     await registerProvidersFromConfig(pi, config)
   }

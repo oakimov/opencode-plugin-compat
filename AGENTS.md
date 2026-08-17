@@ -19,10 +19,22 @@ OCP is a plugin compatibility layer. **Patching a host shipped by another vendor
 - **Interactive behavior requires an interactive acceptance test.** Unit/type tests are supporting checks, not proof. For mode switches, approval dialogs, plan review, or execution handoffs, rebuild/install OCP and the consumer provider, start the real stock host in a TTY, drive the complete user flow, and verify the host transcript, side effect, and absence of retries before saying the issue is fixed.
 - These rules apply to the main agent and every delegated subagent. Prompts to subagents must identify host repositories as read-only and forbid edits there.
 
-- **Two host families, two mechanisms** — never unify them:
-  - **OpenCode clones** (MiMo, Kilo; zcode detect-only) ship OpenCode-shaped native plugin packages → facades + **one** autodetection adapter + host kit, wired by `ocp setup`.
-  - **Pi family** (`pi` earendil-works, `oh-my-pi`/omp can1357) are **not** OpenCode forks and have no `@opencode-ai/plugin`-shaped package → `@opencode-compat/pi-bridge` dynamically loads the unmodified plugin and registers it via the host's own `pi.registerProvider(...)`, translating AI-SDK `doStream` ↔ the host's event stream. The `ocp` CLI is not involved.
-- Plugins are discovered through **OpenCode's own standard conventions** (`hooks.auth`, the `config` hook's `provider[id].models`, the root `createXxx()` AI-SDK factory). Never hardcode a specific plugin (no Cursor-shaped branches in bridge code) and never sniff host versions to pick behavior.
+### Non-negotiable OCP / consumer-provider boundary
+
+The dependency direction is one-way: **OCP may know consumer providers; consumer providers must not know OCP.** OCP must adapt published providers without requiring OCP imports, host branches, or fork vocabulary in their source.
+
+- **Provider stays unchanged:** never solve compatibility by adding `@opencode-compat/*`, OCP detection, fork environment variables, alternate tool names, or host-specific schemas to a consumer provider. Provider-side structural capability contracts must be host-neutral; OCP installs them before provider load.
+- **Generic core, optional integrations:** generic facade, adapter, loader, config, and stream translation code must work for arbitrary OpenCode/AI-SDK providers. A provider-specific integration (currently Cursor host tools) must live in a clearly named optional module, activate only for an explicit package match, fail open when that provider is absent, and never become a prerequisite for generic providers.
+- **OCP owns translation end-to-end:** fork paths, canonical tool catalog translation, call inputs, results, prompt/history replay, opaque resume ids, schemas, MCP/resource vocabulary, agents, and mode semantics are OCP responsibilities. The provider must see canonical OpenCode shapes.
+- **Two host families, two mechanisms — never unify them:**
+  - **OpenCode clones** (MiMo, Kilo; zcode detect-only) ship OpenCode-shaped native plugin packages → facades + **one** autodetection adapter + host kit, wired by `ocp setup`. `packages/adapter` must not contain Pi/OMP ids, paths, env variables, packages, or tool roles.
+  - **Pi family** (`pi` earendil-works, `oh-my-pi`/omp can1357) are **not** OpenCode forks and have no `@opencode-ai/plugin`-shaped package → `@opencode-compat/pi-bridge` dynamically loads the unmodified plugin and registers it via the host's own `pi.registerProvider(...)`, translating AI-SDK `doStream` ↔ the host's event stream. The `ocp` CLI and clone adapter are not involved.
+- **Neutral path contract:** install `Symbol.for("opencode.host.path-bridge")` with structural cache/data/config/project paths. Legacy symbols may be emitted only as time-bounded backward compatibility; new provider code must not import OCP or name the installer. Generic bridge paths and cache namespaces must not be named after Cursor or another consumer.
+- **Capability/catalog integrity:** preserve every enabled tool and deterministic order through translation. A lifecycle call with no tools remains a lifecycle signal; session affinity and cancellation must reach the downstream provider so it can correlate a sibling full-catalog call. Never invent/filter a catalog to accommodate one provider.
+- **Functionality relocation gate:** before removing a compatibility branch from a consumer provider, add OCP tests proving equivalent catalog, call, result, resume-id, schema, and prompt-history behavior. Refactoring the boundary must not delete working compatibility.
+- **Architecture checks:** tests must cover at least one generic fake/Acme provider on both clone and Pi paths, explicit optional Cursor activation, no Pi logic in clone runtime, and no mandatory/static Cursor import in generic Pi code.
+
+Plugins are discovered through **OpenCode's own standard conventions** (`hooks.auth`, the `config` hook's `provider[id].models`, the root `createXxx()` AI-SDK factory). Never hardcode a specific plugin in generic bridge code and never sniff host versions to pick behavior.
 - **User delivery UX (locked):** one installable umbrella package (`@opencode-compat/ocp`) + **`ocp setup`** that writes install-tree overrides; users then add **consumer** plugins via host config (`plugin` / equivalent) unchanged. Listing OCP itself in `plugin` is optional bootstrap only — it does **not** intercept other plugins’ imports by itself.
 - Facades remapped in **plugin install trees / operator overrides** (not spoofing public `@opencode-ai` on npm). Publish **public** `@opencode-compat/*` — agent bump/publish runbook in this file; human guide `docs/guides/npm-publish.md`.
 - Scope: `@opencode-compat/*` — **host bridge packages** (internal) + umbrella UX package + named **companions** that must not redefine OCP success.
@@ -60,7 +72,8 @@ docs/guides/       # companion privacy / ZCode import notes (non-OCP runtime)
 1. `docs/ocp/0.1.md` — protocol contract for the OpenCode-clone facade path
 2. `packages/pi-bridge/README.md` — contract + config reference for the Pi family
 3. `docs/hosts/opencode-clones.md` (MiMo/Kilo/ZCode) / `docs/hosts/pi-family.md` (Pi) — one self-contained guide per host family; install lives **in** them, not in a separate top-level INSTALL doc
-4. `docs/plans/**` — **historical**; shipped work, kept for provenance. Superseded by the above wherever they disagree; do not treat as a roadmap.
+4. Provider-maintained interactive acceptance checklist: `cursor-opencode-provider/docs/host-compat-acceptance.md`; run the OMP/Pi items against stock hosts before claiming interactive parity.
+5. `docs/plans/**` — **historical**; shipped work, kept for provenance. Superseded by the above wherever they disagree; do not treat as a roadmap.
 
 ## Version bump / publish (agent runbook)
 

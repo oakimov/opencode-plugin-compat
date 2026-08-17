@@ -504,7 +504,7 @@ export function setup(options: SetupOptions = {}): SetupResult {
 
   // Absolute-path / file:// plugins resolve @opencode-ai/* from their own
   // checkout node_modules — install-tree overrides never reach them. Symlink
-  // facades into those package roots (same as scripts/host-dev-common.sh).
+  // facades into those package roots (same as scripts/ocp-dev).
   let absolutePluginTargets: AbsolutePluginWireTarget[] | undefined
   if (absolutePlugins) {
     const facades = resolveFacadePackageDirs(mode)

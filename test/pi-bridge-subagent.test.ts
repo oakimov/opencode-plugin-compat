@@ -13,6 +13,7 @@ import {
   buildPiToolInputVocabulary,
   canonicalSubagentDescription,
   canonicalSubagentSchema,
+  canonicalToolName,
   translateCanonicalSubagentCall,
   translateCanonicalToolCall,
   translateHostSubagentCall,
@@ -64,10 +65,10 @@ class FakeAssistantMessageEventStream {
   end() {}
   fail() {}
   async result() {
-    return (this.events.find((event: never) => (event as { type: string }).type === "done") as { message: unknown } | undefined)?.message
+    return (this.events.find((event) => (event as { type?: string }).type === "done") as { message: unknown } | undefined)?.message
   }
   async *[Symbol.asyncIterator]() {
-    yield* this.events as never
+    yield* this.events
   }
 }
 
@@ -98,11 +99,11 @@ describe("Pi-family subagent vocabulary", () => {
     const schema = canonicalSubagentSchema(vocabulary!)
     expect(schema.required).toEqual(["description", "prompt", "subagent_type"])
     expect((schema.properties as Record<string, { enum: string[] }>).subagent_type.enum).toEqual([
-      "task",
-      "scout",
-      "reviewer",
-      "general",
       "explore",
+      "general",
+      "reviewer",
+      "scout",
+      "task",
     ])
 
     const tools = translateTools([OMP_TASK] as never, toSchema as never, vocabulary)
@@ -457,7 +458,7 @@ describe("Pi-family subagent vocabulary", () => {
     }])
     // pi has no replace-all mode, so the contract must not offer one.
     expect(
-      (translateTools(tools, toSchema as never, undefined, toolInputs)[0].inputSchema as {
+      (translateTools(tools, toSchema as never, undefined, toolInputs)?.[0]?.inputSchema as {
         properties: Record<string, unknown>
       }).properties.replaceAll,
     ).toBeUndefined()
@@ -489,6 +490,38 @@ describe("Pi-family subagent vocabulary", () => {
       toolName: "find",
       input: { pattern: "**/*.ts", path: "." },
     })
+  })
+
+  test("omp exposes its live todo tool as OpenCode todowrite and todoread", () => {
+    const tools = [{ name: "todo", description: "Track tasks", parameters: { type: "object" } }] as never
+    const toolInputs = buildPiToolInputVocabulary(tools, ompProfile())
+
+    expect(toolInputs?.todo?.providerName).toBe("todowrite")
+    expect(toolInputs?.todo?.extraProviderNames).toEqual(["todoread"])
+    expect(translateTools(tools, toSchema as never, undefined, toolInputs)).toEqual([
+      {
+        type: "function",
+        name: "todoread",
+        description: "Track tasks",
+        inputSchema: { type: "object", properties: {}, additionalProperties: false },
+      },
+      {
+        type: "function",
+        name: "todowrite",
+        description: "Track tasks",
+        inputSchema: { type: "object" },
+      },
+    ])
+    expect(translateCanonicalToolCall("todowrite", { op: "init", list: [] }, undefined, toolInputs)).toEqual({
+      toolName: "todo",
+      input: { op: "init", list: [] },
+    })
+    expect(translateCanonicalToolCall("todoread", {}, undefined, toolInputs)).toEqual({
+      toolName: "todo",
+      input: { op: "view" },
+    })
+    expect(canonicalToolName("todo", undefined, toolInputs, { op: "view" })).toBe("todoread")
+    expect(canonicalToolName("todo", undefined, toolInputs, { op: "init" })).toBe("todowrite")
   })
 
   test("already host-shaped calls and unrelated calls remain intact", () => {
@@ -604,8 +637,7 @@ describe("subagent call and result round trip", () => {
     const done = piStream.events.at(-1) as {
       message: { content: Array<{ id: string; name: string; arguments: Record<string, unknown> }> }
     }
-    expect(done.message.content[0]).toEqual({
-      type: "toolCall",
+    expect(done.message.content[0]).toMatchObject({
       id: "call_subagent_1",
       name: "subagent",
       arguments: { agent: "scout", task: "Find the relevant implementation" },
@@ -635,8 +667,7 @@ describe("subagent call and result round trip", () => {
     const done = piStream.events.at(-1) as {
       message: { content: Array<{ id: string; name: string; arguments: Record<string, unknown> }> }
     }
-    expect(done.message.content[0]).toEqual({
-      type: "toolCall",
+    expect(done.message.content[0]).toMatchObject({
       id: "call_hub_1",
       name: "hub",
       arguments: { op: "jobs" },

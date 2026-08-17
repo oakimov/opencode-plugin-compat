@@ -18,6 +18,7 @@ import {
   type OmpPlanProposalHandler,
 } from "../packages/pi-bridge/src/plan-mode-host.ts"
 import { maybeRegisterCursorHostTools } from "../packages/pi-bridge/src/extension.ts"
+import { mapPlanModeError, PlanNotApprovedError } from "../packages/pi-bridge/src/cursor-host-tools.ts"
 import type { PiExtensionApi, PiRegisterToolDefinition } from "../packages/pi-bridge/src/pi-provider-types.ts"
 
 function fakeSession(options: { hasWrite?: boolean } = {}): OmpPlanModeSession & {
@@ -192,24 +193,90 @@ describe("Cursor host tool registration", () => {
     const enter = pi.registered.find(tool => tool.name === PLAN_ENTER_TOOL)!
     await enter.execute("c1", {}, undefined, undefined, {})
     const stage = pi.registered.find(tool => tool.name === CURSOR_PLAN_STAGE_TOOL)!
-    const result = (await stage.execute(
-      "c-stage",
-      {
-        plan_uri: "local://refine-plan.md",
-        content: "# Refine\n\n- Add details\n",
-        title: "refine",
-      },
-      undefined,
-      undefined,
-      {
-        hasUI: true,
-        ui: { select: async () => "Refine plan" },
-      },
-    )) as { details: { action: string } }
 
-    expect(result.details.action).toBe("plan_refine")
+    // Refinement must surface as an error: the Cursor provider reads tool
+    // success as "the user approved execution", so a success result here made
+    // Cursor start implementing a plan the user had just asked to change.
+    let error: Error | undefined
+    try {
+      await stage.execute(
+        "c-stage",
+        {
+          plan_uri: "local://refine-plan.md",
+          content: "# Refine\n\n- Add details\n",
+          title: "refine",
+        },
+        undefined,
+        undefined,
+        {
+          hasUI: true,
+          ui: { select: async () => "Refine plan" },
+        },
+      )
+    } catch (caught) {
+      error = caught as Error
+    }
+
+    expect(error?.message).toBe(
+      "Plan refinement requested. Update local://refine-plan.md, then propose it again when ready.",
+    )
     expect(session.getPlanModeState()?.enabled).toBe(true)
     expect(session.getPlanModeState()?.planFilePath).toBe("local://refine-plan.md")
+  })
+
+  test("a cancelled review reports not-approved without claiming refinement", async () => {
+    const session = fakeSession({ hasWrite: true })
+    const host = bindOmpPlanModeHostFromSession(session)
+    const pi = fakePi()
+    registerCursorHostTools(pi, {
+      hostId: "omp",
+      resolvePlanHost: async () => host,
+      executeImageSave: async () => "saved",
+    })
+    const enter = pi.registered.find(tool => tool.name === PLAN_ENTER_TOOL)!
+    await enter.execute("c1", {}, undefined, undefined, {})
+    const stage = pi.registered.find(tool => tool.name === CURSOR_PLAN_STAGE_TOOL)!
+
+    let error: Error | undefined
+    try {
+      await stage.execute(
+        "c-dismiss",
+        {
+          plan_uri: "local://dismissed-plan.md",
+          content: "# Dismiss\n\n- Nothing\n",
+          title: "dismiss",
+        },
+        undefined,
+        undefined,
+        {
+          hasUI: true,
+          ui: { select: async () => undefined },
+        },
+      )
+    } catch (caught) {
+      error = caught as Error
+    }
+
+    expect(error?.message).toContain("was not approved")
+    expect(error?.message).not.toContain("refinement requested")
+    expect(session.getPlanModeState()?.enabled).toBe(true)
+  })
+
+  test("mapPlanModeError passes a not-approved reason through verbatim", () => {
+    const notApproved = new PlanNotApprovedError("Please refine the plan")
+    expect(() => mapPlanModeError(notApproved)).toThrow("Please refine the plan")
+  })
+
+  test("mapPlanModeError maps host denials to the Cursor user-reject reason", () => {
+    for (const message of [
+      "user denied the request",
+      "permission rejected",
+      "plan approval cancelled",
+      "not allowed",
+    ]) {
+      expect(() => mapPlanModeError(new Error(message))).toThrow(USER_REJECTED_REASON)
+    }
+    expect(() => mapPlanModeError(new Error("boom"))).toThrow("boom")
   })
 
   test("plain pi registers cursor_image_save only", () => {
@@ -294,15 +361,41 @@ describe("Cursor host tool registration", () => {
     expect(pi.active).not.toContain(PLAN_ENTER_TOOL)
   })
 
-  test("maybeRegisterCursorHostTools only fires when Cursor is configured", () => {
+  test("activateCursorHostTools does not call tool actions during extension load", () => {
+    const boom = () => {
+      throw new Error("Extension runtime not initialized. Action methods cannot be called during extension loading.")
+    }
+    const pi: PiExtensionApi = {
+      registerProvider: () => {},
+      on: () => {},
+      getActiveTools: boom,
+      getAllTools: boom,
+      setActiveTools: async () => {
+        boom()
+      },
+    }
+    expect(() => activateCursorHostTools(pi, [CURSOR_IMAGE_SAVE_TOOL])).not.toThrow()
+  })
+
+  test("maybeRegisterCursorHostTools only fires when Cursor is configured", async () => {
     const pi = fakePi()
     expect(
-      maybeRegisterCursorHostTools(pi, "omp", {
+      await maybeRegisterCursorHostTools(pi, "omp", {
         providers: [{ package: "some-other-provider" }],
       }),
     ).toEqual([])
+    expect(
+      await maybeRegisterCursorHostTools(pi, "omp", {
+        providers: [{ package: "unrelated-cursor-tools", providerName: "cursor" }],
+      }),
+    ).toEqual([])
+    const versioned = await maybeRegisterCursorHostTools(pi, "omp", {
+      providers: [{ package: "cursor-opencode-provider@1.2.3" }],
+    })
+    expect(versioned).toContain(CURSOR_IMAGE_SAVE_TOOL)
+    expect(versioned).toContain(PLAN_ENTER_TOOL)
 
-    const names = maybeRegisterCursorHostTools(pi, "omp", {
+    const names = await maybeRegisterCursorHostTools(pi, "omp", {
       providers: [{ package: "cursor-opencode-provider" }],
     })
     expect(names).toContain(CURSOR_IMAGE_SAVE_TOOL)

@@ -71,6 +71,8 @@ export type PiToolInputProfile = {
   inputShape?: "pi-edit"
   /** Provider-facing tool name when the host uses a different name. */
   providerName?: string
+  /** Extra provider-facing names for the same host tool (e.g. todoread beside todowrite). */
+  extraProviderNames?: readonly string[]
 }
 
 /**
@@ -111,6 +113,7 @@ const OMP_ESSENTIAL_TOOL_INPUTS: Readonly<Record<string, PiToolInputProfile>> = 
     dropInputKeys: ["i"],
   },
   bash: { inputAliases: { workdir: "cwd", working_directory: "cwd" } },
+  todo: { inputAliases: {}, providerName: "todowrite", extraProviderNames: ["todoread"] },
 }
 
 /**

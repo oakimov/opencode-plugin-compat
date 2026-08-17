@@ -9,8 +9,8 @@ MiMo Code.
 > install-tree cache.
 
 > **Pi family (`pi` / `oh-my-pi`):** the facade instructions on this page do not
-> apply — those hosts use `@opencode-compat/pi-bridge`, not `ocp setup`. Use
-> `./scripts/pi-dev.sh local|npm` or `./scripts/omp-dev.sh local|npm`; their
+> apply — those hosts use `@opencode-compat/pi-bridge`, not `ocp setup`. Drive
+> them with `./scripts/ocp-dev.sh run pi` / `run omp` (or `--mode npm`); their
 > bridge/config workflow is documented in
 > [`docs/hosts/pi-family.md`](./docs/hosts/pi-family.md).
 
@@ -24,43 +24,27 @@ MiMo Code.
 | [MiMo Code](https://github.com/XiaomiMiMo/MiMo-Code) | any recent build |
 | `npm` (used by `ocp setup` to reify overrides) | any recent version |
 
-### Helper scripts (recommended)
+### Helper script (recommended)
 
 From this repo root:
 
 ```bash
-./scripts/mimo-dev.sh local   # local OCP facades + local provider clone
-./scripts/mimo-dev.sh npm     # restore npm plugin + published OCP facades
-
-./scripts/kilo-dev.sh local
-./scripts/kilo-dev.sh npm
+./scripts/ocp-dev.sh run                 # wire every installed host (local mode)
+./scripts/ocp-dev.sh run --mode npm      # ...against published packages instead
+./scripts/ocp-dev.sh run kilo mimo opencode
+./scripts/ocp-dev.sh unshim              # factory state; keep the rest of host config
+./scripts/ocp-dev.sh unshim pi
 ```
 
-Or drive every host at once — `shim`/`unshim` detect which hosts are actually
-installed on this machine (`mimo`, `kilo`, `pi`, `omp`) and act on all of them:
+`run` keeps going if one host fails and reports a summary. Hosts: `opencode`,
+`mimo`, `kilo`, `pi`, `omp`.
 
-```bash
-./scripts/ocp-dev.sh shim              # wire every installed host (local mode)
-./scripts/ocp-dev.sh shim --mode npm   # ...against published packages instead
-./scripts/ocp-dev.sh shim kilo mimo    # or just the named ones
-
-./scripts/ocp-dev.sh unshim            # return every installed host to factory state
-./scripts/ocp-dev.sh unshim pi         # or just one
-
-./scripts/ocp-dev.sh status            # what is wired, and is the checkout clean?
-./scripts/ocp-dev.sh repair-stock      # restore a checkout an older script dirtied
-./scripts/ocp-dev.sh revert kilo       # narrow: clone config slot + wrapper only
-```
-
-`shim` keeps going if one host fails and reports a summary, so an uninstalled or
-misconfigured host does not block the rest.
-
-`unshim` is the full reset. For MiMo/Kilo it removes the config slot and wrapper
-via the manifest; for Pi/OMP it uninstalls the bridge and consumer plugin from
-the host's own package manager, deletes the bridge config, and unlinks the host
-AI package from the local `pi-bridge` checkout. It finishes by restoring the
-provider checkout if an older script left it dirty. Every step tolerates
-already-absent state, so it is safe to re-run.
+`unshim` removes only the OCP/provider slot. For OpenCode/MiMo/Kilo it drops the
+wrapper via the manifest; for Pi/OMP it uninstalls the bridge and consumer
+plugin from the host's own package manager and removes that provider from
+`pi-bridge.json`. It never rewrites unrelated config and never deletes the
+config file. It finishes by restoring the provider checkout if an older script
+left it dirty.
 
 Defaults: provider checkout from `OCP_DEV_PROVIDER_PATH` if set, else `../cursor-opencode-provider`, else `~/Projects/cursor-opencode-provider`.
 
@@ -75,12 +59,12 @@ instrumented copy under `${OCP_DEV_STATE_DIR:-~/.cache/ocp-dev}/<host>/provider`
 - **MiMo and Kilo can be wired at the same time**, each with its own correct
   `hostHint`. The old "last setup wins" caveat is gone.
 - Local mode never reinstalls or rebuilds the checkout. It builds `dist/` only
-  if missing. Use `ocp-dev.sh repair-stock` (or `clean-test-state.sh`) when you
-  actually want a clean reinstall/rebuild.
+  if missing. Use `ocp-dev.sh unshim` when you actually want a clean
+  reinstall/rebuild of a dirtied checkout.
 
 Each run records `state.json` next to the wrapper, capturing the exact config
-entry it added and the prior `provider.cursor`. That manifest is what makes
-`revert` exact and what lets a mode switch evict the previous entry — user
+entry it added and the prior `provider.cursor.npm`. That manifest is what makes
+`unshim` exact and what lets a mode switch evict the previous entry — user
 plugin entries in `plugin` are always preserved.
 
 `local` generates the wrapper and runs `ocp setup --mode file`, so facade
@@ -92,7 +76,7 @@ neither direction touches the checkout.
 
 If a checkout was dirtied by an older version of these scripts — an in-place
 `dist/index.js` shim, or `node_modules/@opencode-ai/*` symlinked to facades —
-local mode refuses to run and points at `repair-stock`.
+local mode refuses to run and points at `unshim`.
 
 ---
 
@@ -295,7 +279,22 @@ can mix local OCP + npm plugin or npm OCP + local plugin.
 
 ---
 
-## 4. Verification checklist
+## 4. Cursor + OCP self-verify prompt
+
+After the host is wired, run a live session that **does real work**, then
+scores itself from the Cursor provider debug log. The paste-ready agent prompt
+and operator setup live here:
+
+**[docs/guides/cursor-ocp-self-verify.md](./docs/guides/cursor-ocp-self-verify.md)**
+
+That is the interactive proof for Cursor-through-OCP (tools, catalog affinity,
+plan/mode, canonical `task` / `task_id`). Unit tests in this repo do not replace
+it. The provider's own checklist is
+`cursor-opencode-provider/docs/host-compat-acceptance.md`.
+
+---
+
+## 5. Verification checklist
 
 ### After setup
 
@@ -313,13 +312,13 @@ can mix local OCP + npm plugin or npm OCP + local plugin.
 |---------|-------------|-----|
 | `mimo models` shows no plugin models | Overrides not applied or reify didn't run | Re-run `ocp setup` |
 | Doctor reports missing shim | `--no-provider-shim` was set, or `npm install` restored stock files | Re-run `ocp setup` (omit `--no-provider-shim`) |
-| Plugin loads but tools fail (no tool parts) | Option B didn't apply — entry is still stock or the running worker cached a pre-setup module | Confirm `dist/index.js` has `generated by ocp setup`, confirm there is no `index.ocp-original.js`, then restart the host worker. For local checkouts re-run `./scripts/mimo-dev.sh local` (or `kilo-dev.sh local`). |
+| Plugin loads but tools fail (no tool parts) | Option B didn't apply — entry is still stock or the running worker cached a pre-setup module | Confirm `dist/index.js` has `generated by ocp setup`, confirm there is no `index.ocp-original.js`, then restart the host worker. For local checkouts re-run `./scripts/ocp-dev.sh run mimo` (or `run kilo`). |
 | Plugin loads but `read`/`write`/`edit` calls error with arg validation | Schema adapter didn't map key names | Confirm `ocp-lm-runtime.js` exists and shim is active |
 | `--mode file` says "could not locate sibling facade" | Running setup from outside the monorepo | Use `bun packages/ocp/bin/ocp.ts` from repo root, or use `--mode npm` |
 
 ---
 
-## 5. Quick reference — MiMo cache layout
+## 6. Quick reference — MiMo cache layout
 
 ```
 ~/.config/mimocode/
@@ -341,26 +340,15 @@ can mix local OCP + npm plugin or npm OCP + local plugin.
 
 ---
 
-## 6. Resetting to clean state
+## 7. Resetting to clean state
 
-For a provider checkout that was used by a local test, run the standalone
-cleanup first. It removes the provider's test-time facade links and generated
-entry shims, reinstalls its declared dependencies, and rebuilds stock output:
+For a provider checkout that was used by a local test, `unshim` restores stock
+output when the checkout is dirty. To switch a host back to published packages
+without a factory reset:
 
 ```bash
-./scripts/clean-test-state.sh --provider /path/to/cursor-opencode-provider
+./scripts/ocp-dev.sh run mimo --mode npm
 ```
-
-Add `--host mimo` or `--host kilo` to also remove the selected provider's host
-cache entries, recognizable OCP install-tree overrides, and local provider
-references from the host config. The script deliberately does not claim to
-restore values overwritten by an older script run when no config backup exists.
-
-If you want to switch the host back to the published plugin and published OCP
-facades, the existing mode switch remains the recommended reset:
-`./scripts/mimo-dev.sh npm` (or `./scripts/kilo-dev.sh npm`). Those helpers
-perform the cache and dependency cleanup below automatically and reinstall the
-published plugin at `@latest`.
 
 ```bash
 # Remove OCP overrides from the install tree

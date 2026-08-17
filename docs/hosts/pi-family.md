@@ -89,11 +89,10 @@ pi install npm:cursor-opencode-provider         # pi
 The recommended local/npm switch is automated from this repository root:
 
 ```bash
-./scripts/pi-dev.sh local
-./scripts/pi-dev.sh npm
-
-./scripts/omp-dev.sh local
-./scripts/omp-dev.sh npm
+./scripts/ocp-dev.sh run pi
+./scripts/ocp-dev.sh run pi --mode npm
+./scripts/ocp-dev.sh run omp
+./scripts/ocp-dev.sh run omp --mode npm
 ```
 
 `local` installs locked dependencies, builds the local bridge and provider,
@@ -234,10 +233,14 @@ mapping `multiple` ↔ `multi`. Plain pi has no question role by default.
 
 ### Path bridge
 
-On load, pi-bridge installs `Symbol.for("opencode.compat.path-bridge")` so an
-unmodified provider resolves project/global config under `.omp` / `.pi` (and
-agent roots via `PI_CODING_AGENT_DIR` / `PI_CONFIG_DIR`) instead of inventing
-`.opencode`. CreatePlan and similar host-calculated paths follow that bridge.
+On load, pi-bridge installs `Symbol.for("opencode.host.path-bridge")` so an
+unmodified provider resolves project/global config, durable **data**, and
+**cache** under `.omp` / `.pi` (and agent roots via `PI_CODING_AGENT_DIR` /
+`PI_CONFIG_DIR`) instead of inventing `.opencode`. The bridge exposes
+`globalConfigDirs`, `globalDataDir`, `globalCacheDir`, `projectConfigDirs`, and
+`configFileNames`; provider auth, plan files, conversation snapshots, and model
+caches follow those roots. A legacy `opencode.compat.path-bridge` key is set to
+the same object for older provider releases.
 
 ### Cursor SwitchMode / GenerateImage tools
 
@@ -247,7 +250,14 @@ the tools that provider already bridges on:
 | Tool | Host | Behavior |
 |---|---|---|
 | `plan_enter` / `plan_exit` | **omp only** | Drive native omp plan mode (ACP-shaped `setPlanModeState` + proposal handler via `AgentRegistry`) |
+| `cursor_plan_stage` | **omp only** | Stage the Cursor plan into omp's session-local artifact, then run omp's own review UI |
 | `cursor_image_save` | **omp and pi** | Commit staged Cursor image bytes (`image_id` only) |
+
+`cursor_plan_stage` follows the provider's plan-approval contract: the tool
+**succeeds only when the user approved execution**. Choosing *Refine plan* (or
+dismissing the prompt) reports the plan as written but not accepted, so the
+provider keeps the model planning. Only returning real success there would make
+Cursor start implementing a plan the user had just declined.
 
 Plain **pi** has no plan mode, so SwitchMode stays refused there. Image save
 works on both hosts when the Cursor provider is loaded in-process.
