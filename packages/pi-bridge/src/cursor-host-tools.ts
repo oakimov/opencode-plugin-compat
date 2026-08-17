@@ -153,7 +153,9 @@ export type RegisterCursorHostToolsOptions = {
 
 async function loadExecuteCursorImageSave(): Promise<ImageSaveExecute | undefined> {
   try {
-    const mod = (await import("cursor-opencode-provider/image-save")) as {
+    // Runtime specifier so tsc does not require the optional peer at compile time.
+    const spec: string = "cursor-opencode-provider/image-save"
+    const mod = (await import(spec)) as {
       executeCursorImageSave?: ImageSaveExecute
     }
     if (typeof mod.executeCursorImageSave === "function") return mod.executeCursorImageSave
