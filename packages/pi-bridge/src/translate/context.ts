@@ -65,12 +65,66 @@ const OPENCODE_EDIT_SCHEMA: Record<string, unknown> = {
   additionalProperties: false,
 }
 
+const OPENCODE_REPLACE_EDIT_SCHEMA: Record<string, unknown> = {
+  ...OPENCODE_EDIT_SCHEMA,
+  properties: {
+    ...(OPENCODE_EDIT_SCHEMA.properties as Record<string, unknown>),
+    replaceAll: { type: "boolean", description: "Replace every occurrence instead of requiring a unique match" },
+  },
+}
+
+const OPENCODE_READ_SCHEMA: Record<string, unknown> = {
+  type: "object",
+  properties: {
+    filePath: { type: "string", description: "Path to the file to read (relative or absolute)" },
+    offset: { type: "integer", minimum: 1, description: "1-indexed line number to start reading from" },
+    limit: { type: "integer", minimum: 1, description: "Maximum number of lines to read" },
+  },
+  required: ["filePath"],
+  additionalProperties: false,
+}
+
+/** Upstream OpenCode `todowrite` — positional snapshot with no host `op`. */
+const OPENCODE_TODO_WRITE_SCHEMA: Record<string, unknown> = {
+  type: "object",
+  properties: {
+    todos: {
+      type: "array",
+      description: "The updated todo list",
+      items: {
+        type: "object",
+        properties: {
+          content: { type: "string", description: "Brief description of the task" },
+          status: {
+            type: "string",
+            enum: ["pending", "in_progress", "completed", "cancelled"],
+            description: "Current status of the task",
+          },
+          priority: {
+            type: "string",
+            enum: ["high", "medium", "low"],
+            description: "Priority level of the task",
+          },
+        },
+        required: ["content", "status"],
+        additionalProperties: false,
+      },
+    },
+  },
+  required: ["todos"],
+  additionalProperties: false,
+}
+
 function providerToolSchema(
   tool: PiTool,
   toSchema: ToolSchemaFn,
   toolInputs: PiToolInputVocabulary | undefined,
 ): Record<string, unknown> {
-  if (toolInputs?.[tool.name]?.inputShape === "pi-edit") return OPENCODE_EDIT_SCHEMA
+  const shape = toolInputs?.[tool.name]?.inputShape
+  if (shape === "opencode-edit") return OPENCODE_REPLACE_EDIT_SCHEMA
+  if (shape === "pi-edit") return OPENCODE_EDIT_SCHEMA
+  if (shape === "opencode-read") return OPENCODE_READ_SCHEMA
+  if (shape === "opencode-todo") return OPENCODE_TODO_WRITE_SCHEMA
   return toSchema(tool)
 }
 

@@ -155,10 +155,8 @@ export function buildPiSubagentVocabulary(
  *
  * Fails open (`true`) only when no resolver is supplied at all — a host we
  * cannot inspect keeps the profile's declared behaviour. Once a resolver is
- * given, an unreadable or property-less result fails *closed* (`false`):
- * treating an unreadable schema as "declares everything" would let a
- * mode-specific alias set reapply under a different live mode, reproducing
- * the schema-mismatch the gate exists to prevent.
+ * given, an unreadable or property-less result is `false`, which selects the
+ * OpenCode edit overlay instead of assuming replace mode is live.
  */
 function schemaDeclaresKey(tool: PiTool, key: string, toSchema: SubagentToolSchemaFn | undefined): boolean {
   if (!toSchema) return true
@@ -183,11 +181,11 @@ export function buildPiToolInputVocabulary(
   for (const [name, configured] of Object.entries(profile.tools?.toolInputs ?? {})) {
     const tool = live.get(name)
     if (!tool || !configured) continue
-    // Aliases written for one of a multi-schema tool's modes must not fire
-    // while a different mode is live; other rules stay mode-independent.
+    // When the live schema is not the replace-mode one, keep the OpenCode
+    // aliases and advertise the flat contract. Execution is the replace overlay.
     out[name] =
       configured.aliasSchemaKey && !schemaDeclaresKey(tool, configured.aliasSchemaKey, toSchema)
-        ? { ...configured, inputAliases: {} }
+        ? { ...configured, inputShape: configured.inputShape ?? "opencode-edit" }
         : configured
   }
 
@@ -339,12 +337,127 @@ function firstString(input: Record<string, unknown>, names: readonly string[]): 
 }
 
 /**
+ * OpenCode's `read` tool exposes `offset`/`limit` as separate arguments, but
+ * omp accepts only `path` and embeds line ranges inline
+ * (`path:150-229`). Without this conversion the host silently drops
+ * `offset`/`limit` and returns the head on every paged read, so the model
+ * cannot advance past line 1 of a large file. `offset` is 1-indexed; `limit`
+ * is a line count — matching the host's `:N-M` inclusive grammar.
+ */
+function positiveInt(value: unknown): number | undefined {
+  if (typeof value !== "number" || !Number.isSafeInteger(value) || value < 1) return undefined
+  return value
+}
+
+function pathWithReadSelector(path: string, selector: string): string {
+  if (/^https?:\/\//i.test(path)) {
+    const boundary = [path.indexOf("?"), path.indexOf("#")]
+      .filter(index => index >= 0)
+      .reduce((left, right) => Math.min(left, right), path.length)
+    let base = path.slice(0, boundary)
+    const suffix = path.slice(boundary)
+    // A bare authority would parse `:N-M` as a port; give it a root path.
+    if (/^https?:\/\/[^/]+$/i.test(base)) base += "/"
+    return `${base}:${selector}${suffix}`
+  }
+  return `${path}:${selector}`
+}
+
+function applyReadShape(input: Record<string, unknown>): Record<string, unknown> {
+  const path = input["path"]
+  if (typeof path !== "string") return input
+  const offset = positiveInt(input["offset"])
+  const limit = positiveInt(input["limit"])
+  const hasOffset = Object.hasOwn(input, "offset")
+  const hasLimit = Object.hasOwn(input, "limit")
+  if (!hasOffset && !hasLimit) return input
+
+  const rest = { ...input }
+  delete rest["offset"]
+  delete rest["limit"]
+  // Match OpenCode's protobuf-default handling: zero means omitted. Other
+  // invalid values must not silently widen to a different valid range.
+  if (hasOffset && offset === undefined && input["offset"] !== 0) return rest
+  if (hasLimit && limit === undefined && input["limit"] !== 0) return rest
+  if (offset === undefined && limit === undefined) return rest
+
+  if (
+    offset !== undefined && limit !== undefined &&
+    limit - 1 > Number.MAX_SAFE_INTEGER - offset
+  ) return rest
+  const end = offset !== undefined && limit !== undefined ? offset + limit - 1 : undefined
+
+  const selector = offset !== undefined && limit !== undefined
+    ? `${offset}-${end}`
+    : offset !== undefined
+      ? `${offset}`
+      : `1-${limit}`
+
+  rest["path"] = pathWithReadSelector(path, selector)
+  return rest
+}
+
+const OPENCODE_TODO_HARNESS_KEYS = ["todos", "id", "priority", "merge"] as const
+
+type OpenCodeTodoStatus = "pending" | "in_progress" | "completed" | "cancelled"
+
+function normalizeOpenCodeTodoStatus(value: unknown): OpenCodeTodoStatus {
+  if (value === "pending" || value === "in_progress" || value === "completed" || value === "cancelled") {
+    return value
+  }
+  if (value === "canceled") return "cancelled"
+  return "pending"
+}
+
+/**
+ * Fold an OpenCode/Cursor todo snapshot into one omp `todo` op.
+ *
+ * omp requires `op`; Cursor keeps emitting `{todos:[{content,status,…}]}` and
+ * gets `op must be operation to apply (was missing)`. Active items become a
+ * flat `init`; a snapshot with no remaining open work clears via `rm`. Native
+ * `{op:…}` calls pass through with harness-only keys stripped.
+ */
+function applyTodoShape(input: Record<string, unknown>): Record<string, unknown> {
+  if (typeof input["op"] === "string" && input["op"]) {
+    const rest = { ...input }
+    for (const key of OPENCODE_TODO_HARNESS_KEYS) delete rest[key]
+    return rest
+  }
+
+  const todos = input["todos"]
+  if (!Array.isArray(todos)) return input
+
+  const active: string[] = []
+  const inProgress: string[] = []
+  for (const entry of todos) {
+    if (!entry || typeof entry !== "object") continue
+    const record = entry as Record<string, unknown>
+    const content = record["content"]
+    if (typeof content !== "string" || !content.trim()) continue
+    const status = normalizeOpenCodeTodoStatus(record["status"])
+    if (status === "completed" || status === "cancelled") continue
+    const trimmed = content.trim()
+    if (status === "in_progress") inProgress.push(trimmed)
+    else active.push(trimmed)
+  }
+
+  const items = [...inProgress, ...active]
+  if (items.length === 0) return { op: "rm" }
+  return { op: "init", items }
+}
+
+/**
  * Pi's edit tool is structurally different from OpenCode's replacement tool:
  * it requires `edits: [{ oldText, newText }]`. Models sometimes retain another
  * vocabulary even after receiving Pi's nested schema, so perform the conversion
  * at the last boundary before Pi validates the call.
  */
-function applyInputShape(input: Record<string, unknown>, shape: "pi-edit" | undefined): Record<string, unknown> {
+function applyInputShape(
+  input: Record<string, unknown>,
+  shape: "pi-edit" | "opencode-edit" | "opencode-read" | "opencode-todo" | undefined,
+): Record<string, unknown> {
+  if (shape === "opencode-read") return applyReadShape(input)
+  if (shape === "opencode-todo") return applyTodoShape(input)
   if (shape !== "pi-edit" || Array.isArray(input.edits)) return input
 
   const oldText = firstString(input, PI_EDIT_OLD_KEYS)
@@ -427,7 +540,22 @@ export function translateHostToolCallInput(
   input: Record<string, unknown>,
   toolInputs: PiToolInputVocabulary | undefined,
 ): Record<string, unknown> {
-  if (toolInputs?.[toolName]?.inputShape !== "pi-edit") return input
+  const shape = toolInputs?.[toolName]?.inputShape
+  if (shape === "opencode-read") {
+    const path = input["path"]
+    return typeof path === "string" ? { filePath: path } : input
+  }
+  if (shape === "opencode-edit") {
+    const path = input["path"]
+    const oldString = firstString(input, PI_EDIT_OLD_KEYS)
+    const newString = firstString(input, PI_EDIT_NEW_KEYS)
+    if (typeof path !== "string" || oldString === undefined || newString === undefined) return input
+    return { filePath: path, oldString, newString }
+  }
+  if (shape === "opencode-todo") {
+    return hostTodoToOpenCodeSnapshot(input)
+  }
+  if (shape !== "pi-edit") return input
   const edits = input["edits"]
   if (!Array.isArray(edits) || edits.length !== 1) return input
   const [edit] = edits as ReadonlyArray<{ oldText?: unknown; newText?: unknown }>
@@ -441,6 +569,40 @@ export function translateHostToolCallInput(
   // it here would contradict the schema the model was just shown. Emit only
   // the three keys that schema declares.
   return { filePath: path, oldString: edit.oldText, newString: edit.newText }
+}
+
+/**
+ * Restate a stored omp `todo` op as an OpenCode snapshot when the catalog
+ * advertises `todowrite`. Ops that cannot be expressed as a snapshot stay in
+ * host shape rather than inventing a lossy rewrite.
+ */
+function hostTodoToOpenCodeSnapshot(input: Record<string, unknown>): Record<string, unknown> {
+  const op = input["op"]
+  // `view` is advertised as empty-schema `todoread`; do not invent a write snapshot.
+  if (op === "view") return {}
+  if (op === "rm") return { todos: [] }
+  if (op !== "init") return input
+
+  const items: Array<{ content: string; status: "pending" | "in_progress" }> = []
+  const flat = input["items"]
+  if (Array.isArray(flat)) {
+    for (const entry of flat) {
+      if (typeof entry !== "string" || !entry.trim()) continue
+      items.push({ content: entry.trim(), status: items.length === 0 ? "in_progress" : "pending" })
+    }
+  } else if (Array.isArray(input["list"])) {
+    for (const phase of input["list"]) {
+      if (!phase || typeof phase !== "object") continue
+      const phaseItems = (phase as { items?: unknown }).items
+      if (!Array.isArray(phaseItems)) continue
+      for (const entry of phaseItems) {
+        if (typeof entry !== "string" || !entry.trim()) continue
+        items.push({ content: entry.trim(), status: items.length === 0 ? "in_progress" : "pending" })
+      }
+    }
+  }
+  if (items.length === 0) return input
+  return { todos: items }
 }
 
 /** Restate a stored host call for the OpenCode plugin's continuation prompt. */

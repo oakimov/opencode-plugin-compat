@@ -17,6 +17,7 @@ import {
   translateCanonicalSubagentCall,
   translateCanonicalToolCall,
   translateHostSubagentCall,
+  translateHostToolCallInput,
 } from "../packages/pi-bridge/src/translate/subagent.ts"
 
 const toSchema = (tool: { parameters: unknown }) => tool.parameters as Record<string, unknown>
@@ -291,16 +292,20 @@ describe("Pi-family subagent vocabulary", () => {
       input: { path: "a.ts", old_string: "a", new_string: "b" },
     })
 
-    // Under hashline the replacement aliases must not fire: rewriting them
-    // cannot satisfy `{input}` and would echo names the model never sent.
+    // Under hashline the provider still sees OpenCode edit; calls remap to
+    // replace args for the overlay. The live `{input}` schema is not advertised.
     const hashlineInputs = buildPiToolInputVocabulary(hashlineMode, ompProfile(), schemaOf)
-    expect(hashlineInputs?.edit?.inputAliases).toEqual({})
+    expect(hashlineInputs?.edit?.inputShape).toBe("opencode-edit")
+    expect(hashlineInputs?.edit?.inputAliases).toMatchObject({ oldString: "old_string" })
     expect(translateCanonicalToolCall(
       "edit",
       { filePath: "a.ts", oldString: "a", newString: "b" },
       undefined,
       hashlineInputs,
-    )).toBeUndefined()
+    )).toEqual({
+      toolName: "edit",
+      input: { path: "a.ts", old_string: "a", new_string: "b" },
+    })
 
     // The harness-only key is mode-independent and still gets stripped.
     expect(hashlineInputs?.edit?.dropInputKeys).toEqual(["i"])
@@ -316,26 +321,23 @@ describe("Pi-family subagent vocabulary", () => {
       .toMatchObject({ oldString: "old_string" })
   })
 
-  test("a resolver that cannot confirm the live schema fails closed, not open", () => {
-    // A resolver WAS supplied but returned something unusable — this must not
-    // reapply replace-mode aliases under a live mode we can't actually verify
-    // (e.g. hashline), which would reproduce the schema-mismatch this gate
-    // exists to prevent. Distinct from "no resolver at all" above, which
-    // correctly keeps the profile's declared aliases.
+  test("a resolver that cannot confirm replace mode still advertises OpenCode edit", () => {
     const propertylessMode = [{ name: "edit", parameters: { type: "object" } }] as never
     const propertylessInputs = buildPiToolInputVocabulary(
       propertylessMode,
       ompProfile(),
       ((tool: { parameters: unknown }) => tool.parameters) as never,
     )
-    expect(propertylessInputs?.edit?.inputAliases).toEqual({})
+    expect(propertylessInputs?.edit?.inputShape).toBe("opencode-edit")
+    expect(propertylessInputs?.edit?.inputAliases).toMatchObject({ oldString: "old_string" })
 
     const throwingInputs = buildPiToolInputVocabulary(
       [{ name: "edit" }] as never,
       ompProfile(),
       (() => { throw new Error("schema unavailable") }) as never,
     )
-    expect(throwingInputs?.edit?.inputAliases).toEqual({})
+    expect(throwingInputs?.edit?.inputShape).toBe("opencode-edit")
+    expect(throwingInputs?.edit?.inputAliases).toMatchObject({ oldString: "old_string" })
   })
 
   test("coordination aliases merge into a tool's profile entry without dropping its other rules", () => {
@@ -473,6 +475,22 @@ describe("Pi-family subagent vocabulary", () => {
     })
   })
 
+  test("omp OpenCode edit schema advertises replaceAll supported by its overlay", () => {
+    const tools = [{ name: "edit", description: "Edit a file", parameters: {
+      type: "object",
+      properties: { input: { type: "string" } },
+      required: ["input"],
+    } }] as never
+    const toolInputs = buildPiToolInputVocabulary(tools, ompProfile(), toSchema as never)
+    const schema = translateTools(tools, toSchema as never, undefined, toolInputs)?.[0]?.inputSchema as {
+      properties: Record<string, unknown>
+    }
+    expect(schema.properties.replaceAll).toEqual({
+      type: "boolean",
+      description: "Replace every occurrence instead of requiring a unique match",
+    })
+  })
+
   test("pi exposes its live find tool to the provider as OpenCode glob", () => {
     const tools = [{ name: "find", description: "Find files", parameters: { type: "object" } }] as never
     const toolInputs = buildPiToolInputVocabulary(tools, piProfile())
@@ -492,26 +510,162 @@ describe("Pi-family subagent vocabulary", () => {
     })
   })
 
+  test("read folds OpenCode offset/limit into the host's inline path selector", () => {
+    const tools = [{ name: "read", description: "Read a file", parameters: { type: "object" } }] as never
+    const toolInputs = buildPiToolInputVocabulary(tools, ompProfile())
+
+    expect(toolInputs?.read?.inputShape).toBe("opencode-read")
+    expect(translateTools(tools, toSchema as never, undefined, toolInputs)?.[0]?.inputSchema).toEqual({
+      type: "object",
+      properties: {
+        filePath: { type: "string", description: "Path to the file to read (relative or absolute)" },
+        offset: { type: "integer", minimum: 1, description: "1-indexed line number to start reading from" },
+        limit: { type: "integer", minimum: 1, description: "Maximum number of lines to read" },
+      },
+      required: ["filePath"],
+      additionalProperties: false,
+    })
+    // offset + limit → inclusive `:N-M` range.
+    expect(translateCanonicalToolCall(
+      "read",
+      { filePath: "/a/b.swift", offset: 150, limit: 80 },
+      undefined,
+      toolInputs,
+    )).toEqual({ toolName: "read", input: { path: "/a/b.swift:150-229" } })
+    // `path` already in host shape is honoured too.
+    expect(translateCanonicalToolCall(
+      "read",
+      { path: "/a/b.swift", offset: 520, limit: 150 },
+      undefined,
+      toolInputs,
+    )).toEqual({ toolName: "read", input: { path: "/a/b.swift:520-669" } })
+    // offset only → open-ended `:N`.
+    expect(translateCanonicalToolCall(
+      "read",
+      { filePath: "/a/b.swift", offset: 80 },
+      undefined,
+      toolInputs,
+    )).toEqual({ toolName: "read", input: { path: "/a/b.swift:80" } })
+    // limit only → `:1-limit`.
+    expect(translateCanonicalToolCall(
+      "read",
+      { filePath: "CHANGELOG.md", limit: 40 },
+      undefined,
+      toolInputs,
+    )).toEqual({ toolName: "read", input: { path: "CHANGELOG.md:1-40" } })
+    // no offset/limit → unchanged.
+    expect(translateCanonicalToolCall(
+      "read",
+      { filePath: "/a/b.swift" },
+      undefined,
+      toolInputs,
+    )).toEqual({ toolName: "read", input: { path: "/a/b.swift" } })
+  })
+
+  test("read handles colon filenames, Windows paths, and URLs", () => {
+    const tools = [{ name: "read", description: "Read a file", parameters: { type: "object" } }] as never
+    const toolInputs = buildPiToolInputVocabulary(tools, ompProfile())
+
+    // Windows drive letter colon sits before the first separator and is safe.
+    expect(translateCanonicalToolCall(
+      "read",
+      { filePath: "C:\\src\\a.swift", offset: 10, limit: 5 },
+      undefined,
+      toolInputs,
+    )).toEqual({ toolName: "read", input: { path: "C:\\src\\a.swift:10-14" } })
+    expect(translateCanonicalToolCall(
+      "read",
+      { filePath: "/a/name:with-colon.swift", offset: 10, limit: 5 },
+      undefined,
+      toolInputs,
+    )).toEqual({ toolName: "read", input: { path: "/a/name:with-colon.swift:10-14" } })
+    expect(translateCanonicalToolCall(
+      "read",
+      { filePath: "https://example.com", offset: 10, limit: 5 },
+      undefined,
+      toolInputs,
+    )).toEqual({ toolName: "read", input: { path: "https://example.com/:10-14" } })
+    expect(translateCanonicalToolCall(
+      "read",
+      { filePath: "https://example.com:8443", offset: 10, limit: 5 },
+      undefined,
+      toolInputs,
+    )).toEqual({ toolName: "read", input: { path: "https://example.com:8443/:10-14" } })
+    expect(translateCanonicalToolCall(
+      "read",
+      { filePath: "https://example.com/file?raw=1#part", offset: 10, limit: 5 },
+      undefined,
+      toolInputs,
+    )).toEqual({ toolName: "read", input: { path: "https://example.com/file:10-14?raw=1#part" } })
+  })
+
+  test("read rejects unsafe numeric coercion and overflow without leaking unsupported host args", () => {
+    const tools = [{ name: "read", description: "Read a file", parameters: { type: "object" } }] as never
+    const toolInputs = buildPiToolInputVocabulary(tools, ompProfile())
+
+    expect(translateCanonicalToolCall(
+      "read",
+      { path: "/a/b.swift", offset: "150", limit: 80 },
+      undefined,
+      toolInputs,
+    )).toEqual({ toolName: "read", input: { path: "/a/b.swift" } })
+    expect(translateCanonicalToolCall(
+      "read",
+      { path: "/a/b.swift", offset: 1.5, limit: 0 },
+      undefined,
+      toolInputs,
+    )).toEqual({ toolName: "read", input: { path: "/a/b.swift" } })
+    expect(translateCanonicalToolCall(
+      "read",
+      { path: "/a/b.swift", offset: Number.MAX_SAFE_INTEGER, limit: 2 },
+      undefined,
+      toolInputs,
+    )).toEqual({
+      toolName: "read",
+      input: { path: "/a/b.swift" },
+    })
+    expect(translateCanonicalToolCall(
+      "read",
+      { path: "/a/b.swift", offset: 0, limit: 80 },
+      undefined,
+      toolInputs,
+    )).toEqual({ toolName: "read", input: { path: "/a/b.swift:1-80" } })
+  })
+
+  test("pi keeps native read offset/limit arguments", () => {
+    const tools = [{ name: "read", description: "Read a file", parameters: { type: "object" } }] as never
+    const toolInputs = buildPiToolInputVocabulary(tools, piProfile())
+
+    expect(toolInputs?.read?.inputShape).toBeUndefined()
+    expect(translateCanonicalToolCall(
+      "read",
+      { filePath: "/a/b.swift", offset: 150, limit: 80 },
+      undefined,
+      toolInputs,
+    )).toEqual({ toolName: "read", input: { path: "/a/b.swift", offset: 150, limit: 80 } })
+  })
+
   test("omp exposes its live todo tool as OpenCode todowrite and todoread", () => {
     const tools = [{ name: "todo", description: "Track tasks", parameters: { type: "object" } }] as never
     const toolInputs = buildPiToolInputVocabulary(tools, ompProfile())
 
     expect(toolInputs?.todo?.providerName).toBe("todowrite")
+    expect(toolInputs?.todo?.inputShape).toBe("opencode-todo")
     expect(toolInputs?.todo?.extraProviderNames).toEqual(["todoread"])
-    expect(translateTools(tools, toSchema as never, undefined, toolInputs)).toEqual([
-      {
-        type: "function",
-        name: "todoread",
-        description: "Track tasks",
-        inputSchema: { type: "object", properties: {}, additionalProperties: false },
-      },
-      {
-        type: "function",
-        name: "todowrite",
-        description: "Track tasks",
-        inputSchema: { type: "object" },
-      },
-    ])
+    const catalog = translateTools(tools, toSchema as never, undefined, toolInputs)
+    expect(catalog?.map(tool => tool.name)).toEqual(["todoread", "todowrite"])
+    expect(catalog?.find(tool => tool.name === "todoread")?.inputSchema).toEqual({
+      type: "object",
+      properties: {},
+      additionalProperties: false,
+    })
+    const writeSchema = catalog?.find(tool => tool.name === "todowrite")?.inputSchema as {
+      required?: string[]
+      properties?: { todos?: unknown }
+    }
+    expect(writeSchema?.required).toEqual(["todos"])
+    expect(writeSchema?.properties?.todos).toBeDefined()
+
     expect(translateCanonicalToolCall("todowrite", { op: "init", list: [] }, undefined, toolInputs)).toEqual({
       toolName: "todo",
       input: { op: "init", list: [] },
@@ -522,6 +676,92 @@ describe("Pi-family subagent vocabulary", () => {
     })
     expect(canonicalToolName("todo", undefined, toolInputs, { op: "view" })).toBe("todoread")
     expect(canonicalToolName("todo", undefined, toolInputs, { op: "init" })).toBe("todowrite")
+  })
+
+  test("todo folds OpenCode snapshots into omp ops", () => {
+    const tools = [{ name: "todo", description: "Track tasks", parameters: { type: "object" } }] as never
+    const toolInputs = buildPiToolInputVocabulary(tools, ompProfile())
+
+    // Active snapshot → flat init; in_progress first.
+    expect(translateCanonicalToolCall(
+      "todowrite",
+      {
+        todos: [
+          { content: "Later", status: "pending", priority: "medium" },
+          { content: "Now", status: "in_progress", priority: "high" },
+          { content: "Done", status: "completed", priority: "low" },
+          { content: "Dropped", status: "cancelled" },
+        ],
+      },
+      undefined,
+      toolInputs,
+    )).toEqual({
+      toolName: "todo",
+      input: { op: "init", items: ["Now", "Later"] },
+    })
+
+    // Same fold when the live name is already host `todo`.
+    expect(translateCanonicalToolCall(
+      "todo",
+      { todos: [{ content: "Only open", status: "pending" }] },
+      undefined,
+      toolInputs,
+    )).toEqual({
+      toolName: "todo",
+      input: { op: "init", items: ["Only open"] },
+    })
+
+    // No remaining open work → clear.
+    expect(translateCanonicalToolCall(
+      "todowrite",
+      {
+        todos: [
+          { content: "A", status: "completed" },
+          { content: "B", status: "cancelled" },
+        ],
+      },
+      undefined,
+      toolInputs,
+    )).toEqual({ toolName: "todo", input: { op: "rm" } })
+    expect(translateCanonicalToolCall(
+      "todowrite",
+      { todos: [] },
+      undefined,
+      toolInputs,
+    )).toEqual({ toolName: "todo", input: { op: "rm" } })
+
+    // Native ops pass through; harness keys stripped.
+    expect(translateCanonicalToolCall(
+      "todo",
+      { op: "done", task: "Wire omp", todos: [{ content: "ignore", status: "pending" }], i: "note" },
+      undefined,
+      toolInputs,
+    )).toEqual({
+      toolName: "todo",
+      input: { op: "done", task: "Wire omp", i: "note" },
+    })
+
+    // Unusable snapshot left alone so the host error stays honest.
+    expect(translateCanonicalToolCall(
+      "todo",
+      { todos: "nope" as unknown as never },
+      undefined,
+      toolInputs,
+    )).toBeUndefined()
+
+    // History replay restates init/rm/view without leaking `op` into write schema.
+    expect(translateHostToolCallInput("todo", { op: "init", items: ["A", "B"] }, toolInputs)).toEqual({
+      todos: [
+        { content: "A", status: "in_progress" },
+        { content: "B", status: "pending" },
+      ],
+    })
+    expect(translateHostToolCallInput("todo", { op: "view" }, toolInputs)).toEqual({})
+    expect(translateHostToolCallInput("todo", { op: "rm" }, toolInputs)).toEqual({ todos: [] })
+    expect(translateHostToolCallInput("todo", { op: "done", task: "A" }, toolInputs)).toEqual({
+      op: "done",
+      task: "A",
+    })
   })
 
   test("already host-shaped calls and unrelated calls remain intact", () => {
@@ -671,6 +911,44 @@ describe("subagent call and result round trip", () => {
       id: "call_hub_1",
       name: "hub",
       arguments: { op: "jobs" },
+    })
+  })
+
+  test("stream output folds OpenCode todowrite snapshots into omp todo ops", async () => {
+    const tools = [{ name: "todo", description: "Track tasks", parameters: { type: "object" } }] as never
+    const toolInputs = buildPiToolInputVocabulary(tools, ompProfile())
+    const piStream = new FakeAssistantMessageEventStream()
+    await runV3StreamToPi({
+      model: MODEL,
+      toolInputs,
+      v3Stream: v3Parts([
+        {
+          type: "tool-call",
+          toolCallId: "call_todo_1",
+          toolName: "todowrite",
+          input: JSON.stringify({
+            todos: [
+              { content: "Wire omp", status: "in_progress" },
+              { content: "Run tests", status: "pending" },
+            ],
+          }),
+        },
+        {
+          type: "finish",
+          usage: { inputTokens: {}, outputTokens: {} },
+          finishReason: { unified: "tool-calls", raw: "tool_calls" },
+        },
+      ]) as never,
+      piStream: piStream as never,
+    })
+
+    const done = piStream.events.at(-1) as {
+      message: { content: Array<{ id: string; name: string; arguments: Record<string, unknown> }> }
+    }
+    expect(done.message.content[0]).toMatchObject({
+      id: "call_todo_1",
+      name: "todo",
+      arguments: { op: "init", items: ["Wire omp", "Run tests"] },
     })
   })
 

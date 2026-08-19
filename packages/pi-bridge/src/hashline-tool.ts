@@ -1,3 +1,16 @@
+import { coalesceSameTagHashline } from "./hashline-coalesce.js"
+import { withEditLock } from "./edit-lock.js"
+import {
+  claimHashlinePatch,
+  hasHashlineTagMinted,
+  parseHashlinePatch,
+  recordHashlineTagMinted,
+  releaseHashlinePatch,
+  restateEvictedSessionHashlineError,
+  restateEvictedSessionHashlineFailure,
+  tagRejectedAsNotFromSession,
+  type HashlinePatchMeta,
+} from "./hashline-overlap.js"
 import { bindOmpPlanModeHost } from "./plan-mode-host.js"
 import type { PiExtensionApi, PiRegisterToolDefinition } from "./pi-provider-types.js"
 
@@ -16,13 +29,61 @@ const HASHLINE_SCHEMA = {
   additionalProperties: false,
 } as const
 
-type HostEditTool = {
+const TAG_HEADER = /\[([^\]#]+)#([0-9A-Fa-f]{4})\]/g
+
+function textFromResult(result: unknown): string {
+  if (typeof result === "string") return result
+  if (result && typeof result === "object") {
+    const record = result as { content?: unknown; text?: unknown }
+    if (typeof record.text === "string") return record.text
+    if (Array.isArray(record.content)) {
+      return record.content
+        .map(block => (typeof block === "string" ? block : (block as { text?: unknown }).text ?? ""))
+        .join("")
+    }
+  }
+  return ""
+}
+
+/**
+ * Record every `[path#TAG]` header a successful hashline apply returned, so a
+ * later "hash is not from this session" rejection of one of those tags can be
+ * recognized as an in-session snapshot eviction instead of a fabrication.
+ */
+function recordMintedTagsFromResult(result: unknown): void {
+  for (const match of textFromResult(result).matchAll(TAG_HEADER)) {
+    const path = match[1]
+    const tag = match[2]
+    if (!path || !tag) continue
+    recordHashlineTagMinted(path.trim(), tag)
+  }
+}
+
+/** Restate a non-throwing isError result whose text is a known in-session eviction. */
+function restateEvictedSessionHashlineResult(
+  meta: { path?: string; tag?: string },
+  result: unknown,
+): unknown {
+  if (!result || typeof result !== "object") return result
+  const record = result as { isError?: boolean }
+  if (record.isError !== true) return result
+  const text = textFromResult(result)
+  const rejected = tagRejectedAsNotFromSession(text)
+  const tag = rejected ?? meta.tag
+  if (!rejected || !tag || !hasHashlineTagMinted(meta.path, tag)) return result
+  return {
+    ...record,
+    content: [{ type: "text", text: restateEvictedSessionHashlineFailure(meta.path, tag, text) }],
+  }
+}
+
+export type HostEditTool = {
   execute: (
     toolCallId: string,
     params: unknown,
-    onUpdate: unknown,
-    ctx: unknown,
     signal?: AbortSignal,
+    onUpdate?: unknown,
+    ctx?: unknown,
   ) => Promise<unknown>
 }
 
@@ -62,9 +123,30 @@ export function registerHashlineTool(pi: PiExtensionApi, options: RegisterHashli
         ? (params as { input: string }).input
         : ""
       if (!input.trim()) throw new Error("hashline requires a non-empty input patch")
-      const edit = await resolveEdit()
-      if (!edit) throw new Error("hashline is unavailable: omp edit tool is not registered on the live session")
-      return edit.execute(toolCallId, { input }, onUpdate, ctx, signal)
+      const meta = parseHashlinePatch(input)
+      return coalesceSameTagHashline({ input, meta, signal }, async (mergedInput, members) => {
+        return withEditLock(undefined, async () => {
+          const claimed: HashlinePatchMeta[] = []
+          try {
+            for (const member of members) {
+              claimHashlinePatch(member.meta)
+              claimed.push(member.meta)
+            }
+            const edit = await resolveEdit()
+            if (!edit) throw new Error("hashline is unavailable: omp edit tool is not registered on the live session")
+            const result = await edit.execute(toolCallId, { input: mergedInput }, signal, onUpdate, ctx)
+            if (result && typeof result === "object" && (result as { isError?: boolean }).isError === true) {
+              for (const memberMeta of claimed) releaseHashlinePatch(memberMeta)
+              return restateEvictedSessionHashlineResult(meta, result)
+            }
+            recordMintedTagsFromResult(result)
+            return result
+          } catch (error) {
+            for (const memberMeta of claimed) releaseHashlinePatch(memberMeta)
+            throw restateEvictedSessionHashlineError(meta, error)
+          }
+        })
+      })
     },
   }
   pi.registerTool(hashline)

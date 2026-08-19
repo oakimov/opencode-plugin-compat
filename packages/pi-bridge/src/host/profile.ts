@@ -68,7 +68,7 @@ export type PiToolInputProfile = {
   /** Harness-only provider fields that must not reach the host validator. */
   dropInputKeys?: readonly string[]
   /** Structural conversion required after aliases have been applied. */
-  inputShape?: "pi-edit"
+  inputShape?: "pi-edit" | "opencode-edit" | "opencode-read" | "opencode-todo"
   /** Provider-facing tool name when the host uses a different name. */
   providerName?: string
   /** Extra provider-facing names for the same host tool (e.g. todoread beside todowrite). */
@@ -86,16 +86,14 @@ export type PiToolInputProfile = {
  * shared one. omp 17.2.12: tools/{write,read,bash}.ts, edit/modes/replace.ts.
  */
 const OMP_ESSENTIAL_TOOL_INPUTS: Readonly<Record<string, PiToolInputProfile>> = {
-  read: { inputAliases: { filePath: "path", file_path: "path" } },
+  read: { inputAliases: { filePath: "path", file_path: "path" }, inputShape: "opencode-read" },
   write: { inputAliases: { filePath: "path", file_path: "path" } },
   // OMP's `edit` advertises a different schema per resolved edit mode
   // (utils/edit-mode.ts: model override -> PI_EDIT_VARIANT -> `edit.mode` ->
-  // default `hashline`), so the mode can differ per session and even per model.
-  // These aliases describe `replace` mode alone (edit/modes/replace.ts:
-  // `{path, old_string, new_string, replace_all?}`); `old_string` marks that
-  // schema live. Under the default `hashline` mode (`{input: string}`) the
-  // bridge leaves arguments alone — a hashline patch cannot be synthesized from
-  // OpenCode replacement fields, so rewriting them only obscures the error.
+  // default `hashline`). `old_string` marks replace mode live. Under hashline
+  // the bridge still remaps OpenCode `{filePath,oldString,newString}` and
+  // advertises that contract — execution goes through the replace overlay, not
+  // the live `{input}` schema. Hashline patches use the separate `hashline` tool.
   edit: {
     inputAliases: {
       filePath: "path",
@@ -113,7 +111,16 @@ const OMP_ESSENTIAL_TOOL_INPUTS: Readonly<Record<string, PiToolInputProfile>> = 
     dropInputKeys: ["i"],
   },
   bash: { inputAliases: { workdir: "cwd", working_directory: "cwd" } },
-  todo: { inputAliases: {}, providerName: "todowrite", extraProviderNames: ["todoread"] },
+  // OMP's `todo` is ops-based (`op: init|start|done|…`). OpenCode/Cursor emit
+  // positional snapshots `{todos:[{content,status,…}]}`. Advertise that write
+  // contract as `todowrite` (+ empty `todoread`) and fold snapshots into one
+  // host op at the stream boundary.
+  todo: {
+    inputAliases: {},
+    inputShape: "opencode-todo",
+    providerName: "todowrite",
+    extraProviderNames: ["todoread"],
+  },
 }
 
 /**
@@ -125,6 +132,10 @@ const OMP_ESSENTIAL_TOOL_INPUTS: Readonly<Record<string, PiToolInputProfile>> = 
  * being aliased onto arguments that host does not define.
  */
 const PI_ESSENTIAL_TOOL_INPUTS: Readonly<Record<string, PiToolInputProfile>> = {
+  // Pi's `read` natively accepts `offset`/`limit` as separate arguments
+  // (core/tools/read.ts), so no structural conversion is needed — only the
+  // `filePath` → `path` alias. omp, by contrast, embeds ranges inline as
+  // `path:150-229` and drops the separate args, hence its own `opencode-read`.
   read: { inputAliases: { filePath: "path", file_path: "path" } },
   write: { inputAliases: { filePath: "path", file_path: "path" } },
   edit: {

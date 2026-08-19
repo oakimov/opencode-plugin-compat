@@ -147,6 +147,27 @@ describe("translateContextToPrompt", () => {
     ])
   })
 
+  test("replays omp read calls in the advertised OpenCode shape", () => {
+    const tools = [{ name: "read", description: "Read", parameters: { type: "object" } }] as never
+    const toolInputs = buildPiToolInputVocabulary(tools, ompProfile())
+    const prompt = translateContextToPrompt({
+      messages: [{
+        role: "assistant",
+        content: [{ type: "toolCall", id: "call_1", name: "read", arguments: { path: "a.ts:150-229" } }],
+        api: "x",
+        provider: "acme",
+        model: "m",
+        usage: {},
+        stopReason: "toolUse",
+        timestamp: 1,
+      }],
+    } as never, undefined, ompProfile(), toolInputs)
+    expect(prompt[0]).toEqual({
+      role: "assistant",
+      content: [{ type: "tool-call", toolCallId: "call_1", toolName: "read", input: { filePath: "a.ts:150-229" } }],
+    })
+  })
+
   test("maps a Pi ToolResultMessage to a trailing role:tool message, preserving toolCallId", () => {
     const prompt = translateContextToPrompt({
       messages: [

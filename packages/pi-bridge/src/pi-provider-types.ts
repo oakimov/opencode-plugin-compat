@@ -215,5 +215,10 @@ export type PiExtensionApi = {
   pi?: {
     AgentRegistry?: { global(): unknown }
     MAIN_AGENT_ID?: string
+    settings?: {
+      override?(path: string, value: unknown): void
+      clearOverride?(path: string): void
+      get?(path: string): unknown
+    }
   }
 }

@@ -11,6 +11,7 @@ export { registerAiSdkProvider, type AiSdkProviderSpec } from "./bridge.js"
 export { configSearchPaths, loadConfig, registerProvidersFromConfig, resolveConfigPath, type PiBridgeConfig } from "./config.js"
 export { activateOpenCodeSearchTools, maybeRegisterCursorHostTools } from "./extension.js"
 export { activateHashlineTool, HASHLINE_TOOL, registerHashlineTool } from "./hashline-tool.js"
+export { activateOpenCodeEditTool, OPENCODE_EDIT_TOOL, registerOpenCodeEditTool, toReplaceArgs } from "./edit-replace-tool.js"
 export {
   activateCursorHostTools,
   registerCursorHostTools,

@@ -186,18 +186,31 @@ from Pi's own schema, stored `edit` calls are translated back to the flat shape
 when replayed as history, so the model never sees a prior call in a shape its
 catalog does not declare; a stored multi-edit call keeps Pi's shape, since the
 flat contract cannot express more than one replacement.
+OMP's `read` has a different pagination contract: it accepts only `path` and
+embeds ranges as `path:150-229`. The bridge advertises OpenCode's
+`{filePath, offset, limit}` shape and folds explicit ranges into that selector;
+plain Pi keeps its native separate `offset` / `limit` arguments unchanged.
 Pi calls OpenCode's `glob` operation `find`; when `find` is active, the bridge
 advertises it to the provider as `glob` and translates calls/results back to
 `find`. Host-native keys already present win.
 
+OMP's `todo` is ops-based (`op: init|start|done|…`). The bridge advertises it as
+OpenCode `todowrite` / `todoread` and folds Cursor-style
+`{todos:[{content,status}]}` snapshots into a single host op (`init` for open
+work, `rm` when nothing remains active, `view` for reads). Native `{op:…}` calls
+still pass through.
+
 OMP's `edit` is different again: it advertises a different schema per resolved
 edit mode (model override, then `PI_EDIT_VARIANT`, then the `edit.mode` setting,
-then the default `hashline`), so the shape can change per session and per model.
-The bridge therefore applies its replacement aliases only when the live schema
-is the `replace` one; under `hashline` (`{input}`) it passes arguments through
-untouched, because a hashline patch cannot be synthesized from OpenCode
-replacement fields and rewriting them would only echo argument names back to the
-model that it never sent. Mode-independent rules still apply in every mode.
+then the default `hashline`). The provider always sees OpenCode
+`{filePath, oldString, newString}`. When the live host tool is hashline, the
+bridge remaps those calls onto omp's replace-mode editor (the same
+`old_string`/`new_string` contract Cursor's `pi_edit` frame uses) and keeps
+hashline patches on the separate `hashline` tool. Parallel `hashline` calls that
+share the same `[path#tag]` are coalesced into one multi-section host apply
+(anchors still refer to the original snapshot) so the host's short per-path
+snapshot history is not burned by one turn of disjoint hunks. Mode-independent
+rules still apply in every mode.
 
 When a result auto-delivers, OMP represents the custom completion notice as a
 `developer` message with `attribution: "agent"`. The bridge promotes only the

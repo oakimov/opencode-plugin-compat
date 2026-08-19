@@ -60,6 +60,7 @@ describe("OCP architecture boundaries", () => {
     )).toEqual([])
     const extension = text("packages/pi-bridge/src/extension.ts")
     expect(extension).toMatch(/await import\(["']\.\/cursor-host-tools\.js["']\)/)
+    expect(extension).toMatch(/await import\(["']\.\/edit-replace-tool\.js["']\)/)
     expect(violations(
       [path.join(ROOT, "packages/pi-bridge/src/cursor-host-tools.ts")],
       /import\(["']cursor-opencode-provider/,

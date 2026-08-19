@@ -8,6 +8,9 @@ import { loadConfig, registerProvidersFromConfig, resolveConfigPath } from "./co
 import { detectPiHost } from "./host/detect.js"
 import type { PiHostId } from "./host/profile.js"
 import { installPiPathBridge } from "./path-bridge.js"
+import type { HostEditTool } from "./hashline-tool.js"
+import { resetHashlineCoalesce } from "./hashline-coalesce.js"
+import { resetHashlineOverlapClaims } from "./hashline-overlap.js"
 import type { PiExtensionApi } from "./pi-provider-types.js"
 
 /**
@@ -102,7 +105,30 @@ export default async function piBridgeExtension(pi: PiExtensionApi): Promise<voi
     const resolvedHost = resolveHostIdForTools(hostId)
     if (resolvedHost === "omp") {
       const { activateHashlineTool, registerHashlineTool } = await import("./hashline-tool.js")
-      activateHashlineTool(pi, registerHashlineTool(pi, { hostPi: pi.pi }))
+      const { openCodeEditToolActivator, registerOpenCodeEditTool } = await import("./edit-replace-tool.js")
+      const { bindOmpPlanModeHost } = await import("./plan-mode-host.js")
+      let nativeEdit: HostEditTool | undefined
+      const resolveEdit = async (): Promise<HostEditTool | undefined> => {
+        if (nativeEdit) return nativeEdit
+        const host = await bindOmpPlanModeHost({ hostPi: pi.pi })
+        const tool = host?.getSession()?.getToolByName?.("edit")
+        if (tool && typeof tool.execute === "function") nativeEdit = tool as HostEditTool
+        return nativeEdit
+      }
+      activateHashlineTool(pi, registerHashlineTool(pi, { resolveEdit, hostPi: pi.pi }))
+      const activateEdit = openCodeEditToolActivator(pi, registerOpenCodeEditTool(pi, { hostPi: pi.pi }))
+      const installReplaceEdit = async () => {
+        // Overlap claims and the minted-tag registry are session-scoped: the
+        // host's snapshot store lives on the session, so a brand-new session has
+        // an empty store and tags from the previous one genuinely are "not from
+        // this session".
+        resetHashlineOverlapClaims()
+        resetHashlineCoalesce()
+        nativeEdit = undefined
+        await resolveEdit()
+        await activateEdit()
+      }
+      pi.on?.("session_start", installReplaceEdit)
     }
     if (resolvedHost) {
       await maybeRegisterCursorHostTools(pi, resolvedHost, config)
