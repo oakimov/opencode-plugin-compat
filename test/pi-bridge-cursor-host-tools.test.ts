@@ -17,9 +17,22 @@ import {
   type OmpPlanModeState,
   type OmpPlanProposalHandler,
 } from "../packages/pi-bridge/src/plan-mode-host.ts"
-import { maybeRegisterCursorHostTools } from "../packages/pi-bridge/src/extension.ts"
+import { maybeRegisterCursorHostTools, stripTrailingNpmVersion } from "../packages/pi-bridge/src/extension.ts"
 import { mapPlanModeError, PlanNotApprovedError } from "../packages/pi-bridge/src/cursor-host-tools.ts"
 import type { PiExtensionApi, PiRegisterToolDefinition } from "../packages/pi-bridge/src/pi-provider-types.ts"
+
+describe("stripTrailingNpmVersion", () => {
+  test("strips version suffixes without regex", () => {
+    expect(stripTrailingNpmVersion("cursor-opencode-provider@1.2.3")).toBe("cursor-opencode-provider")
+    expect(stripTrailingNpmVersion("@scope/pkg@9.0.0")).toBe("@scope/pkg")
+    expect(stripTrailingNpmVersion("@scope/pkg")).toBe("@scope/pkg")
+    expect(stripTrailingNpmVersion("file:///tmp/cursor-opencode-provider")).toBe(
+      "file:///tmp/cursor-opencode-provider",
+    )
+    expect(stripTrailingNpmVersion("name@")).toBe("name@")
+    expect(stripTrailingNpmVersion("@@@@")).toBe("@@@@")
+  })
+})
 
 function fakeSession(options: { hasWrite?: boolean } = {}): OmpPlanModeSession & {
   proposalHandler: OmpPlanProposalHandler | null | undefined

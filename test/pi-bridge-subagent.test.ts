@@ -525,34 +525,34 @@ describe("Pi-family subagent vocabulary", () => {
       required: ["filePath"],
       additionalProperties: false,
     })
-    // offset + limit → inclusive `:N-M` range.
+    // offset + limit → inclusive `raw:N-M` (raw disables omp context padding).
     expect(translateCanonicalToolCall(
       "read",
       { filePath: "/a/b.swift", offset: 150, limit: 80 },
       undefined,
       toolInputs,
-    )).toEqual({ toolName: "read", input: { path: "/a/b.swift:150-229" } })
+    )).toEqual({ toolName: "read", input: { path: "/a/b.swift:raw:150-229" } })
     // `path` already in host shape is honoured too.
     expect(translateCanonicalToolCall(
       "read",
       { path: "/a/b.swift", offset: 520, limit: 150 },
       undefined,
       toolInputs,
-    )).toEqual({ toolName: "read", input: { path: "/a/b.swift:520-669" } })
-    // offset only → open-ended `:N`.
+    )).toEqual({ toolName: "read", input: { path: "/a/b.swift:raw:520-669" } })
+    // offset only → open-ended `raw:N`.
     expect(translateCanonicalToolCall(
       "read",
       { filePath: "/a/b.swift", offset: 80 },
       undefined,
       toolInputs,
-    )).toEqual({ toolName: "read", input: { path: "/a/b.swift:80" } })
-    // limit only → `:1-limit`.
+    )).toEqual({ toolName: "read", input: { path: "/a/b.swift:raw:80" } })
+    // limit only → `raw:1-limit`.
     expect(translateCanonicalToolCall(
       "read",
       { filePath: "CHANGELOG.md", limit: 40 },
       undefined,
       toolInputs,
-    )).toEqual({ toolName: "read", input: { path: "CHANGELOG.md:1-40" } })
+    )).toEqual({ toolName: "read", input: { path: "CHANGELOG.md:raw:1-40" } })
     // no offset/limit → unchanged.
     expect(translateCanonicalToolCall(
       "read",
@@ -560,6 +560,17 @@ describe("Pi-family subagent vocabulary", () => {
       undefined,
       toolInputs,
     )).toEqual({ toolName: "read", input: { path: "/a/b.swift" } })
+    // History replay peels the selector back to OpenCode paging fields.
+    expect(translateHostToolCallInput("read", { path: "/a/b.swift:raw:10-14" }, toolInputs)).toEqual({
+      filePath: "/a/b.swift",
+      offset: 10,
+      limit: 5,
+    })
+    expect(translateHostToolCallInput("read", { path: "/a/b.swift:150-229" }, toolInputs)).toEqual({
+      filePath: "/a/b.swift",
+      offset: 150,
+      limit: 80,
+    })
   })
 
   test("read handles colon filenames, Windows paths, and URLs", () => {
@@ -572,31 +583,40 @@ describe("Pi-family subagent vocabulary", () => {
       { filePath: "C:\\src\\a.swift", offset: 10, limit: 5 },
       undefined,
       toolInputs,
-    )).toEqual({ toolName: "read", input: { path: "C:\\src\\a.swift:10-14" } })
+    )).toEqual({ toolName: "read", input: { path: "C:\\src\\a.swift:raw:10-14" } })
     expect(translateCanonicalToolCall(
       "read",
       { filePath: "/a/name:with-colon.swift", offset: 10, limit: 5 },
       undefined,
       toolInputs,
-    )).toEqual({ toolName: "read", input: { path: "/a/name:with-colon.swift:10-14" } })
+    )).toEqual({ toolName: "read", input: { path: "/a/name:with-colon.swift:raw:10-14" } })
     expect(translateCanonicalToolCall(
       "read",
       { filePath: "https://example.com", offset: 10, limit: 5 },
       undefined,
       toolInputs,
-    )).toEqual({ toolName: "read", input: { path: "https://example.com/:10-14" } })
+    )).toEqual({ toolName: "read", input: { path: "https://example.com/:raw:10-14" } })
     expect(translateCanonicalToolCall(
       "read",
       { filePath: "https://example.com:8443", offset: 10, limit: 5 },
       undefined,
       toolInputs,
-    )).toEqual({ toolName: "read", input: { path: "https://example.com:8443/:10-14" } })
+    )).toEqual({ toolName: "read", input: { path: "https://example.com:8443/:raw:10-14" } })
     expect(translateCanonicalToolCall(
       "read",
       { filePath: "https://example.com/file?raw=1#part", offset: 10, limit: 5 },
       undefined,
       toolInputs,
-    )).toEqual({ toolName: "read", input: { path: "https://example.com/file:10-14?raw=1#part" } })
+    )).toEqual({ toolName: "read", input: { path: "https://example.com/file:raw:10-14?raw=1#part" } })
+    expect(translateHostToolCallInput(
+      "read",
+      { path: "https://example.com/:raw:10-14" },
+      toolInputs,
+    )).toEqual({
+      filePath: "https://example.com",
+      offset: 10,
+      limit: 5,
+    })
   })
 
   test("read rejects unsafe numeric coercion and overflow without leaking unsupported host args", () => {
@@ -629,7 +649,7 @@ describe("Pi-family subagent vocabulary", () => {
       { path: "/a/b.swift", offset: 0, limit: 80 },
       undefined,
       toolInputs,
-    )).toEqual({ toolName: "read", input: { path: "/a/b.swift:1-80" } })
+    )).toEqual({ toolName: "read", input: { path: "/a/b.swift:raw:1-80" } })
   })
 
   test("pi keeps native read offset/limit arguments", () => {

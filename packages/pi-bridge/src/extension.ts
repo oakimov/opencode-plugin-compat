@@ -47,6 +47,20 @@ function resolveHostIdForTools(detected?: PiHostId): PiHostId | undefined {
 }
 
 /**
+ * Drop a trailing npm version suffix (`name@1.2.3`, `@scope/pkg@1.2.3`) without
+ * regex — CodeQL flags `/@[^/]+$/` as polynomial ReDoS on hostile `@…` input.
+ * Leaves bare scoped names (`@scope/pkg`) and path segments that contain `@`
+ * before a `/` unchanged.
+ */
+export function stripTrailingNpmVersion(raw: string): string {
+  const at = raw.lastIndexOf("@")
+  if (at <= 0) return raw
+  const after = raw.slice(at + 1)
+  if (!after || after.includes("/")) return raw
+  return raw.slice(0, at)
+}
+
+/**
  * Advertise Cursor bridge tools when the Cursor provider is among the configured
  * plugins (or when tests force registration). omp gets plan_enter/plan_exit;
  * both hosts get cursor_image_save.
@@ -60,7 +74,7 @@ export async function maybeRegisterCursorHostTools(
     const raw = (entry.package ?? "").toLowerCase()
     // Accept npm version suffixes (`cursor-opencode-provider@1.2.3`) and path/
     // `file://` locations ending in the provider directory.
-    const packageName = raw.replace(/@[^/]+$/, "")
+    const packageName = stripTrailingNpmVersion(raw)
     return packageName === "cursor-opencode-provider"
       || packageName.startsWith("cursor-opencode-provider/")
       || packageName.includes("/cursor-opencode-provider/")

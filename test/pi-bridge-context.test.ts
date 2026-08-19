@@ -164,7 +164,12 @@ describe("translateContextToPrompt", () => {
     } as never, undefined, ompProfile(), toolInputs)
     expect(prompt[0]).toEqual({
       role: "assistant",
-      content: [{ type: "tool-call", toolCallId: "call_1", toolName: "read", input: { filePath: "a.ts:150-229" } }],
+      content: [{
+        type: "tool-call",
+        toolCallId: "call_1",
+        toolName: "read",
+        input: { filePath: "a.ts", offset: 150, limit: 80 },
+      }],
     })
   })
 

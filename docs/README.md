@@ -21,6 +21,7 @@ install, local development, per-host internals, and verification.
 | [`../packages/pi-bridge/README.md`](../packages/pi-bridge/README.md) | pi-bridge config reference + pi/omp host-difference table |
 | [`../TESTING.md`](../TESTING.md) | Manual local dev — unpublished OCP checkout + local plugins |
 | [`guides/cursor-ocp-self-verify.md`](./guides/cursor-ocp-self-verify.md) | Paste-ready agent prompt: exercise Cursor-through-OCP, then score the provider debug log |
+| [`guides/omp-tool-shape-self-verify.md`](./guides/omp-tool-shape-self-verify.md) | Paste-ready omp prompt: read paging, replace `edit` vs `hashline`, and OpenCode todo snapshots |
 | [`guides/npm-publish.md`](./guides/npm-publish.md) | Publishing the public `@opencode-compat/*` train (OIDC Trusted Publishing on `v*` tags) |
 
 ## Companion guides (not OCP runtime)

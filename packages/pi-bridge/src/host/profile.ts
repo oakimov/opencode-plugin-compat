@@ -135,8 +135,9 @@ const PI_ESSENTIAL_TOOL_INPUTS: Readonly<Record<string, PiToolInputProfile>> = {
   // Pi's `read` natively accepts `offset`/`limit` as separate arguments
   // (core/tools/read.ts), so no structural conversion is needed — only the
   // `filePath` → `path` alias. omp, by contrast, embeds ranges inline as
-  // `path:150-229` and drops the separate args, hence its own `opencode-read`.
-  read: { inputAliases: { filePath: "path", file_path: "path" } },
+   // `path:raw:150-229` and drops the separate args, hence its own `opencode-read`.
+   // (`raw:` disables omp's +1/+3 ranged-read context padding.)
+   read: { inputAliases: { filePath: "path", file_path: "path" } },
   write: { inputAliases: { filePath: "path", file_path: "path" } },
   edit: {
     inputAliases: { filePath: "path", file_path: "path" },

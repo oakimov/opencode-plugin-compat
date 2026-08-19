@@ -338,11 +338,15 @@ function firstString(input: Record<string, unknown>, names: readonly string[]): 
 
 /**
  * OpenCode's `read` tool exposes `offset`/`limit` as separate arguments, but
- * omp accepts only `path` and embeds line ranges inline
- * (`path:150-229`). Without this conversion the host silently drops
- * `offset`/`limit` and returns the head on every paged read, so the model
- * cannot advance past line 1 of a large file. `offset` is 1-indexed; `limit`
- * is a line count — matching the host's `:N-M` inclusive grammar.
+ * omp accepts only `path` and embeds line ranges inline. Without this
+ * conversion the host silently drops `offset`/`limit` and returns the head on
+ * every paged read, so the model cannot advance past line 1 of a large file.
+ *
+ * `offset` is 1-indexed; `limit` is a line count — matching omp's `:N-M`
+ * inclusive grammar. Selectors are minted as `raw:N-M` (not bare `:N-M`):
+ * omp's default ranged-read display pads +1 leading / +3 trailing context
+ * lines, which would violate OpenCode's exact-window contract
+ * (`offset:10, limit:5` must be lines 10–14, not 9–17).
  */
 function positiveInt(value: unknown): number | undefined {
   if (typeof value !== "number" || !Number.isSafeInteger(value) || value < 1) return undefined
@@ -361,6 +365,45 @@ function pathWithReadSelector(path: string, selector: string): string {
     return `${base}:${selector}${suffix}`
   }
   return `${path}:${selector}`
+}
+
+/** Match a trailing omp line selector the bridge (or a prior host call) attached. */
+const READ_SELECTOR_SUFFIX = /:(?:raw:)?(\d+)(?:-(\d+))?$/i
+
+/**
+ * Peel a bridge-minted (or equivalent) omp read selector back into OpenCode
+ * `{filePath, offset?, limit?}` so history matches the advertised catalog.
+ */
+function peelReadSelector(path: string): Record<string, unknown> | undefined {
+  if (/^https?:\/\//i.test(path)) {
+    const boundary = [path.indexOf("?"), path.indexOf("#")]
+      .filter(index => index >= 0)
+      .reduce((left, right) => Math.min(left, right), path.length)
+    const baseWithSel = path.slice(0, boundary)
+    const suffix = path.slice(boundary)
+    const match = baseWithSel.match(READ_SELECTOR_SUFFIX)
+    if (!match || match.index === undefined) return undefined
+    const bare = baseWithSel.slice(0, match.index)
+    // Undo the synthetic root slash minted for bare-authority URLs.
+    const fileBase = /^https?:\/\/[^/]+\/$/i.test(bare) ? bare.slice(0, -1) : bare
+    return openCodeReadFromSelector(fileBase + suffix, match[1]!, match[2])
+  }
+  const match = path.match(READ_SELECTOR_SUFFIX)
+  if (!match || match.index === undefined) return undefined
+  return openCodeReadFromSelector(path.slice(0, match.index), match[1]!, match[2])
+}
+
+function openCodeReadFromSelector(
+  filePath: string,
+  startText: string,
+  endText: string | undefined,
+): Record<string, unknown> {
+  const start = Number(startText)
+  if (!Number.isSafeInteger(start) || start < 1) return { filePath }
+  if (endText === undefined) return { filePath, offset: start }
+  const end = Number(endText)
+  if (!Number.isSafeInteger(end) || end < start) return { filePath, offset: start }
+  return { filePath, offset: start, limit: end - start + 1 }
 }
 
 function applyReadShape(input: Record<string, unknown>): Record<string, unknown> {
@@ -387,11 +430,12 @@ function applyReadShape(input: Record<string, unknown>): Record<string, unknown>
   ) return rest
   const end = offset !== undefined && limit !== undefined ? offset + limit - 1 : undefined
 
+  // `raw:` disables omp's ranged-read context padding (+1 / +3).
   const selector = offset !== undefined && limit !== undefined
-    ? `${offset}-${end}`
+    ? `raw:${offset}-${end}`
     : offset !== undefined
-      ? `${offset}`
-      : `1-${limit}`
+      ? `raw:${offset}`
+      : `raw:1-${limit}`
 
   rest["path"] = pathWithReadSelector(path, selector)
   return rest
@@ -543,7 +587,8 @@ export function translateHostToolCallInput(
   const shape = toolInputs?.[toolName]?.inputShape
   if (shape === "opencode-read") {
     const path = input["path"]
-    return typeof path === "string" ? { filePath: path } : input
+    if (typeof path !== "string") return input
+    return peelReadSelector(path) ?? { filePath: path }
   }
   if (shape === "opencode-edit") {
     const path = input["path"]

@@ -187,9 +187,11 @@ when replayed as history, so the model never sees a prior call in a shape its
 catalog does not declare; a stored multi-edit call keeps Pi's shape, since the
 flat contract cannot express more than one replacement.
 OMP's `read` has a different pagination contract: it accepts only `path` and
-embeds ranges as `path:150-229`. The bridge advertises OpenCode's
-`{filePath, offset, limit}` shape and folds explicit ranges into that selector;
-plain Pi keeps its native separate `offset` / `limit` arguments unchanged.
+embeds ranges as `path:raw:150-229`. The bridge advertises OpenCode's
+`{filePath, offset, limit}` shape and folds explicit ranges into that selector.
+The `raw:` prefix is required: bare `:N-M` gets omp's ranged-read context
+padding (+1 leading / +3 trailing), which would widen OpenCode's exact window.
+Plain Pi keeps its native separate `offset` / `limit` arguments unchanged.
 Pi calls OpenCode's `glob` operation `find`; when `find` is active, the bridge
 advertises it to the provider as `glob` and translates calls/results back to
 `find`. Host-native keys already present win.

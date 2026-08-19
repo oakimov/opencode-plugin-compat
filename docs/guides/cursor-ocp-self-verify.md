@@ -5,6 +5,10 @@ wired to this OCP checkout and `cursor-opencode-provider`. The agent performs
 real work, then reads the Cursor provider debug log it just produced and scores
 each item from that log plus the host transcript. Unit tests are not evidence.
 
+For an **omp-only** smoke of the recent read / replace-edit / hashline / todo
+folds, use [`omp-tool-shape-self-verify.md`](./omp-tool-shape-self-verify.md)
+instead of this full suite.
+
 Operator setup is not part of the paste. Do it first.
 
 ## Operator setup
