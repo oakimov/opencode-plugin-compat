@@ -2,9 +2,9 @@ import { existsSync } from "node:fs"
 import { homedir } from "node:os"
 import { join } from "node:path"
 
-export const HOSTS = ["opencode", "mimo", "kilo", "pi", "omp"] as const
+export const HOSTS = ["opencode", "mimo", "kilo", "pi", "omp", "dsh"] as const
 export type HostId = (typeof HOSTS)[number]
-export type HostFamily = "clone" | "pi"
+export type HostFamily = "clone" | "pi" | "dsh"
 export type WireMode = "local" | "npm"
 
 export function isHostId(value: string): value is HostId {
@@ -12,7 +12,9 @@ export function isHostId(value: string): value is HostId {
 }
 
 export function familyOf(host: HostId): HostFamily {
-  return host === "pi" || host === "omp" ? "pi" : "clone"
+  if (host === "pi" || host === "omp") return "pi"
+  if (host === "dsh") return "dsh"
+  return "clone"
 }
 
 function env(name: string): string | undefined {
@@ -33,6 +35,9 @@ export function configDir(host: HostId): string {
       return env("PI_CODING_AGENT_DIR") ?? join(homedir(), ".pi", "agent")
     case "omp":
       return env("PI_CODING_AGENT_DIR") ?? join(homedir(), ".omp", "agent")
+    case "dsh":
+      return env("DSH_HOME") ? join(env("DSH_HOME")!, "profiles", "web")
+        : join(homedir(), ".dsh", "profiles", "web")
   }
 }
 
@@ -54,7 +59,7 @@ export function configFile(host: HostId): string {
   return candidates.find((path) => existsSync(path)) ?? candidates[0]!
 }
 
-export function packagesDir(host: Exclude<HostId, "pi" | "omp">): string {
+export function packagesDir(host: Exclude<HostId, "pi" | "omp" | "dsh">): string {
   if (host === "mimo" && env("MIMOCODE_HOME")) return join(env("MIMOCODE_HOME")!, "cache", "packages")
   const cacheRoot = env("XDG_CACHE_HOME") ?? join(homedir(), ".cache")
   const app = host === "mimo" ? "mimocode" : host
@@ -67,6 +72,7 @@ const FALLBACK_CLI: Record<HostId, string> = {
   kilo: join(homedir(), ".local", "bin", "kilo"),
   pi: "/opt/local/bin/pi",
   omp: join(homedir(), ".bun", "bin", "omp"),
+  dsh: join(homedir(), ".local", "bin", "dsh"),
 }
 
 export async function resolveCli(host: HostId): Promise<string> {

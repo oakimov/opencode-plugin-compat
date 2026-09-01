@@ -1,0 +1,41 @@
+{
+  "name": "@opencode-compat/opencode-loader",
+  "version": "0.4.0",
+  "description": "Shared OpenCode plugin loader for OCP bridges (host-neutral)",
+  "type": "module",
+  "license": "MPL-2.0",
+  "author": "oakimov",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/oakimov/opencode-plugin-compat.git",
+    "directory": "packages/opencode-loader"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist",
+    "LICENSE",
+    "README.md",
+    "!dist/**/*.map"
+  ],
+  "scripts": {
+    "build": "bunx tsc -p tsconfig.json",
+    "typecheck": "bunx tsc -p tsconfig.json --noEmit",
+    "prepack": "bunx tsc -p tsconfig.json"
+  },
+  "dependencies": {
+    "@ai-sdk/provider": "^3.0.14"
+  },
+  "engines": {
+    "bun": ">=1.2.0"
+  }
+}

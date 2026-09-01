@@ -1,4 +1,5 @@
 import { runClone, unshimClone, type CloneHost } from "./clone.ts"
+import { runDsh, unshimDsh } from "./dsh-family.ts"
 import { familyOf, HOSTS, installedHosts, isHostId, type HostId, type WireMode } from "./hosts.ts"
 import { defaultProviderPath } from "./paths.ts"
 import { runPi, unshimPi, type PiHost } from "./pi-family.ts"
@@ -75,13 +76,16 @@ async function resolveTargets(requested: string[]): Promise<HostId[]> {
 }
 
 async function runHost(host: HostId, mode: WireMode): Promise<void> {
-  if (familyOf(host) === "clone") await runClone(host as CloneHost, mode)
-  else await runPi(host as PiHost, mode)
+  const fam = familyOf(host)
+  if (fam === "clone") await runClone(host as CloneHost, mode)
+  else if (fam === "pi") await runPi(host as PiHost, mode)
+  else await runDsh(host as never, mode)
 }
 
 async function unshimHost(host: HostId): Promise<void> {
-  if (familyOf(host) === "clone") unshimClone(host as CloneHost)
-  else {
+  const fam = familyOf(host)
+  if (fam === "clone") unshimClone(host as CloneHost)
+  else if (fam === "pi") {
     try {
       await unshimPi(host as PiHost)
     } catch (error) {
@@ -89,6 +93,13 @@ async function unshimHost(host: HostId): Promise<void> {
       if (error instanceof Error) console.error(`  ${error.message}`)
     }
     unshimClone(host as never)
+  } else {
+    try {
+      await unshimDsh(host as never)
+    } catch (error) {
+      console.error(`ocp-dev: ${host} unshim reported an error (continuing)`)
+      if (error instanceof Error) console.error(`  ${error.message}`)
+    }
   }
 }
 

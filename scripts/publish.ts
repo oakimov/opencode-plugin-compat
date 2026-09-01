@@ -27,6 +27,7 @@ const ROOT = resolve(import.meta.dir, "..")
 /** Bottom-up publish order (dependents last). */
 export const PACKAGES = [
   "profile",
+  "opencode-loader",
   "host-promise-v2",
   "migrate-zcode",
   "adapter",
@@ -35,6 +36,7 @@ export const PACKAGES = [
   "cli",
   "ocp",
   "pi-bridge",
+  "dsh-bridge",
 ] as const
 
 type PkgJson = {

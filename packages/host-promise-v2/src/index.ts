@@ -9,7 +9,7 @@
  * Other domains loud-stub in the same ship.
  */
 export const PKG = "@opencode-compat/host-promise-v2" as const
-export const VERSION = "0.3.2" as const
+export const VERSION = "0.4.0" as const
 
 export type Registration = {
   readonly dispose: () => Promise<void>

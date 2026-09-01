@@ -13,6 +13,10 @@ MiMo Code.
 > them with `./scripts/ocp-dev.sh run pi` / `run omp` (or `--mode npm`); their
 > bridge/config workflow is documented in
 > [`docs/hosts/pi-family.md`](./docs/hosts/pi-family.md).
+>
+> **DSH (`dsh` / `dsh web`):** likewise not `ocp setup`. Drive with
+> `./scripts/ocp-dev.sh run dsh`; see
+> [`docs/hosts/dsh-family.md`](./docs/hosts/dsh-family.md).
 
 ---
 
@@ -37,12 +41,13 @@ From this repo root:
 ```
 
 `run` keeps going if one host fails and reports a summary. Hosts: `opencode`,
-`mimo`, `kilo`, `pi`, `omp`.
+`mimo`, `kilo`, `pi`, `omp`, `dsh`.
 
 `unshim` removes only the OCP/provider slot. For OpenCode/MiMo/Kilo it drops the
 wrapper via the manifest; for Pi/OMP it uninstalls the bridge and consumer
 plugin from the host's own package manager and removes that provider from
-`pi-bridge.json`. It never rewrites unrelated config and never deletes the
+`pi-bridge.json`; for DSH it removes the file: dsh-bridge plugin and the
+`ocp-dsh-bridge` patch row. It never rewrites unrelated config and never deletes the
 config file. It finishes by restoring the provider checkout if an older script
 left it dirty.
 

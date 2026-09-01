@@ -1,0 +1,8 @@
+# dsh-bridge bundle — inserted when the bundle is listed in a profile.
+# Users add provider rows via their own profile cordis.patch.yml (the next layer),
+# which overrides this row's `config` whole-object.
+- insert:
+    - id: ocp-dsh-bridge
+      name: '@opencode-compat/dsh-bridge'
+      config:
+        providers: []

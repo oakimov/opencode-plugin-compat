@@ -5,15 +5,15 @@
 Universal **OCP** compatibility **bridge** monorepo. The stack is complete and published — no phased MVP cuts.
 
 - Goal: **any OpenCode plugin runs unchanged** on cooperating hosts.
-- OCP is an **external compatibility layer** for MiMo/Kilo/OpenCode and the Pi family — hosts are read-only references; all OCP work lives in this repo.
+- OCP is an **external compatibility layer** for MiMo/Kilo/OpenCode, the Pi family, and DeepSeek Harness — hosts are read-only references; all OCP work lives in this repo.
 
 ### Non-negotiable vendor boundary
 
 OCP is a plugin compatibility layer. **Patching a host shipped by another vendor defeats the product and is not an implementation option.**
 
 - **Never propose, plan, attempt, or make a change to a host checkout, host package, installed host binary, or vendor source as part of OCP work.** Do not treat a vendor patch as a fallback, experiment, diagnostic shortcut, prerequisite, or possible solution. This prohibition applies even when a host source checkout is available locally and even when changing it would be technically easy.
-- MiMo, Kilo, OpenCode, pi, and omp source trees are **read-only evidence only**: use them to understand contracts and runtime behavior. No OCP task may leave modifications in those repositories.
-- **Every compatibility fix must live entirely in OCP** and work against the stock installed host through public or host-injected extension/runtime seams. For Pi-family hosts, use `pi-bridge`, `ExtensionAPI`, `ExtensionAPI.pi`, live objects intentionally exposed through that runtime, extension UI, and advertised tools.
+- MiMo, Kilo, OpenCode, pi, omp, and deepseek-harness source trees are **read-only evidence only**: use them to understand contracts and runtime behavior. No OCP task may leave modifications in those repositories.
+- **Every compatibility fix must live entirely in OCP** and work against the stock installed host through public or host-injected extension/runtime seams. For Pi-family hosts, use `pi-bridge`, `ExtensionAPI`, `ExtensionAPI.pi`, live objects intentionally exposed through that runtime, extension UI, and advertised tools. For DSH, use `dsh-bridge`, Cordis `LlmAdapter` / `ctx.llm.registerAdapter`, `ctx.credentials`, and `cordis.patch.yml`.
 - Private host internals may be inspected to understand behavior, but they are not an implementation surface. If the installed host's extension/runtime seams cannot express the required behavior, stop and report a concrete compatibility limitation. Do not cross the vendor boundary to make the limitation disappear.
 - Before designing a fix, inspect the actual executable, resolved package, plugin symlink/install tree, and loaded `dist` entry used by the reproduction. A nearby host checkout is never presumed to be loaded and never becomes a writable dependency of the solution.
 - **Interactive behavior requires an interactive acceptance test.** Unit/type tests are supporting checks, not proof. For mode switches, approval dialogs, plan review, or execution handoffs, rebuild/install OCP and the consumer provider, start the real stock host in a TTY, drive the complete user flow, and verify the host transcript, side effect, and absence of retries before saying the issue is fixed.
@@ -26,13 +26,14 @@ The dependency direction is one-way: **OCP may know consumer providers; consumer
 - **Provider stays unchanged:** never solve compatibility by adding `@opencode-compat/*`, OCP detection, fork environment variables, alternate tool names, or host-specific schemas to a consumer provider. Provider-side structural capability contracts must be host-neutral; OCP installs them before provider load.
 - **Generic core, optional integrations:** generic facade, adapter, loader, config, and stream translation code must work for arbitrary OpenCode/AI-SDK providers. A provider-specific integration (currently Cursor host tools) must live in a clearly named optional module, activate only for an explicit package match, fail open when that provider is absent, and never become a prerequisite for generic providers.
 - **OCP owns translation end-to-end:** fork paths, canonical tool catalog translation, call inputs, results, prompt/history replay, opaque resume ids, schemas, MCP/resource vocabulary, agents, and mode semantics are OCP responsibilities. The provider must see canonical OpenCode shapes.
-- **Two host families, two mechanisms — never unify them:**
-  - **OpenCode clones** (MiMo, Kilo; zcode detect-only) ship OpenCode-shaped native plugin packages → facades + **one** autodetection adapter + host kit, wired by `ocp setup`. `packages/adapter` must not contain Pi/OMP ids, paths, env variables, packages, or tool roles.
+- **Three host families, three mechanisms — never unify them:**
+  - **OpenCode clones** (MiMo, Kilo; zcode detect-only) ship OpenCode-shaped native plugin packages → facades + **one** autodetection adapter + host kit, wired by `ocp setup`. `packages/adapter` must not contain Pi/OMP/DSH ids, paths, env variables, packages, or tool roles.
   - **Pi family** (`pi` earendil-works, `oh-my-pi`/omp can1357) are **not** OpenCode forks and have no `@opencode-ai/plugin`-shaped package → `@opencode-compat/pi-bridge` dynamically loads the unmodified plugin and registers it via the host's own `pi.registerProvider(...)`, translating AI-SDK `doStream` ↔ the host's event stream. The `ocp` CLI and clone adapter are not involved.
+  - **DSH family** (`dsh` / DeepSeek Harness) is **not** an OpenCode fork and not Pi → `@opencode-compat/dsh-bridge` is a Cordis plugin that registers `ctx.llm.registerAdapter(...)`, translating AI-SDK `doStream` ↔ DSH `StreamChunk`. The `ocp` CLI and clone adapter are not involved. `packages/adapter` must not contain DSH ids.
 - **Neutral path contract:** install `Symbol.for("opencode.host.path-bridge")` with structural cache/data/config/project paths. Legacy symbols may be emitted only as time-bounded backward compatibility; new provider code must not import OCP or name the installer. Generic bridge paths and cache namespaces must not be named after Cursor or another consumer.
 - **Capability/catalog integrity:** preserve every enabled tool and deterministic order through translation. A lifecycle call with no tools remains a lifecycle signal; session affinity and cancellation must reach the downstream provider so it can correlate a sibling full-catalog call. Never invent/filter a catalog to accommodate one provider.
 - **Functionality relocation gate:** before removing a compatibility branch from a consumer provider, add OCP tests proving equivalent catalog, call, result, resume-id, schema, and prompt-history behavior. Refactoring the boundary must not delete working compatibility.
-- **Architecture checks:** tests must cover at least one generic fake/Acme provider on both clone and Pi paths, explicit optional Cursor activation, no Pi logic in clone runtime, and no mandatory/static Cursor import in generic Pi code.
+- **Architecture checks:** tests must cover at least one generic fake/Acme provider on clone and Pi paths, explicit optional Cursor activation, no Pi/DSH logic in clone runtime, no mandatory/static Cursor import in generic Pi or DSH code, and no Pi logic in `packages/dsh-bridge` clone-facing runtime (DSH must not import Pi host packages).
 
 Plugins are discovered through **OpenCode's own standard conventions** (`hooks.auth`, the `config` hook's `provider[id].models`, the root `createXxx()` AI-SDK factory). Never hardcode a specific plugin in generic bridge code and never sniff host versions to pick behavior.
 - **User delivery UX (locked):** one installable umbrella package (`@opencode-compat/ocp`) + **`ocp setup`** that writes install-tree overrides; users then add **consumer** plugins via host config (`plugin` / equivalent) unchanged. Listing OCP itself in `plugin` is optional bootstrap only — it does **not** intercept other plugins’ imports by itself.
@@ -48,7 +49,9 @@ Plugins are discovered through **OpenCode's own standard conventions** (`hooks.a
 ```
 packages/ocp          # umbrella UX (+ ocp setup) — OpenCode clones
 packages/profile|facade-*|adapter|host-promise-v2|cli|migrate-zcode
+packages/opencode-loader  # shared OpenCode plugin loader (pi-bridge + dsh-bridge)
 packages/pi-bridge    # Pi family (pi / omp) — dynamic OpenCode-plugin loader
+packages/dsh-bridge   # DSH family — Cordis LlmAdapter
 fixtures/          # OCP conformance (migrator tests use in-memory mocks)
 docs/hosts/        # ONE self-contained page per host family (install + internals)
 docs/ocp/0.1.md    # contract (OpenCode-clone facade protocol)
@@ -64,6 +67,7 @@ docs/guides/       # companion privacy / ZCode import notes (non-OCP runtime)
 - Facade `v2/effect` may loud-fail unless host declares capability; `v2/promise` + aisdk is the T3 bar.
 - Do not claim ZCode drop-in without a Z.AI vendor loader.
 - `pi-bridge` host variance is data in `packages/pi-bridge/src/host/profile.ts` (`PiHostProfile`) + narrow dispatch — same rule as `HostProfile`; never fork the package per host. Optional host packages (`@oh-my-pi/pi-ai`, `@earendil-works/pi-ai`) must stay **lazy dynamic imports**; a top-level import breaks the other host and the test run.
+- `dsh-bridge` host variance is data in `packages/dsh-bridge/src/host/profile.ts` (`DshHostProfile`) + narrow dispatch. Optional DSH packages (`@deepseek-ai/schemastery`, `@deepseek-ai/dsh-llm`) must stay **lazy / structural**; a top-level import breaks pack and hosts that are not DSH.
 - Consumer plugins (e.g. `cursor-opencode-provider`) are **test/matrix subjects**, not deliverables of this repo.
 - Privacy companions: Kilo/MiMo document **in-app** telemetry opt-out; ZCode telemetry is **docs-only** firewall/DNS — never claim an OCP plugin kill.
 
@@ -71,9 +75,10 @@ docs/guides/       # companion privacy / ZCode import notes (non-OCP runtime)
 
 1. `docs/ocp/0.1.md` — protocol contract for the OpenCode-clone facade path
 2. `packages/pi-bridge/README.md` — contract + config reference for the Pi family
-3. `docs/hosts/opencode-clones.md` (MiMo/Kilo/ZCode) / `docs/hosts/pi-family.md` (Pi) — one self-contained guide per host family; install lives **in** them, not in a separate top-level INSTALL doc
-4. Provider-maintained interactive acceptance checklist: `cursor-opencode-provider/docs/host-compat-acceptance.md`; run the OMP/Pi items against stock hosts before claiming interactive parity.
-5. `docs/plans/**` — **historical**; shipped work, kept for provenance. Superseded by the above wherever they disagree; do not treat as a roadmap.
+3. `packages/dsh-bridge/README.md` — contract + Cordis patch config for the DSH family
+4. `docs/hosts/opencode-clones.md` (MiMo/Kilo/ZCode) / `docs/hosts/pi-family.md` (Pi) / `docs/hosts/dsh-family.md` (DSH) — one self-contained guide per host family; install lives **in** them, not in a separate top-level INSTALL doc
+5. Provider-maintained interactive acceptance checklist: `cursor-opencode-provider/docs/host-compat-acceptance.md`; run the OMP/Pi/DSH items against stock hosts before claiming interactive parity.
+6. `docs/plans/**` — **historical**; shipped work, kept for provenance. Superseded by the above wherever they disagree; do not treat as a roadmap.
 
 ## Version bump / publish (agent runbook)
 
@@ -83,7 +88,7 @@ Canonical human guide: `docs/guides/npm-publish.md`. This section is the agent e
 
 ### Hard rules
 
-- Ship the **whole train** together — all 9 `@opencode-compat/*` packages share one version.
+- Ship the **whole train** together — all 11 `@opencode-compat/*` packages share one version.
 - Packages are **public** (`publishConfig.access: "public"` / `--access public`). Never private.
 - **Never** republish an existing version. If `npm view @opencode-compat/ocp@X.Y.Z version` already returns that version, stop and ask.
 - **Never** bump by hand-editing only `package.json`. Always use `bun scripts/bump-version.ts <ver>` so **`bun.lock` workspace versions** stay in sync.
@@ -94,7 +99,7 @@ Canonical human guide: `docs/guides/npm-publish.md`. This section is the agent e
 
 ### Packages in the train
 
-`profile` → `host-promise-v2` → `migrate-zcode` → `adapter` → `facade-sdk` → `facade-plugin` → `cli` → `ocp` → `pi-bridge`
+`profile` → `opencode-loader` → `host-promise-v2` → `migrate-zcode` → `adapter` → `facade-sdk` → `facade-plugin` → `cli` → `ocp` → `pi-bridge` → `dsh-bridge`
 
 This order is `PACKAGES` in `scripts/publish.ts` — keep the two in sync when adding a package.
 
@@ -122,9 +127,9 @@ This order is `PACKAGES` in `scripts/publish.ts` — keep the two in sync when a
    bun run pack:check
    ```
    Must show:
-   - `publish-ready: 9 public packages @ X.Y.Z`
-   - nine packs at `X.Y.Z`
-   - `packed-deps-ok: 9 tarballs pin @opencode-compat/* @ X.Y.Z`
+    - `publish-ready: 11 public packages @ X.Y.Z`
+    - eleven packs at `X.Y.Z`
+    - `packed-deps-ok: 11 tarballs pin @opencode-compat/* @ X.Y.Z`
    Spot-check tarballs under `.tmp/npm-pack/` if anything looks off: every `@opencode-compat/*` dependency must be the **exact** train version.
 
 5. **Commit + push `main`**
@@ -144,7 +149,7 @@ This order is `PACKAGES` in `scripts/publish.ts` — keep the two in sync when a
 
 7. **Verify publish**
    - Watch the run: `gh run watch` / `gh run list --workflow=publish.yml -L 1` until success.
-   - Confirm registry for all 9 (or at least umbrella + leaves):
+    - Confirm registry for all 11 (or at least umbrella + leaves):
      ```bash
      npm view @opencode-compat/ocp version          # X.Y.Z
      npm view @opencode-compat/ocp@X.Y.Z dependencies

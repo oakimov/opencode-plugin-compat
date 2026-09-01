@@ -4,7 +4,7 @@ User-facing **OCP umbrella**: one install + **`ocp setup`** writes Layer A insta
 
 **End-user install (MiMo / Kilo + npm):** see [**docs/hosts/opencode-clones.md**](../../docs/hosts/opencode-clones.md).
 
-**Scope:** OpenCode clones only. On `pi` / `oh-my-pi` there is no `@opencode-ai/plugin`-shaped native package to facade — use [`@opencode-compat/pi-bridge`](../pi-bridge/README.md) instead. ZCode is detect/doctor only.
+**Scope:** OpenCode clones only. On `pi` / `oh-my-pi` use [`@opencode-compat/pi-bridge`](../pi-bridge/README.md). On DeepSeek Harness use [`@opencode-compat/dsh-bridge`](../dsh-bridge/README.md). ZCode is detect/doctor only.
 
 ```bash
 # from this monorepo (developers)

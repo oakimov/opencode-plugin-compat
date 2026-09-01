@@ -19,7 +19,7 @@ Operator setup is not part of the paste. Do it first.
    ./scripts/ocp-dev.sh run <host>          # local OCP + local provider
    ```
 
-   Hosts: `opencode`, `mimo`, `kilo`, `pi`, `omp`. Confirm the slot with
+   Hosts: `opencode`, `mimo`, `kilo`, `pi`, `omp`, `dsh`. Confirm the slot with
    `.claude/skills/ocp-dev/SKILL.md` before starting the TTY.
 
 2. Start the **stock** host in a TTY with debug logging. Use a throwaway

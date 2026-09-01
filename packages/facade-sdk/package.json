@@ -1,6 +1,6 @@
 {
   "name": "@opencode-compat/facade-sdk",
-  "version": "0.3.2",
+  "version": "0.4.0",
   "description": "Install-override stand-in for @opencode-ai/sdk (classic + v2/client catalog bridge)",
   "type": "module",
   "license": "MPL-2.0",

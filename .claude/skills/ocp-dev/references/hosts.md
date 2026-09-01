@@ -40,6 +40,17 @@ Other provider entries and extra fields on the Cursor entry must survive.
 
 Bridge checkout: `packages/pi-bridge`. Host `pi-ai` may be symlinked under `packages/pi-bridge/node_modules/` — only remove that symlink if it is a symlink.
 
+## DSH family (`dsh-bridge`, never `ocp setup`)
+
+| Host | CLI | Config |
+|---|---|---|
+| `dsh` | `pnpm --prefix <deepseek-harness> dsh` | `$DSH_HOME/profiles/web/cordis.patch.yml` or `~/.dsh/profiles/web/cordis.patch.yml` |
+
+Local: `dsh plugin --profile web add file:<packages/dsh-bridge>` and patch `providers[].package` is the provider checkout `dist/index.js`.
+Npm: `@opencode-compat/dsh-bridge` plus `providers[].package: cursor-opencode-provider`.
+
+Bridge checkout: `packages/dsh-bridge`. Do not edit the DSH host tree.
+
 ## Stock provider
 
 Default: `$OCP_DEV_PROVIDER_PATH`, else `../cursor-opencode-provider`, else `~/Projects/cursor-opencode-provider`.

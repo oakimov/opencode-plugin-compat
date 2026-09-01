@@ -6,6 +6,7 @@
   "include": [],
   "references": [
     { "path": "./packages/profile" },
+    { "path": "./packages/opencode-loader" },
     { "path": "./packages/facade-plugin" },
     { "path": "./packages/facade-sdk" },
     { "path": "./packages/adapter" },
@@ -13,6 +14,7 @@
     { "path": "./packages/cli" },
     { "path": "./packages/migrate-zcode" },
     { "path": "./packages/ocp" },
-    { "path": "./packages/pi-bridge" }
+    { "path": "./packages/pi-bridge" },
+    { "path": "./packages/dsh-bridge" }
   ]
 }

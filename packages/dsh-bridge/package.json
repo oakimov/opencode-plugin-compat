@@ -1,0 +1,63 @@
+{
+  "name": "@opencode-compat/dsh-bridge",
+  "version": "0.4.0",
+  "description": "Run unmodified OpenCode AI SDK provider plugins as DeepSeek Harness LLM adapters (Cordis LlmAdapter)",
+  "type": "module",
+  "license": "MPL-2.0",
+  "author": "oakimov",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/oakimov/opencode-plugin-compat.git",
+    "directory": "packages/dsh-bridge"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    },
+    "./config": {
+      "types": "./dist/config.d.ts",
+      "import": "./dist/config.js"
+    }
+  },
+  "files": [
+    "dist",
+    "cordis.patch.yml",
+    "LICENSE",
+    "README.md",
+    "!dist/**/*.map"
+  ],
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    }
+  },
+  "scripts": {
+    "build": "bunx tsc -p tsconfig.json",
+    "typecheck": "bunx tsc -p tsconfig.json --noEmit",
+    "prepack": "bunx tsc -p tsconfig.json"
+  },
+  "dependencies": {
+    "@ai-sdk/provider": "^3.0.14"
+  },
+  "peerDependencies": {
+    "@deepseek-ai/cordis": ">=1.0.0",
+    "@deepseek-ai/dsh-llm": ">=1.0.0"
+  },
+  "peerDependenciesMeta": {
+    "@deepseek-ai/cordis": {
+      "optional": true
+    },
+    "@deepseek-ai/dsh-llm": {
+      "optional": true
+    }
+  },
+  "engines": {
+    "bun": ">=1.2.0"
+  }
+}

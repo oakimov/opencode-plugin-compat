@@ -1,7 +1,7 @@
 # Documentation
 
 OCP is the **universal OpenCode plugin compatibility bridge**: published OpenCode
-plugins run unchanged on two host families. Start with the page for the family
+plugins run unchanged on three host families. Start with the page for the family
 you are installing on — each one is self-contained, covering mechanism, npm
 install, local development, per-host internals, and verification.
 
@@ -11,7 +11,8 @@ install, local development, per-host internals, and verification.
 |------|--------|
 | [`hosts/opencode-clones.md`](./hosts/opencode-clones.md) | **MiMo · Kilo · ZCode** — facades + `ocp setup`. Install, Option B provider shims, project dirs, Promise v2 sidecar, telemetry, troubleshooting. ZCode is detect/doctor only. |
 | [`hosts/pi-family.md`](./hosts/pi-family.md) | **pi · oh-my-pi (omp)** — `@opencode-compat/pi-bridge` → `pi.registerProvider(...)`. Install, config, model variants, verification. |
-| [`hosts/README.md`](./hosts/) | Which family a host belongs to, and why the two mechanisms differ |
+| [`hosts/dsh-family.md`](./hosts/dsh-family.md) | **DeepSeek Harness** — `@opencode-compat/dsh-bridge` → `ctx.llm.registerAdapter(...)`. Install, Cordis patch, Models list, verification. |
+| [`hosts/README.md`](./hosts/) | Which family a host belongs to, and why the three mechanisms differ |
 
 ## Reference
 
@@ -19,6 +20,7 @@ install, local development, per-host internals, and verification.
 |------|------|
 | [`ocp/0.1.md`](./ocp/0.1.md) | **Canonical** OCP contract (`0.1.x` train) — HostProfile, classic hooks, tiers, Promise v2, conformance |
 | [`../packages/pi-bridge/README.md`](../packages/pi-bridge/README.md) | pi-bridge config reference + pi/omp host-difference table |
+| [`../packages/dsh-bridge/README.md`](../packages/dsh-bridge/README.md) | dsh-bridge contract + Cordis patch config |
 | [`../TESTING.md`](../TESTING.md) | Manual local dev — unpublished OCP checkout + local plugins |
 | [`guides/cursor-ocp-self-verify.md`](./guides/cursor-ocp-self-verify.md) | Paste-ready agent prompt: exercise Cursor-through-OCP, then score the provider debug log |
 | [`guides/omp-tool-shape-self-verify.md`](./guides/omp-tool-shape-self-verify.md) | Paste-ready omp prompt: read paging, replace `edit` vs `hashline`, and OpenCode todo snapshots |

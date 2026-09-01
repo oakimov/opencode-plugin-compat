@@ -214,7 +214,7 @@ No `NPM_TOKEN` secret. Publisher identity will look like `GitHub Actions <npm-oi
 - **Public only** — never set `"private": true` on workspace packages; never publish with restricted access.
 - **Do not** publish impersonating `@opencode-ai/plugin` / `@opencode-ai/sdk`. Layer A overrides remap those names to `@opencode-compat/facade-*` inside host install trees only.
 - Re-run `ocp setup` after host plugin install/upgrade.
-- Keep all nine package versions equal for a train release.
+- Keep all eleven package versions equal for a train release (`scripts/publish.ts` `PACKAGES`: profile → opencode-loader → … → pi-bridge → dsh-bridge).
 - Always commit the refreshed **`bun.lock`** with a version bump. Publish CI will fail if lockfile or packed deps disagree with the train.
 - `prepack` runs `tsc` per package; root scripts still build the project-references graph first.
 - Bun shebang CLIs (`ocp`, `compat`, `opencode-compat`) require Bun on `PATH` after global install.

@@ -20,7 +20,7 @@
     },
     "packages/adapter": {
       "name": "@opencode-compat/adapter",
-      "version": "0.3.2",
+      "version": "0.4.0",
       "dependencies": {
         "@opencode-compat/host-promise-v2": "workspace:*",
         "@opencode-compat/profile": "workspace:*",
@@ -31,7 +31,7 @@
     },
     "packages/cli": {
       "name": "@opencode-compat/cli",
-      "version": "0.3.2",
+      "version": "0.4.0",
       "bin": {
         "opencode-compat": "./bin/compat.ts",
         "compat": "./bin/compat.ts",
@@ -45,9 +45,24 @@
         "typescript": "^5.8.3",
       },
     },
+    "packages/dsh-bridge": {
+      "name": "@opencode-compat/dsh-bridge",
+      "version": "0.4.0",
+      "dependencies": {
+        "@ai-sdk/provider": "^3.0.14",
+      },
+      "peerDependencies": {
+        "@deepseek-ai/cordis": ">=1.0.0",
+        "@deepseek-ai/dsh-llm": ">=1.0.0",
+      },
+      "optionalPeers": [
+        "@deepseek-ai/cordis",
+        "@deepseek-ai/dsh-llm",
+      ],
+    },
     "packages/facade-plugin": {
       "name": "@opencode-compat/facade-plugin",
-      "version": "0.3.2",
+      "version": "0.4.0",
       "dependencies": {
         "@opencode-compat/adapter": "workspace:*",
         "@opencode-compat/facade-sdk": "workspace:*",
@@ -61,7 +76,7 @@
     },
     "packages/facade-sdk": {
       "name": "@opencode-compat/facade-sdk",
-      "version": "0.3.2",
+      "version": "0.4.0",
       "dependencies": {
         "@opencode-compat/adapter": "workspace:*",
         "@opencode-compat/profile": "workspace:*",
@@ -72,21 +87,21 @@
     },
     "packages/host-promise-v2": {
       "name": "@opencode-compat/host-promise-v2",
-      "version": "0.3.2",
+      "version": "0.4.0",
       "devDependencies": {
         "typescript": "^5.8.3",
       },
     },
     "packages/migrate-zcode": {
       "name": "@opencode-compat/migrate-zcode",
-      "version": "0.3.2",
+      "version": "0.4.0",
       "devDependencies": {
         "typescript": "^5.8.3",
       },
     },
     "packages/ocp": {
       "name": "@opencode-compat/ocp",
-      "version": "0.3.2",
+      "version": "0.4.0",
       "bin": {
         "ocp": "./bin/ocp.ts",
       },
@@ -103,9 +118,16 @@
         "typescript": "^5.8.3",
       },
     },
+    "packages/opencode-loader": {
+      "name": "@opencode-compat/opencode-loader",
+      "version": "0.4.0",
+      "dependencies": {
+        "@ai-sdk/provider": "^3.0.14",
+      },
+    },
     "packages/pi-bridge": {
       "name": "@opencode-compat/pi-bridge",
-      "version": "0.3.2",
+      "version": "0.4.0",
       "dependencies": {
         "@ai-sdk/provider": "^3.0.14",
       },
@@ -124,7 +146,7 @@
     },
     "packages/profile": {
       "name": "@opencode-compat/profile",
-      "version": "0.3.2",
+      "version": "0.4.0",
       "devDependencies": {
         "typescript": "^5.8.3",
       },
@@ -159,6 +181,8 @@
 
     "@opencode-compat/cli": ["@opencode-compat/cli@workspace:packages/cli"],
 
+    "@opencode-compat/dsh-bridge": ["@opencode-compat/dsh-bridge@workspace:packages/dsh-bridge"],
+
     "@opencode-compat/facade-plugin": ["@opencode-compat/facade-plugin@workspace:packages/facade-plugin"],
 
     "@opencode-compat/facade-sdk": ["@opencode-compat/facade-sdk@workspace:packages/facade-sdk"],
@@ -168,6 +192,8 @@
     "@opencode-compat/migrate-zcode": ["@opencode-compat/migrate-zcode@workspace:packages/migrate-zcode"],
 
     "@opencode-compat/ocp": ["@opencode-compat/ocp@workspace:packages/ocp"],
+
+    "@opencode-compat/opencode-loader": ["@opencode-compat/opencode-loader@workspace:packages/opencode-loader"],
 
     "@opencode-compat/pi-bridge": ["@opencode-compat/pi-bridge@workspace:packages/pi-bridge"],
 

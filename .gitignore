@@ -26,6 +26,8 @@ coverage/
 # local scratch
 .tmp/
 /tmp/
+.codesearch.db/
+.playwright-mcp/
 
 .claude/settings.local.json
 
