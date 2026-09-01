@@ -15,7 +15,7 @@
  * the plugin wrote, which is exactly how OpenCode itself drives refresh.
  */
 import type { AuthStore } from "./host-stub.js"
-import type { OpenCodeAuth, OpenCodeAuthHook, OpenCodeAuthMethod, OpenCodeAuthPrompt } from "./types.js"
+import type { OpenCodeAuth, OpenCodeAuthHook, OpenCodeAuthMethod, OpenCodeAuthPrompt, OpenCodeOAuthCallbackResult } from "./types.js"
 
 /** Pi's `OAuthCredentials` (both hosts: `{access, refresh, expires}` + optional extras). */
 export type PiOAuthCredentials = {
@@ -50,7 +50,8 @@ const HOUR_MS = 3_600_000
  * provider detail), so decoding `exp` here stays generic; anything undecodable
  * falls back to an hour out, matching what Pi's own built-in OAuth flows do.
  */
-export function tokenExpiryMs(token: string, now = Date.now()): number {
+export function tokenExpiryMs(token: string | undefined, now = Date.now()): number {
+  if (typeof token !== "string" || !token) return now + HOUR_MS
   const segment = token.split(".")[1]
   if (segment) {
     try {
@@ -62,6 +63,26 @@ export function tokenExpiryMs(token: string, now = Date.now()): number {
     }
   }
   return now + HOUR_MS
+}
+
+/** OpenCode oauth callback success is `{access,refresh,expires}` or `{key}`. */
+export function openCodeAuthFromOAuthCallback(result: Extract<OpenCodeOAuthCallbackResult, { type: "success" }>): OpenCodeAuth {
+  if ("access" in result && typeof result.access === "string") {
+    const refresh = "refresh" in result && typeof result.refresh === "string" ? result.refresh : ""
+    const expires = "expires" in result && typeof result.expires === "number" ? result.expires : tokenExpiryMs(result.access)
+    return { type: "oauth", access: result.access, refresh, expires }
+  }
+  if ("key" in result && typeof result.key === "string") {
+    const metadata = result.metadata
+    return {
+      type: "api",
+      key: result.key,
+      ...(metadata && typeof metadata === "object" && !Array.isArray(metadata)
+        ? { metadata: metadata as Record<string, string> }
+        : {}),
+    }
+  }
+  throw new Error("pi-bridge: OAuth callback succeeded without access token or key")
 }
 
 /** OpenCode stored credential → Pi credentials. */
@@ -157,12 +178,7 @@ export function buildPiOAuth(options: BuildOAuthOptions): PiOAuthConfig | undefi
         if (result.type !== "success") {
           throw new Error(`pi-bridge: OAuth login failed for provider "${authHook.provider}"`)
         }
-        const auth: OpenCodeAuth = {
-          type: "oauth",
-          access: result.access,
-          refresh: result.refresh,
-          expires: result.expires || tokenExpiryMs(result.access),
-        }
+        const auth = openCodeAuthFromOAuthCallback(result)
         await options.authStore?.set(auth)
         return toPiCredentials(auth)
       }

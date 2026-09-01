@@ -1,4 +1,4 @@
-import { existsSync, lstatSync, mkdirSync, realpathSync, rmSync, symlinkSync } from "node:fs"
+import { existsSync, lstatSync, mkdirSync, readFileSync, realpathSync, readdirSync, rmSync, symlinkSync } from "node:fs"
 import { dirname, join } from "node:path"
 import { configFile, resolveCli, type HostId, type WireMode } from "./hosts.ts"
 import { defaultProviderPath, pluginName, repoRoot } from "./paths.ts"
@@ -49,24 +49,137 @@ function aiPackage(host: PiHost): string {
 function linkHostAi(host: PiHost, hostCli: string): void {
   const pkg = aiPackage(host)
   const cliReal = realpathSync(hostCli)
-  const nested = join(dirname(cliReal), "..", "node_modules", pkg)
-  const hoisted = join(dirname(cliReal), "../../..", pkg)
-  const source = existsSync(join(nested, "package.json")) ? realpathSync(nested)
-    : existsSync(join(hoisted, "package.json")) ? realpathSync(hoisted)
-    : undefined
-  if (!source) throw new Error(`cannot locate ${pkg} beside host CLI ${cliReal}`)
-  const target = join(bridgePath(), "node_modules", pkg)
-  mkdirSync(dirname(target), { recursive: true })
-  if (existsSync(target) && !lstatSync(target).isSymbolicLink() && existsSync(join(target, "package.json"))) {
-    console.log(`ocp-dev: ${pkg} already resolves inside local pi-bridge`)
+  const repoSiblingAi = host === "pi"
+    ? join(repoRoot(), "..", "pi", "packages", "ai")
+    : join(repoRoot(), "..", "oh-my-pi", "packages", "ai")
+  const candidates: string[] = []
+  candidates.push(join(dirname(cliReal), "..", "node_modules", pkg))
+  candidates.push(join(dirname(cliReal), "../../..", pkg))
+  // Probe npm cache (repoRoot/node_modules/.bun) for the host package — importable without building natives
+  try {
+    const bunCache = join(repoRoot(), "node_modules", ".bun")
+    for (const entry of readdirSync(bunCache)) {
+      if (entry.startsWith(pkg.replace("/", "+") + "@") || entry.startsWith(pkg.replace("@", "").replace("/", "+") + "@")) {
+        const candidate = join(bunCache, entry, "node_modules", pkg)
+        if (existsSync(join(candidate, "package.json"))) candidates.push(candidate)
+      }
+      // Also handle @oh-my-pi/pi-ai -> @oh-my-pi+pi-ai@* pattern
+      if (pkg === "@oh-my-pi/pi-ai" && entry.startsWith("@oh-my-pi+pi-ai@")) {
+        const candidate = join(bunCache, entry, "node_modules", pkg)
+        if (existsSync(join(candidate, "package.json"))) candidates.push(candidate)
+      }
+      if (pkg === "@earendil-works/pi-ai" && entry.startsWith("@earendil-works+pi-ai@")) {
+        const candidate = join(bunCache, entry, "node_modules", pkg)
+        if (existsSync(join(candidate, "package.json"))) candidates.push(candidate)
+      }
+    }
+  } catch {}
+  // Also probe Bun's resolver (repo root) for the host package
+  try {
+    const resolved = Bun.resolveSync(pkg, repoRoot())
+    if (resolved) {
+      const base = resolved.split(pkg)[0] + pkg.split("/").slice(0, 2).join("/")
+      candidates.push(base)
+    }
+  } catch {}
+  // Last resort: sibling checkout (local dev). Prefer npm cache over unbuilt checkout.
+  if (existsSync(join(repoSiblingAi, "package.json"))) {
+    candidates.push(repoSiblingAi)
+  }
+
+  const hasBuiltEntry = (root: string): boolean => {
+    try {
+      const manifest = JSON.parse(readFileSync(join(root, "package.json"), "utf8")) as { main?: string }
+      return existsSync(join(root, manifest.main || "dist/index.js"))
+    } catch {
+      return false
+    }
+  }
+
+  let source: string | undefined
+  for (const c of candidates) {
+    if (!existsSync(join(c, "package.json")) || !hasBuiltEntry(c)) continue
+    try {
+      source = realpathSync(c)
+    } catch {
+      source = c
+    }
+    break
+  }
+  if (!source) {
+    const target = join(bridgePath(), "node_modules", pkg)
+    try {
+      if (existsSync(target) && lstatSync(target).isSymbolicLink() && !hasBuiltEntry(target)) {
+        rmSync(target, { force: true })
+        console.log(`ocp-dev: removed unbuilt ${pkg} link`)
+      }
+    } catch {}
+    console.log(`ocp-dev: no built ${pkg} to link (pi injects it at runtime); skipping`)
     return
   }
-  if (existsSync(target) && !lstatSync(target).isSymbolicLink()) {
-    throw new Error(`refusing to replace non-package host peer target: ${target}`)
+  const target = join(bridgePath(), "node_modules", pkg)
+  mkdirSync(dirname(target), { recursive: true })
+
+  const sourceVersion = (() => {
+    try {
+      return JSON.parse(readFileSync(join(source, "package.json"), "utf8")).version as string
+    } catch {
+      return undefined
+    }
+  })()
+  const targetVersion = (() => {
+    try {
+      const real = lstatSync(target).isSymbolicLink() ? realpathSync(target) : target
+      return JSON.parse(readFileSync(join(real, "package.json"), "utf8")).version as string
+    } catch {
+      return undefined
+    }
+  })()
+
+  if (existsSync(target)) {
+    const isLink = (() => {
+      try {
+        return lstatSync(target).isSymbolicLink()
+      } catch {
+        return false
+      }
+    })()
+    if (!isLink && existsSync(join(target, "package.json"))) {
+      if (targetVersion && sourceVersion && targetVersion === sourceVersion) {
+        console.log(`ocp-dev: ${pkg}@${targetVersion} already resolves inside local pi-bridge`)
+        return
+      }
+      console.log(`ocp-dev: ${pkg} version mismatch ${targetVersion ?? "unknown"} vs host ${sourceVersion ?? "unknown"} → relinking`)
+      // Remove real directory installed by `bun install` before symlinking
+      try {
+        rmSync(target, { recursive: true, force: true })
+      } catch {}
+    } else if (isLink) {
+      const current = (() => {
+        try {
+          return realpathSync(target)
+        } catch {
+          return undefined
+        }
+      })()
+      if (current === source && targetVersion === sourceVersion) {
+        console.log(`ocp-dev: ${pkg}@${sourceVersion} already linked to host runtime ${source}`)
+        return
+      }
+      console.log(`ocp-dev: ${pkg} stale link ${current ?? "broken"}@${targetVersion ?? "?"} → updating to ${source}@${sourceVersion ?? "?"}`)
+      try {
+        rmSync(target, { force: true })
+      } catch {}
+    } else if (!isLink) {
+      throw new Error(`refusing to replace non-package host peer target: ${target}`)
+    } else {
+      try {
+        rmSync(target, { force: true })
+      } catch {}
+    }
   }
-  if (existsSync(target)) rmSync(target)
   symlinkSync(source, target)
-  console.log(`ocp-dev: ${pkg} → host runtime ${source}`)
+  console.log(`ocp-dev: ${pkg}@${sourceVersion ?? "?"} → host runtime ${source}`)
 }
 
 function piRemoveIfPresent(hostCli: string, source: string): void {

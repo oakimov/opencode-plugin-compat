@@ -1,6 +1,6 @@
 {
   "name": "@opencode-compat/pi-bridge",
-  "version": "0.3.1",
+  "version": "0.3.2",
   "description": "Dynamically run unmodified OpenCode aisdk-type plugins as providers on pi or oh-my-pi (omp)",
   "type": "module",
   "license": "MPL-2.0",
@@ -59,8 +59,7 @@
   },
   "peerDependencies": {
     "@earendil-works/pi-ai": ">=0.80.0",
-    "@oh-my-pi/pi-ai": ">=17.0.0",
-    "cursor-opencode-provider": ">=0.5.0"
+    "@oh-my-pi/pi-ai": ">=17.0.0"
   },
   "peerDependenciesMeta": {
     "@earendil-works/pi-ai": {
@@ -68,13 +67,10 @@
     },
     "@oh-my-pi/pi-ai": {
       "optional": true
-    },
-    "cursor-opencode-provider": {
-      "optional": true
     }
   },
   "devDependencies": {
-    "@oh-my-pi/pi-ai": "17.2.12",
+    "@oh-my-pi/pi-ai": ">=17.0.0",
     "typescript": "^5.8.3"
   },
   "bugs": {

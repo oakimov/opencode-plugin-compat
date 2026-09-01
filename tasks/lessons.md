@@ -2,6 +2,18 @@
 
 Corrections and durable takeaways for this repo. Per `~/.claude/CLAUDE.md`: capture lessons here after corrections. Hard rules that must auto-load still live in global memory `Rules`; this file keeps the correction story **and** the rule text for local reference.
 
+## 2026-08-22 — DSH is a third host family; do not depend on pi2dsh for OpenCode providers
+
+**Context:** Research for running OpenCode provider plugins on DeepSeek Harness (`dsh`). DSH is Cordis + `ctx.llm.registerAdapter`, not Pi `ExtensionAPI`. Community [pi2dsh](https://github.com/weijiafu14/pi2dsh) (~12k LOC bridge + ~18k vendored Pi) can compose with `@opencode-compat/pi-bridge` for max reach, but abandonment would orphan DSH support if OCP hard-requires it.
+
+**Rule:**
+
+- **DSH OpenCode provider support belongs in an owned `@opencode-compat/dsh-bridge`** (Cordis `LlmAdapter` + shared OpenCode loader patterns). Treat pi2dsh as an optional spike only — never port it (~30k+ LOC) and never put it on the publish train as a required peer.
+- **YYTbit `dsh-plugin-*-bridge` packages import skills/config into prompts** — they do not load `@opencode-ai/plugin` providers.
+- **Invert [ai-sdk-provider-dsh](https://github.com/krislavten/ai-sdk-provider-dsh) chunk mapping** for V3 → DSH `StreamChunk`; that package drives DSH *as* a model, not providers *into* DSH.
+
+**Where:** `docs/plans/dsh-opencode-provider-bridge-plan.md`, `tasks/dsh-bridge.md`.
+
 ## 2026-07-26 — Stale MiMo checkpoint keep-alive filled context
 
 **Correction:** After commit+push `58fdbe4` was already done, the agent kept re-verifying on MiMo checkpoint reinjections (`mid-loop` / `Resume directly…`), which re-armed keep-alives until context forced interrupt/compact.

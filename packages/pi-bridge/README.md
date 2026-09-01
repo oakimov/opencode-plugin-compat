@@ -300,9 +300,12 @@ For repeatable switching and portable host-runtime discovery, prefer
 
 ## Config reference
 
-Config lives at `$PI_BRIDGE_CONFIG`, else `pi-bridge.json` in the host's agent
-dir (`~/.omp/agent/`, `~/.pi/agent/`, `~/.pi/`). Both hosts' locations are
-searched, so one file works on either. No providers register without it.
+Config lives at `$PI_BRIDGE_CONFIG`, else `$PI_CODING_AGENT_DIR/pi-bridge.json`,
+else `pi-bridge.json` in the **running** host's agent dir (`~/.omp/agent` on
+omp, `~/.pi/agent` then `~/.pi` on pi), then the other host. Both locations
+stay in the search list so one file can still work on either, but a live
+`PI_BRIDGE_HOST` will not pick the other host's file first. No providers
+register without a config file.
 
 Only `package` is required:
 
@@ -323,7 +326,7 @@ Only `package` is required:
 the host ships natively — `cursor-opencode-provider` declares `"cursor"`, and
 omp has a built-in `cursor` provider. Since `registerProvider` has no collision
 guard, a *derived* id that would shadow a host built-in is suffixed
-(`cursor` → `cursor-opencode`) with a logged explanation. An explicit
+(`cursor` → `cursor-opencode`, `devin` → `devin-opencode` on omp) with a logged explanation. An explicit
 `providerName` is always used as-is.
 
 ## Host differences handled for you

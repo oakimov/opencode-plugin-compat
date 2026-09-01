@@ -159,9 +159,10 @@ this step.
 
 ## Configuration
 
-Config lives at `$PI_BRIDGE_CONFIG`, else `pi-bridge.json` in the host's agent
-dir (`~/.omp/agent/`, `~/.pi/agent/`, `~/.pi/`). Both hosts' locations are
-searched, so one file works on either. **No providers register without it.**
+Config lives at `$PI_BRIDGE_CONFIG`, else `$PI_CODING_AGENT_DIR/pi-bridge.json`,
+else `pi-bridge.json` in the running host's agent dir (`~/.omp/agent` on omp,
+`~/.pi/agent` then `~/.pi` on pi), then the other host. **No providers
+register without it.**
 
 Only `package` is required:
 

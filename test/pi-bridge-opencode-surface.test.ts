@@ -8,10 +8,11 @@
  */
 import { describe, expect, test } from "bun:test"
 import path from "node:path"
-import { buildPiOAuth, createLoaderRunner, openCodeAuthFromResolvedKey, toOpenCodeAuth, toPiCredentials, tokenExpiryMs } from "../packages/pi-bridge/src/opencode/auth.ts"
+import { buildPiOAuth, createLoaderRunner, openCodeAuthFromOAuthCallback, openCodeAuthFromResolvedKey, toOpenCodeAuth, toPiCredentials, tokenExpiryMs } from "../packages/pi-bridge/src/opencode/auth.ts"
 import { createMemoryAuthStore, createPluginInputStub } from "../packages/pi-bridge/src/opencode/host-stub.ts"
 import { derivePackageName, detectAiSdkFactory, detectPluginFactory, instantiateHooks, loadOpenCodePluginModule } from "../packages/pi-bridge/src/opencode/load.ts"
 import { extractModelsFromConfigHook, toPiModel } from "../packages/pi-bridge/src/opencode/models.ts"
+import { loadModuleThroughHost } from "../packages/pi-bridge/src/host-module-loader.ts"
 
 const FIXTURE = path.join(import.meta.dir, "fixtures", "pi-bridge-acme-provider.ts")
 
@@ -23,6 +24,36 @@ async function loadFixtureHooks() {
 }
 
 describe("shape detection", () => {
+  test("loads a provider through the host's static extension graph", async () => {
+    const loaded = await loadModuleThroughHost({
+      registerProvider() {},
+      pi: {
+        getPluginsDir: () => "/unused",
+        async loadExtensions(paths) {
+          for (const extensionPath of paths) {
+            const extension = await import(`${extensionPath}?test=${Date.now()}`)
+            await extension.default({})
+          }
+          return { errors: [] }
+        },
+      },
+    }, FIXTURE)
+    expect(typeof loaded?.createAcme).toBe("function")
+    expect(typeof loaded?.AcmePlugin).toBe("function")
+  })
+
+  test("bare package names without getPluginsDir do not throw a host-API error", async () => {
+    const loaded = await loadModuleThroughHost({
+      registerProvider() {},
+      pi: {
+        async loadExtensions() {
+          return { errors: [] }
+        },
+      },
+    }, "definitely-not-installed-opencode-provider")
+    expect(loaded).toBeUndefined()
+  })
+
   test("finds both conventions on one module without them colliding", async () => {
     const loaded = await loadOpenCodePluginModule({ packageSpecifier: FIXTURE })
     expect(typeof loaded.factory).toBe("function")
@@ -40,6 +71,16 @@ describe("shape detection", () => {
     const createFoo = () => ({ languageModel: () => ({}) })
     const createBar = () => ({ languageModel: () => ({}) })
     expect(() => detectAiSdkFactory({ createFoo, createBar })).toThrow(/multiple createXxx exports/)
+  })
+
+  test("detectAiSdkFactory prefers create<Package> from a dist/index.js path", () => {
+    const createDevin = () => ({ languageModel: () => ({}) })
+    const createWindsurf = () => ({ languageModel: () => ({}) })
+    expect(detectAiSdkFactory(
+      { createDevin, createWindsurf },
+      undefined,
+      "/abs/devin-opencode-provider/dist/index.js",
+    )).toBe(createDevin as never)
   })
 
   test("detectPluginFactory prefers a *Plugin export over the default export", () => {
@@ -93,6 +134,43 @@ describe("auth translation", () => {
     const payload = Buffer.from(JSON.stringify({ exp: 2_000_000 })).toString("base64url")
     expect(tokenExpiryMs(`h.${payload}.s`)).toBe(2_000_000_000)
     expect(tokenExpiryMs("not-a-jwt", 1_000)).toBe(1_000 + 3_600_000)
+    expect(tokenExpiryMs(undefined, 1_000)).toBe(1_000 + 3_600_000)
+  })
+
+  test("OAuth callback success may return {key} instead of {access,refresh,expires}", () => {
+    expect(openCodeAuthFromOAuthCallback({ type: "success", key: "devin-session-token$abc" })).toEqual({
+      type: "api",
+      key: "devin-session-token$abc",
+    })
+    expect(openCodeAuthFromOAuthCallback({
+      type: "success",
+      access: "a",
+      refresh: "r",
+      expires: 9,
+    })).toEqual({ type: "oauth", access: "a", refresh: "r", expires: 9 })
+  })
+
+  test("OAuth login accepts a plugin that returns the OpenCode {key} success shape", async () => {
+    const oauth = buildPiOAuth({
+      authHook: {
+        provider: "acme",
+        methods: [{
+          type: "oauth",
+          label: "Acme",
+          async authorize() {
+            return {
+              url: "https://acme.example/login",
+              async callback() {
+                return { type: "success" as const, provider: "acme", key: "k" }
+              },
+            }
+          },
+        }],
+      },
+    })!
+    const credentials = await oauth.login({ onAuth: () => {} })
+    expect(credentials.access).toBe("k")
+    expect(oauth.getApiKey(credentials)).toBe("k")
   })
 
   test("a resolved host key is reconstructed using the selected plugin auth method", async () => {

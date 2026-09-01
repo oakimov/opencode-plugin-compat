@@ -16,9 +16,10 @@
 import { registerAiSdkProvider } from "./bridge.js"
 import { avoidProviderIdCollision, type PiHostProfile } from "./host/profile.js"
 import { loadPiRuntime } from "./host/runtime.js"
+import { loadModuleThroughHost } from "./host-module-loader.js"
 import { buildPiOAuth, createLoaderRunner, openCodeAuthFromResolvedKey, type PiOAuthConfig } from "./opencode/auth.js"
 import { createPluginInputStub } from "./opencode/host-stub.js"
-import { derivePackageName, instantiateHooks, loadOpenCodePluginModule, substituteApiKey } from "./opencode/load.js"
+import { derivePackageName, inspectOpenCodePluginModule, instantiateHooks, loadOpenCodePluginModule, substituteApiKey } from "./opencode/load.js"
 import { extractModelsFromConfigHook, type ModelCallData, type PiModelConfig } from "./opencode/models.js"
 import { optionsForLevel } from "./opencode/variants.js"
 import type { OpenCodeHooks } from "./opencode/types.js"
@@ -67,11 +68,15 @@ export type RegisterResult = {
 
 /** Discover everything the plugin exposes, then register it with the host. */
 export async function registerOpenCodePlugin(pi: PiExtensionApi, spec: OpenCodePluginSpec): Promise<RegisterResult> {
-  const loaded = await loadOpenCodePluginModule({
+  const loadSpec = {
     packageSpecifier: spec.package,
-    factoryExport: spec.factoryExport,
-    pluginExport: spec.pluginExport,
-  })
+    ...(spec.factoryExport ? { factoryExport: spec.factoryExport } : {}),
+    ...(spec.pluginExport ? { pluginExport: spec.pluginExport } : {}),
+  }
+  const hostLoaded = await loadModuleThroughHost(pi, spec.package, spec.directory ?? process.cwd())
+  const loaded = hostLoaded
+    ? inspectOpenCodePluginModule(hostLoaded, loadSpec)
+    : await loadOpenCodePluginModule(loadSpec)
 
   const stub = createPluginInputStub({ directory: spec.directory ?? process.cwd() })
 

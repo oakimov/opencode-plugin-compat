@@ -58,6 +58,11 @@ describe("avoidProviderIdCollision", () => {
     expect(avoidProviderIdCollision("cursor", ompProfile())).toBe("cursor-opencode")
   })
 
+  test("keeps OMP's native Devin login distinct from the bridged plugin", () => {
+    expect(avoidProviderIdCollision("devin", ompProfile())).toBe("devin-opencode")
+    expect(avoidProviderIdCollision("devin", piProfile())).toBe("devin")
+  })
+
   test("leaves a non-colliding id untouched", () => {
     expect(avoidProviderIdCollision("acme", ompProfile())).toBe("acme")
   })

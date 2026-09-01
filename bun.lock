@@ -20,7 +20,7 @@
     },
     "packages/adapter": {
       "name": "@opencode-compat/adapter",
-      "version": "0.3.1",
+      "version": "0.3.2",
       "dependencies": {
         "@opencode-compat/host-promise-v2": "workspace:*",
         "@opencode-compat/profile": "workspace:*",
@@ -31,7 +31,7 @@
     },
     "packages/cli": {
       "name": "@opencode-compat/cli",
-      "version": "0.3.1",
+      "version": "0.3.2",
       "bin": {
         "opencode-compat": "./bin/compat.ts",
         "compat": "./bin/compat.ts",
@@ -47,7 +47,7 @@
     },
     "packages/facade-plugin": {
       "name": "@opencode-compat/facade-plugin",
-      "version": "0.3.1",
+      "version": "0.3.2",
       "dependencies": {
         "@opencode-compat/adapter": "workspace:*",
         "@opencode-compat/facade-sdk": "workspace:*",
@@ -61,7 +61,7 @@
     },
     "packages/facade-sdk": {
       "name": "@opencode-compat/facade-sdk",
-      "version": "0.3.1",
+      "version": "0.3.2",
       "dependencies": {
         "@opencode-compat/adapter": "workspace:*",
         "@opencode-compat/profile": "workspace:*",
@@ -72,21 +72,21 @@
     },
     "packages/host-promise-v2": {
       "name": "@opencode-compat/host-promise-v2",
-      "version": "0.3.1",
+      "version": "0.3.2",
       "devDependencies": {
         "typescript": "^5.8.3",
       },
     },
     "packages/migrate-zcode": {
       "name": "@opencode-compat/migrate-zcode",
-      "version": "0.3.1",
+      "version": "0.3.2",
       "devDependencies": {
         "typescript": "^5.8.3",
       },
     },
     "packages/ocp": {
       "name": "@opencode-compat/ocp",
-      "version": "0.3.1",
+      "version": "0.3.2",
       "bin": {
         "ocp": "./bin/ocp.ts",
       },
@@ -105,28 +105,26 @@
     },
     "packages/pi-bridge": {
       "name": "@opencode-compat/pi-bridge",
-      "version": "0.3.1",
+      "version": "0.3.2",
       "dependencies": {
         "@ai-sdk/provider": "^3.0.14",
       },
       "devDependencies": {
-        "@oh-my-pi/pi-ai": "17.2.12",
+        "@oh-my-pi/pi-ai": ">=17.0.0",
         "typescript": "^5.8.3",
       },
       "peerDependencies": {
         "@earendil-works/pi-ai": ">=0.80.0",
         "@oh-my-pi/pi-ai": ">=17.0.0",
-        "cursor-opencode-provider": ">=0.5.0",
       },
       "optionalPeers": [
         "@earendil-works/pi-ai",
         "@oh-my-pi/pi-ai",
-        "cursor-opencode-provider",
       ],
     },
     "packages/profile": {
       "name": "@opencode-compat/profile",
-      "version": "0.3.1",
+      "version": "0.3.2",
       "devDependencies": {
         "typescript": "^5.8.3",
       },
@@ -135,29 +133,27 @@
   "packages": {
     "@ai-sdk/provider": ["@ai-sdk/provider@3.0.14", "", { "dependencies": { "json-schema": "^0.4.0" } }, "sha512-5X1k57JBJ4H7H1QjX7CnJYAB1I19r/trVZTMcSms7/kLNZ8RaU4Nt2agcwZzv82Hfx6Q7/TOLU7agAKeFfc8cA=="],
 
-    "@bufbuild/protobuf": ["@bufbuild/protobuf@2.13.0", "", {}, "sha512-acq7c49vxfm1ggJ95P70TX7ABDM0vxr1SYD3BB0o0jnBLB4OAqeHyKuN+cD3w80gXEDQ2zxHpR6CUeA+O/aU9g=="],
+    "@oh-my-pi/omptype": ["@oh-my-pi/omptype@18.0.11", "", {}, "sha512-7T6GLll8XB5LAIJ1aL97Lp8p/465wO3e0DYIRoveNUWrtLGmtp+uYDnHoixlW+JaWWo5iWuOoCnkNEeJXCxk/g=="],
 
-    "@oh-my-pi/omptype": ["@oh-my-pi/omptype@17.2.12", "", {}, "sha512-Y27VMnPbcUEOpK1DgYuvNIaVnGxEmOcEP2bYPfuAWkx2vc4PKXL0NCRzGLwYMjhwjjd9O/gn8lywZfxDCBytjA=="],
+    "@oh-my-pi/pi-ai": ["@oh-my-pi/pi-ai@18.0.11", "", { "dependencies": { "@oh-my-pi/omptype": "18.0.11", "@oh-my-pi/pi-catalog": "18.0.11", "@oh-my-pi/pi-utils": "18.0.11", "@oh-my-pi/pi-wire": "18.0.11" } }, "sha512-hgPcRLTta+W+Erlb5NRFJ7hXo/Wp9w6d9K1bfbfuUZ7tD0ksV397c8VFohsPJWq5Kwx1+kwQva7s1hWPPO6Sxg=="],
 
-    "@oh-my-pi/pi-ai": ["@oh-my-pi/pi-ai@17.2.12", "", { "dependencies": { "@bufbuild/protobuf": "^2.12.1", "@oh-my-pi/omptype": "17.2.12", "@oh-my-pi/pi-catalog": "17.2.12", "@oh-my-pi/pi-utils": "17.2.12", "@oh-my-pi/pi-wire": "17.2.12" } }, "sha512-S6LswgyLgQdE5zXADf6NGwrYn1OCYp1WiKxyN6f/1RRv68vbd3y4YSoidzeOYs3kPS/cIiv3dw3LHaCrwpam/Q=="],
+    "@oh-my-pi/pi-catalog": ["@oh-my-pi/pi-catalog@18.0.11", "", { "dependencies": { "@oh-my-pi/omptype": "18.0.11", "@oh-my-pi/pi-utils": "18.0.11" } }, "sha512-TQdHq2VE+ftOfPJzTcOL5MeDAlc95GkjKlT3HL5G91LqRKIosXptCgq59+g3g8hsxo7x+WuoOmd2KHBy4Q16vw=="],
 
-    "@oh-my-pi/pi-catalog": ["@oh-my-pi/pi-catalog@17.2.12", "", { "dependencies": { "@bufbuild/protobuf": "^2.12.1", "@oh-my-pi/omptype": "17.2.12", "@oh-my-pi/pi-utils": "17.2.12" } }, "sha512-6VycCR0ShSzbVfOa7cdeqVtxHL2IPpJXFePKaQPhQ8bOTiyE/TaUm1uIa1i4doqPTz/k6vUEs+a57cZwoUP97A=="],
+    "@oh-my-pi/pi-natives": ["@oh-my-pi/pi-natives@18.0.11", "", { "optionalDependencies": { "@oh-my-pi/pi-natives-darwin-arm64": "18.0.11", "@oh-my-pi/pi-natives-darwin-x64": "18.0.11", "@oh-my-pi/pi-natives-linux-arm64": "18.0.11", "@oh-my-pi/pi-natives-linux-x64": "18.0.11", "@oh-my-pi/pi-natives-win32-x64": "18.0.11" } }, "sha512-KnkRtWsk6feWaXeH4PGAPD9p4KHXGzy7EqVLa44eaePlc72T/5bUl7D03hrsUJfilbFaYpxyuhTflfOgK5ORXQ=="],
 
-    "@oh-my-pi/pi-natives": ["@oh-my-pi/pi-natives@17.2.12", "", { "optionalDependencies": { "@oh-my-pi/pi-natives-darwin-arm64": "17.2.12", "@oh-my-pi/pi-natives-darwin-x64": "17.2.12", "@oh-my-pi/pi-natives-linux-arm64": "17.2.12", "@oh-my-pi/pi-natives-linux-x64": "17.2.12", "@oh-my-pi/pi-natives-win32-x64": "17.2.12" } }, "sha512-MVZq0UrrA7mk6uMKrgjnAhfrDj+58yEuu0VeVd3JuvneMjcX1duIzOdyqRG13S+/XzGOvGkk164dM6D/CwxteQ=="],
+    "@oh-my-pi/pi-natives-darwin-arm64": ["@oh-my-pi/pi-natives-darwin-arm64@18.0.11", "", { "os": "darwin", "cpu": "arm64" }, "sha512-4XWCl30DLxRKRpcfi6OdtWhc5d7lh/f2fPkDO0xdo5n8yTkObJ+ZR9KlhJiyJI9T+e3zeztBtBMbU9ZmIgXOmg=="],
 
-    "@oh-my-pi/pi-natives-darwin-arm64": ["@oh-my-pi/pi-natives-darwin-arm64@17.2.12", "", { "os": "darwin", "cpu": "arm64" }, "sha512-5iullmWEWmGRjwgo7Kw6Bub3KOXahkUX3jZfw65bM9LjFRceSwoLTt6Yh0RnXXP8hRzZnhU3b/o73peWBlpLzw=="],
+    "@oh-my-pi/pi-natives-darwin-x64": ["@oh-my-pi/pi-natives-darwin-x64@18.0.11", "", { "os": "darwin", "cpu": "x64" }, "sha512-yNSPyV8WAqhffUNkuWdgAN7c/qp+59HlEo0D8pIrou3PqmAU3MlES5pTEXngZtyUBgCah2WQ7hosKu7Z4WN8pQ=="],
 
-    "@oh-my-pi/pi-natives-darwin-x64": ["@oh-my-pi/pi-natives-darwin-x64@17.2.12", "", { "os": "darwin", "cpu": "x64" }, "sha512-qNc2q02d5etsOdxmO4CNwCcEvgfWS9Ya/fuq2hDKJgp3BFeKQCzYDap0HhC/qkAfj2vpjsTyKc/PsPMMMLGytg=="],
+    "@oh-my-pi/pi-natives-linux-arm64": ["@oh-my-pi/pi-natives-linux-arm64@18.0.11", "", { "os": "linux", "cpu": "arm64" }, "sha512-vgdMvhx4M6836ppc9DiuxzAqO0HCkdmQcN/GVArirT84z7xYVyzb2N+AabR6kDwrKAVS3RnXVnxO9g4oTd9R7A=="],
 
-    "@oh-my-pi/pi-natives-linux-arm64": ["@oh-my-pi/pi-natives-linux-arm64@17.2.12", "", { "os": "linux", "cpu": "arm64" }, "sha512-HTc6efuPNoYSzHu7Zk4gl3RtQzWWprVA4x0ep0gq5B7mBS6OwgnbH5otLrXSFeQ2UgRyV/nddz1O02ek4Vg8MA=="],
+    "@oh-my-pi/pi-natives-linux-x64": ["@oh-my-pi/pi-natives-linux-x64@18.0.11", "", { "os": "linux", "cpu": "x64" }, "sha512-M90qBlT5qb3ZuGikt9Mo7ge72XgGxvijDLFP3Jjz+qE0VIjAljDuXi1hkaxN207ngx9Rtb6uEJQkbpmWk/zfrA=="],
 
-    "@oh-my-pi/pi-natives-linux-x64": ["@oh-my-pi/pi-natives-linux-x64@17.2.12", "", { "os": "linux", "cpu": "x64" }, "sha512-jg9xzfqpcBDGRVnW+98z/eQPIfcnOYujd1bLW0PnJh6A0ykSqjCvt9PpN0wrlqr70WazOOURqoodN2eibIyOOQ=="],
+    "@oh-my-pi/pi-natives-win32-x64": ["@oh-my-pi/pi-natives-win32-x64@18.0.11", "", { "os": "win32", "cpu": "x64" }, "sha512-tqQtn1zxDQ6V/gfRhx6/AQqGdy8gPtpV8ndjINj3/piUGKqjrsinUU1XwWGgcKnII2a1tKV/wB4TSB4ieWq46w=="],
 
-    "@oh-my-pi/pi-natives-win32-x64": ["@oh-my-pi/pi-natives-win32-x64@17.2.12", "", { "os": "win32", "cpu": "x64" }, "sha512-Jb/EF7Ug7SX/YYJofgKR5Kvw0I+AqGpEfmI5inIsvFzygqlA4QgMETbAR1s08sK+AYZqPqRorBpbGNas85XFig=="],
+    "@oh-my-pi/pi-utils": ["@oh-my-pi/pi-utils@18.0.11", "", { "dependencies": { "@oh-my-pi/pi-natives": "18.0.11" } }, "sha512-1H9GzSnA0X3gIMHiNm5ijxdVRHs7+158ohm8uCUv7GgSgMgcoQkxsHDLSJSCJy3mHqWw8HBbY2oqrtQSMhbiWg=="],
 
-    "@oh-my-pi/pi-utils": ["@oh-my-pi/pi-utils@17.2.12", "", { "dependencies": { "@oh-my-pi/pi-natives": "17.2.12" } }, "sha512-iYNV2y6RW9tzYaBa7hX5pzb23+zzNLF/Bs4bK7LAO2Qc7OZl5gw1lp9YOUX4/VZOO7A20KrXnZNwZVCnpPKy1A=="],
-
-    "@oh-my-pi/pi-wire": ["@oh-my-pi/pi-wire@17.2.12", "", {}, "sha512-UdQ0VP3gExd+jXgy8epCSZ+PTW9pkFu8FoomywmqEPj/JKjt1SqZhIiN8N51HkQCC5WJryT5AedzL/Qr6OID8w=="],
+    "@oh-my-pi/pi-wire": ["@oh-my-pi/pi-wire@18.0.11", "", {}, "sha512-wtp8Eyy5ZcuVxcS2L4bE6ZCYHs+ZlD8tLlp9t2egeMXvxkEEQIE35TkSy7Ez1KwCBikAy8ulY0EVm9xHKQF4jA=="],
 
     "@opencode-compat/adapter": ["@opencode-compat/adapter@workspace:packages/adapter"],
 

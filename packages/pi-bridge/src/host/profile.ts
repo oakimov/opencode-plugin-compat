@@ -277,6 +277,11 @@ const COMMON_RESERVED_PROVIDER_IDS = [
   "github-copilot",
 ] as const
 
+const OMP_RESERVED_PROVIDER_IDS = [
+  ...COMMON_RESERVED_PROVIDER_IDS,
+  "devin",
+] as const
+
 export function ompProfile(): PiHostProfile {
   return {
     id: "omp",
@@ -321,7 +326,7 @@ export function ompProfile(): PiHostProfile {
       imageEndEvent: true,
     },
     reservedApis: OMP_RESERVED_APIS,
-    reservedProviderIds: COMMON_RESERVED_PROVIDER_IDS,
+    reservedProviderIds: OMP_RESERVED_PROVIDER_IDS,
   }
 }
 

@@ -49,12 +49,21 @@ function fallbackToolSchema(tool: { parameters: unknown }): Record<string, unkno
 }
 
 let cached: Promise<PiRuntime> | undefined
+let injected: { hostId: PiHostProfile["id"]; module: Record<string, unknown> } | undefined
+
+/** Manifest-selected host entries inject a statically imported pi-ai module. */
+export function installPiRuntimeModule(hostId: PiHostProfile["id"], module: Record<string, unknown>): void {
+  injected = { hostId, module }
+  cached = undefined
+}
 
 export function loadPiRuntime(options: { fresh?: boolean } = {}): Promise<PiRuntime> {
   if (cached && !options.fresh) return cached
   const runtime = (async (): Promise<PiRuntime> => {
     const { profile } = await detectPiHost()
-    const mod = (await import(profile.aiPackage)) as Record<string, unknown>
+    const mod = injected?.hostId === profile.id
+      ? injected.module
+      : (await import(profile.aiPackage)) as Record<string, unknown>
 
     const createStream = mod.createAssistantMessageEventStream
     if (typeof createStream !== "function") {
@@ -78,6 +87,7 @@ export function loadPiRuntime(options: { fresh?: boolean } = {}): Promise<PiRunt
 /** Test seam: drop the per-process runtime cache. */
 export function resetPiRuntime(): void {
   cached = undefined
+  injected = undefined
 }
 
 export { fallbackToolSchema }

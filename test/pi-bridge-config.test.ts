@@ -39,6 +39,17 @@ describe("config path resolution", () => {
     expect(paths).toContain("/home/x/.pi/agent/pi-bridge.json")
   })
 
+  test("PI_BRIDGE_HOST=pi prefers ~/.pi over ~/.omp", () => {
+    const paths = configSearchPaths({ HOME: "/home/x", PI_BRIDGE_HOST: "pi" })
+    expect(paths[0]).toBe("/home/x/.pi/agent/pi-bridge.json")
+    expect(paths).toContain("/home/x/.omp/agent/pi-bridge.json")
+  })
+
+  test("PI_BRIDGE_HOST=omp prefers ~/.omp over ~/.pi", () => {
+    const paths = configSearchPaths({ HOME: "/home/x", PI_BRIDGE_HOST: "omp" })
+    expect(paths[0]).toBe("/home/x/.omp/agent/pi-bridge.json")
+  })
+
   test("PI_CODING_AGENT_DIR is searched first when set", () => {
     expect(configSearchPaths({ HOME: "/home/x", PI_CODING_AGENT_DIR: "/custom/agent" })[0]).toBe("/custom/agent/pi-bridge.json")
   })

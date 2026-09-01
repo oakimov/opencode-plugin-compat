@@ -22,10 +22,10 @@ export function linkWrapperDeps(wrapper: string, stock: string): void {
   const specifiers = new Set<string>()
   for (const file of walkJs(join(wrapper, "dist"))) {
     const source = readFileSync(file, "utf8")
-    const from = source.matchAll(/(?:from|import)\s*["']([^"']+)["']/g)
+    const from = source.matchAll(/\b(?:from|import)\s+["']([^"']+)["']/g)
     for (const match of from) {
       const spec = match[1]!
-      if (spec.startsWith(".") || spec.startsWith("node:") || spec.startsWith("/")) continue
+      if (!spec || spec.startsWith(".") || spec.startsWith("node:") || spec.startsWith("/")) continue
       specifiers.add(packageName(spec))
     }
   }

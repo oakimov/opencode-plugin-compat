@@ -33,6 +33,7 @@ export type OpenCodeAuthOAuthResult = {
 
 export type OpenCodeOAuthCallbackResult =
   | { type: "success"; provider?: string; access: string; refresh: string; expires: number; [key: string]: unknown }
+  | { type: "success"; provider?: string; key: string; metadata?: Record<string, string>; [key: string]: unknown }
   | { type: "failed"; [key: string]: unknown }
 
 export type OpenCodeApiAuthorizeResult =

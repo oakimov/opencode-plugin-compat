@@ -18,20 +18,23 @@ export type PiBridgeConfig = {
 }
 
 /**
- * Search order: `$PI_BRIDGE_CONFIG`, then each host's agent dir. Both hosts are
- * probed by path (rather than requiring host detection here) so a single config
- * file works regardless of which one is running.
+ * Search order: `$PI_BRIDGE_CONFIG`, then `$PI_CODING_AGENT_DIR`, then the
+ * running host's agent dir, then the other host. Both locations stay in the
+ * list so one file can still work on either, but a live `PI_BRIDGE_HOST`
+ * must not pick the other host's file first.
  */
 export function configSearchPaths(env: NodeJS.ProcessEnv = process.env): string[] {
   if (env.PI_BRIDGE_CONFIG) return [env.PI_BRIDGE_CONFIG]
   const home = env.HOME || env.USERPROFILE || homedir()
-  const agentDirs = [
-    env.PI_CODING_AGENT_DIR,
-    path.join(home, ".omp", "agent"),
-    path.join(home, ".pi", "agent"),
-    path.join(home, ".pi"),
-  ].filter((dir): dir is string => Boolean(dir))
-  return agentDirs.map(dir => path.join(dir, "pi-bridge.json"))
+  const ompAgent = path.join(home, ".omp", "agent")
+  const piAgent = path.join(home, ".pi", "agent")
+  const piRoot = path.join(home, ".pi")
+  const host = env.PI_BRIDGE_HOST?.trim()
+  const hostDirs = host === "pi" ? [piAgent, piRoot, ompAgent]
+    : host === "omp" ? [ompAgent, piAgent, piRoot]
+    : [ompAgent, piAgent, piRoot]
+  const agentDirs = [env.PI_CODING_AGENT_DIR, ...hostDirs].filter((dir): dir is string => Boolean(dir))
+  return [...new Set(agentDirs.map(dir => path.join(dir, "pi-bridge.json")))]
 }
 
 /** First existing config path, or undefined. */

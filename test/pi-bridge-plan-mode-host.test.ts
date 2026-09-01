@@ -156,11 +156,21 @@ describe("omp plan-mode host binder", () => {
   })
 
   test("importHostCodingAgentModule prefers registry file URL from real omp CLI", async () => {
-    const { realpathSync } = await import("node:fs")
+    const nodeFs = await import("node:fs")
+    const nodePath = await import("node:path")
     const { which } = await import("bun")
     const ompBin = which("omp")
     if (!ompBin) return
-    const cliEntry = realpathSync(ompBin)
+    const cliEntry = nodeFs.realpathSync(ompBin)
+    // Published OMP is a standalone Mach-O binary, not a JS entry inside the
+    // package tree. This source-path assertion only applies to checkout-based
+    // CLIs where a matching package root can actually be reached.
+    const packageRoot = findHostCodingAgentPackageRoot(cliEntry, "@oh-my-pi/pi-coding-agent", {
+      existsSync: nodeFs.existsSync,
+      readFileSync: nodeFs.readFileSync,
+      realpathSync: nodeFs.realpathSync,
+    }, nodePath)
+    if (!packageRoot) return
     const imported: string[] = []
     const mod = {
       AgentRegistry: { global: () => ({ get: () => undefined, list: () => [] }) },

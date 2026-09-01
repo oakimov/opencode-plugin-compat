@@ -215,6 +215,11 @@ export type PiExtensionApi = {
   pi?: {
     AgentRegistry?: { global(): unknown }
     MAIN_AGENT_ID?: string
+    getPluginsDir?: () => string
+    loadExtensions?: (
+      paths: string[],
+      cwd: string,
+    ) => Promise<{ errors?: Array<{ path: string; error: string }> }>
     settings?: {
       override?(path: string, value: unknown): void
       clearOverride?(path: string): void

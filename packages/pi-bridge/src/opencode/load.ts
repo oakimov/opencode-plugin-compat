@@ -30,7 +30,11 @@ function isFunction(value: unknown): value is (...args: never[]) => unknown {
 }
 
 /** Resolve the AI-SDK provider factory from a loaded module's exports. */
-export function detectAiSdkFactory(moduleExports: Record<string, unknown>, exportName?: string): AiSdkFactory {
+export function detectAiSdkFactory(
+  moduleExports: Record<string, unknown>,
+  exportName?: string,
+  packageSpecifier?: string,
+): AiSdkFactory {
   if (exportName) {
     const named = moduleExports[exportName]
     if (isFunction(named)) return named as AiSdkFactory
@@ -41,6 +45,10 @@ export function detectAiSdkFactory(moduleExports: Record<string, unknown>, expor
   const createExportNames = Object.keys(moduleExports).filter(name => /^create[A-Z]/.test(name) && isFunction(moduleExports[name]))
   if (createExportNames.length === 1) return moduleExports[createExportNames[0]!] as AiSdkFactory
   if (createExportNames.length > 1) {
+    if (packageSpecifier) {
+      const preferred = preferredFactoryName(packageSpecifier)
+      if (preferred && createExportNames.includes(preferred)) return moduleExports[preferred] as AiSdkFactory
+    }
     throw new Error(`pi-bridge: multiple createXxx exports found (${createExportNames.join(", ")}); set "factoryExport" to disambiguate`)
   }
 
@@ -61,7 +69,7 @@ export function detectAiSdkFactory(moduleExports: Record<string, unknown>, expor
  */
 export function detectPluginFactory(
   moduleExports: Record<string, unknown>,
-  options: { exportName?: string; exclude?: unknown } = {},
+  options: { exportName?: string; exclude?: unknown; packageSpecifier?: string } = {},
 ): OpenCodePluginFactory | undefined {
   if (options.exportName) {
     const named = moduleExports[options.exportName]
@@ -75,6 +83,10 @@ export function detectPluginFactory(
   const pluginNamed = Object.keys(moduleExports).filter(name => /Plugin$/.test(name) && isFunction(moduleExports[name]))
   if (pluginNamed.length === 1) return moduleExports[pluginNamed[0]!] as OpenCodePluginFactory
   if (pluginNamed.length > 1) {
+    if (options.packageSpecifier) {
+      const preferred = preferredPluginName(options.packageSpecifier)
+      if (preferred && pluginNamed.includes(preferred)) return moduleExports[preferred] as OpenCodePluginFactory
+    }
     throw new Error(`pi-bridge: multiple *Plugin exports found (${pluginNamed.join(", ")}); set "pluginExport" to disambiguate`)
   }
 
@@ -90,6 +102,19 @@ export type LoadedOpenCodePlugin = {
   pluginFactory?: OpenCodePluginFactory
 }
 
+export function inspectOpenCodePluginModule(
+  moduleExports: Record<string, unknown>,
+  spec: { packageSpecifier: string; factoryExport?: string; pluginExport?: string },
+): LoadedOpenCodePlugin {
+  const factory = detectAiSdkFactory(moduleExports, spec.factoryExport, spec.packageSpecifier)
+  const pluginFactory = detectPluginFactory(moduleExports, {
+    exportName: spec.pluginExport,
+    exclude: factory,
+    packageSpecifier: spec.packageSpecifier,
+  })
+  return { moduleExports, factory, pluginFactory }
+}
+
 /** Dynamically import a plugin package and detect both conventions on it. */
 export async function loadOpenCodePluginModule(spec: {
   packageSpecifier: string
@@ -97,9 +122,7 @@ export async function loadOpenCodePluginModule(spec: {
   pluginExport?: string
 }): Promise<LoadedOpenCodePlugin> {
   const moduleExports = (await import(spec.packageSpecifier)) as Record<string, unknown>
-  const factory = detectAiSdkFactory(moduleExports, spec.factoryExport)
-  const pluginFactory = detectPluginFactory(moduleExports, { exportName: spec.pluginExport, exclude: factory })
-  return { moduleExports, factory, pluginFactory }
+  return inspectOpenCodePluginModule(moduleExports, spec)
 }
 
 /** Invoke a plugin factory and sanity-check that it produced a hooks-shaped object. */
@@ -122,6 +145,35 @@ export function derivePackageName(packageSpecifier: string): string {
   const isPathOrUrl = /^[./]|:\/\//.test(packageSpecifier)
   const base = isPathOrUrl ? (withoutExt.split("/").filter(Boolean).pop() ?? withoutExt) : withoutExt.replace(/^@/, "")
   return base.replace(/[^a-zA-Z0-9-]+/g, "-").toLowerCase()
+}
+
+function toPascalCase(segment: string): string {
+  return segment.charAt(0).toUpperCase() + segment.slice(1).toLowerCase()
+}
+
+function preferredNameStem(packageSpecifier: string): string | undefined {
+  const derived = derivePackageName(packageSpecifier)
+  if (derived && derived !== "index" && derived !== "dist" && derived !== "src") {
+    return derived.split("-")[0]
+  }
+  const parts = packageSpecifier.replace(/\\/g, "/").split("/").filter(Boolean)
+  for (let i = parts.length - 1; i >= 0; i--) {
+    const part = parts[i]!.replace(/\.(m?js|c?js|ts)$/, "")
+    if (part && part !== "index" && part !== "dist" && part !== "src") return part.split("-")[0]
+  }
+  return undefined
+}
+
+function preferredFactoryName(packageSpecifier: string): string | undefined {
+  const stem = preferredNameStem(packageSpecifier)
+  if (!stem) return undefined
+  return `create${toPascalCase(stem)}`
+}
+
+function preferredPluginName(packageSpecifier: string): string | undefined {
+  const stem = preferredNameStem(packageSpecifier)
+  if (!stem) return undefined
+  return `${toPascalCase(stem)}Plugin`
 }
 
 /** Recursively substitute the literal string `"$apiKey"` anywhere in a JSON-shaped value. */
