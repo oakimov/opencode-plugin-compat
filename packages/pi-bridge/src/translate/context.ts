@@ -84,6 +84,25 @@ const OPENCODE_READ_SCHEMA: Record<string, unknown> = {
   additionalProperties: false,
 }
 
+/**
+ * Provider-facing OpenCode glob contract. omp's live tool only accepts a single
+ * `path` that is itself the glob; the bridge folds `pattern` (+ optional search
+ * root) into that field at call time. `gitignore` / `hidden` / `limit` are omp
+ * extras kept on the advertised surface so models can still opt out of ignore.
+ */
+const OPENCODE_GLOB_SCHEMA: Record<string, unknown> = {
+  type: "object",
+  properties: {
+    pattern: { type: "string", description: "Glob pattern to match files (e.g. **/*.{ts,tsx})" },
+    path: { type: "string", description: "Directory to search (relative or absolute)" },
+    gitignore: { type: "boolean", description: "Respect gitignore (default true)" },
+    hidden: { type: "boolean", description: "Include hidden files (default true)" },
+    limit: { type: "number", description: "Maximum number of results" },
+  },
+  required: ["pattern"],
+  additionalProperties: false,
+}
+
 /** Upstream OpenCode `todowrite` — positional snapshot with no host `op`. */
 const OPENCODE_TODO_WRITE_SCHEMA: Record<string, unknown> = {
   type: "object",
@@ -125,6 +144,7 @@ function providerToolSchema(
   if (shape === "pi-edit") return OPENCODE_EDIT_SCHEMA
   if (shape === "opencode-read") return OPENCODE_READ_SCHEMA
   if (shape === "opencode-todo") return OPENCODE_TODO_WRITE_SCHEMA
+  if (shape === "opencode-glob") return OPENCODE_GLOB_SCHEMA
   return toSchema(tool)
 }
 

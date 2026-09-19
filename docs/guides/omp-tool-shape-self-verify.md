@@ -9,6 +9,7 @@ folds recently fixed in `@opencode-compat/pi-bridge`:
 | **Replace edit** | Under default hashline mode, OpenCode `{oldString,newString}` could not run as live `{input}` | replace overlay + advertised flat `edit` |
 | **Hashline** | Parallel same-tag hunks burned snapshot history; eviction looked like fabrication | separate `hashline` tool, coalesce, overlap/eviction restatement — **H2 requires two concurrent same-tag calls** |
 | **Todos** | Cursor `{todos:[…]}` → `op must be operation to apply (was missing)` | `inputShape: "opencode-todo"` → `init` / `rm` / `view` |
+| **Glob** | OpenCode `{pattern,path}` dropped `pattern`; omp searched the root as `**/*` | `inputShape: "opencode-glob"` → join into omp `path` (keeps `gitignore`/`hidden`/`limit`) |
 
 This is **not** the full Cursor+OCP acceptance suite. For warm-cache /
 plan / subagent / provider-log scoring, use
@@ -203,6 +204,21 @@ item with a single multi-section patch.
 - **Pass:** read/clear path works; still no missing-`op` errors; plugin-facing
   names stay `todowrite` / `todoread` (not a raw fork tracker name).
 
+#### G1 — Glob pattern + path (+ gitignore)
+
+- Under the scratch dir, create `keep.ts` and `noise.py`.
+- Call **`glob`** with OpenCode args (not omp-native path-as-glob):
+
+  ```json
+  { "pattern": "**/*.{ts,tsx}", "path": ".", "gitignore": true }
+  ```
+
+- **Pass:** matches include `keep.ts` and **exclude** `noise.py`. Host path
+  must be the folded glob (e.g. `**/*.{ts,tsx}`), not a bare `.` that returns
+  every file.
+- **Fail:** `noise.py` appears, or results look like an unfiltered directory
+  listing.
+
 ### Scoring
 
 For every item: `passed` / `failed` / `skipped` / `blocked`. Cite transcript
@@ -217,6 +233,7 @@ or file evidence. No cite → not passed.
 | H2 | Two same-tag `hashline` calls in one turn; both lines updated (coalesce path) |
 | T1 | `todowrite` snapshot without `op` succeeded |
 | T2 | `todoread` + clear/terminal snapshot worked; canonical todo names |
+| G1 | OpenCode `{pattern,path}` glob excludes non-matching extensions |
 | H3 | Scratch dir is the only tree you changed |
 
 ### Report format
@@ -236,13 +253,14 @@ scratch:
 | H2 |        |          |
 | T1 |        |          |
 | T2 |        |          |
+| G1 |        |          |
 | H3 |        |          |
 
 verdict: pass | fail
 notes:
 ```
 
-`verdict` is `pass` only if R1, R2, E1, H1, **H2**, T1, T2, and H3 all
+`verdict` is `pass` only if R1, R2, E1, H1, **H2**, T1, T2, G1, and H3 all
 `passed`. H2 is **not** skippable via a single merged patch. End with that
 table.
 

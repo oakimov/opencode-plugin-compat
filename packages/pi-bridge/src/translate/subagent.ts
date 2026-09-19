@@ -496,12 +496,84 @@ function applyTodoShape(input: Record<string, unknown>): Record<string, unknown>
  * vocabulary even after receiving Pi's nested schema, so perform the conversion
  * at the last boundary before Pi validates the call.
  */
+const GLOB_PATH_CHARS = ["*", "?", "[", "{"] as const
+
+/** True when a path segment carries glob metacharacters (incl. brace unions). */
+function hasGlobPathChars(filePath: string): boolean {
+  return GLOB_PATH_CHARS.some(char => filePath.includes(char))
+}
+
+/**
+ * Join OpenCode `{pattern, path}` onto omp's single `path` glob field.
+ * `path` is the search root only; omp expects the glob itself in `path`
+ * (e.g. `src/**` + `/*.ts`). A bare `.` root collapses to the pattern alone so
+ * `parseFindPattern` still prepends a recursive prefix for patterns that begin
+ * with a glob metacharacter.
+ */
+function joinOpenCodeGlobPath(searchPath: string | undefined, pattern: string): string {
+  const normalizedPattern = pattern.replace(/\\/g, "/")
+  if (!searchPath || searchPath === "." || searchPath === "./") {
+    return normalizedPattern
+  }
+  const base = searchPath.replace(/\\/g, "/").replace(/\/+$/, "")
+  const glob = normalizedPattern.replace(/^\/+/, "")
+  if (!base) return glob
+  return `${base}/${glob}`
+}
+
+/**
+ * Fold OpenCode/Cursor `{pattern, path?}` into omp's `{path}` glob field.
+ * Passthrough when `pattern` is absent (already host-shaped or directory-only).
+ * Preserves `gitignore` / `hidden` / `limit`.
+ */
+function applyGlobShape(input: Record<string, unknown>): Record<string, unknown> {
+  const pattern = typeof input["pattern"] === "string" && input["pattern"] ? input["pattern"] : undefined
+  if (!pattern) return input
+
+  const searchPath = typeof input["path"] === "string" ? input["path"] : undefined
+  const rest = { ...input }
+  delete rest["pattern"]
+  rest["path"] = joinOpenCodeGlobPath(searchPath, pattern)
+  return rest
+}
+
+/**
+ * Restate a stored omp glob `path` as OpenCode `{pattern, path?}` for history.
+ * Mirrors omp's `parseFindPattern` split: first glob-bearing segment starts
+ * the pattern; preceding segments are the search root.
+ */
+function peelGlobPath(hostPath: string): { pattern: string; path?: string } {
+  const normalized = hostPath.replace(/\\/g, "/")
+  const segments = normalized.split("/")
+  let firstGlobIndex = -1
+  for (let i = 0; i < segments.length; i++) {
+    if (hasGlobPathChars(segments[i]!)) {
+      firstGlobIndex = i
+      break
+    }
+  }
+
+  if (firstGlobIndex === -1) {
+    return normalized === "." || normalized === ""
+      ? { pattern: "**/*" }
+      : { pattern: "**/*", path: normalized }
+  }
+  if (firstGlobIndex === 0) {
+    return { pattern: normalized }
+  }
+  return {
+    path: segments.slice(0, firstGlobIndex).join("/"),
+    pattern: segments.slice(firstGlobIndex).join("/"),
+  }
+}
+
 function applyInputShape(
   input: Record<string, unknown>,
-  shape: "pi-edit" | "opencode-edit" | "opencode-read" | "opencode-todo" | undefined,
+  shape: "pi-edit" | "opencode-edit" | "opencode-read" | "opencode-todo" | "opencode-glob" | undefined,
 ): Record<string, unknown> {
   if (shape === "opencode-read") return applyReadShape(input)
   if (shape === "opencode-todo") return applyTodoShape(input)
+  if (shape === "opencode-glob") return applyGlobShape(input)
   if (shape !== "pi-edit" || Array.isArray(input.edits)) return input
 
   const oldText = firstString(input, PI_EDIT_OLD_KEYS)
@@ -599,6 +671,17 @@ export function translateHostToolCallInput(
   }
   if (shape === "opencode-todo") {
     return hostTodoToOpenCodeSnapshot(input)
+  }
+  if (shape === "opencode-glob") {
+    const path = input["path"]
+    if (typeof path !== "string") return input
+    const peeled = peelGlobPath(path)
+    const rest: Record<string, unknown> = { pattern: peeled.pattern }
+    if (peeled.path !== undefined) rest.path = peeled.path
+    if (typeof input["gitignore"] === "boolean") rest.gitignore = input["gitignore"]
+    if (typeof input["hidden"] === "boolean") rest.hidden = input["hidden"]
+    if (typeof input["limit"] === "number") rest.limit = input["limit"]
+    return rest
   }
   if (shape !== "pi-edit") return input
   const edits = input["edits"]

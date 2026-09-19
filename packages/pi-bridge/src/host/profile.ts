@@ -68,7 +68,7 @@ export type PiToolInputProfile = {
   /** Harness-only provider fields that must not reach the host validator. */
   dropInputKeys?: readonly string[]
   /** Structural conversion required after aliases have been applied. */
-  inputShape?: "pi-edit" | "opencode-edit" | "opencode-read" | "opencode-todo"
+  inputShape?: "pi-edit" | "opencode-edit" | "opencode-read" | "opencode-todo" | "opencode-glob"
   /** Provider-facing tool name when the host uses a different name. */
   providerName?: string
   /** Extra provider-facing names for the same host tool (e.g. todoread beside todowrite). */
@@ -111,6 +111,16 @@ const OMP_ESSENTIAL_TOOL_INPUTS: Readonly<Record<string, PiToolInputProfile>> = 
     dropInputKeys: ["i"],
   },
   bash: { inputAliases: { workdir: "cwd", working_directory: "cwd" } },
+  // OMP's `glob` takes a single `path` that is itself the glob/file/dir
+  // (`src/**/*.ts`). OpenCode/Cursor emit `{pattern, path}` where `path` is
+  // only the search root — without a fold, ArkType drops `pattern` and the
+  // host searches `path` as `**/*`, ignoring the extension filter. Advertise
+  // the OpenCode contract and join at the stream boundary; keep OMP's
+  // `gitignore` / `hidden` / `limit` passthrough.
+  glob: {
+    inputAliases: { glob_pattern: "pattern", globPattern: "pattern" },
+    inputShape: "opencode-glob",
+  },
   // OMP's `todo` is ops-based (`op: init|start|done|…`). OpenCode/Cursor emit
   // positional snapshots `{todos:[{content,status,…}]}`. Advertise that write
   // contract as `todowrite` (+ empty `todoread`) and fold snapshots into one

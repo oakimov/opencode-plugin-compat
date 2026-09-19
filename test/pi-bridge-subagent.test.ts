@@ -510,6 +510,86 @@ describe("Pi-family subagent vocabulary", () => {
     })
   })
 
+  test("omp folds OpenCode glob pattern+path into the host's single path glob", () => {
+    const tools = [{ name: "glob", description: "Find files", parameters: { type: "object" } }] as never
+    const toolInputs = buildPiToolInputVocabulary(tools, ompProfile())
+
+    expect(toolInputs?.glob?.inputShape).toBe("opencode-glob")
+    expect(translateTools(tools, toSchema as never, undefined, toolInputs)?.[0]?.inputSchema).toEqual({
+      type: "object",
+      properties: {
+        pattern: { type: "string", description: "Glob pattern to match files (e.g. **/*.{ts,tsx})" },
+        path: { type: "string", description: "Directory to search (relative or absolute)" },
+        gitignore: { type: "boolean", description: "Respect gitignore (default true)" },
+        hidden: { type: "boolean", description: "Include hidden files (default true)" },
+        limit: { type: "number", description: "Maximum number of results" },
+      },
+      required: ["pattern"],
+      additionalProperties: false,
+    })
+
+    // OpenCode `{pattern, path}` → omp path-as-glob; preserve gitignore.
+    expect(translateCanonicalToolCall(
+      "glob",
+      { pattern: "**/*.{ts,tsx,js,json,md}", path: ".", gitignore: true },
+      undefined,
+      toolInputs,
+    )).toEqual({
+      toolName: "glob",
+      input: { path: "**/*.{ts,tsx,js,json,md}", gitignore: true },
+    })
+
+    // Non-root search directory is joined in front of the pattern.
+    expect(translateCanonicalToolCall(
+      "glob",
+      { pattern: "**/*.ts", path: "src" },
+      undefined,
+      toolInputs,
+    )).toEqual({ toolName: "glob", input: { path: "src/**/*.ts" } })
+
+    // Absolute search root + brace pattern.
+    expect(translateCanonicalToolCall(
+      "glob",
+      { pattern: "*.{ts,tsx}", path: "/tmp/glob-repro" },
+      undefined,
+      toolInputs,
+    )).toEqual({ toolName: "glob", input: { path: "/tmp/glob-repro/*.{ts,tsx}" } })
+
+    // glob_pattern alias (Cursor MCP) folds the same way.
+    expect(translateCanonicalToolCall(
+      "glob",
+      { glob_pattern: "**/*.md", path: "docs" },
+      undefined,
+      toolInputs,
+    )).toEqual({ toolName: "glob", input: { path: "docs/**/*.md" } })
+
+    // Already host-shaped (path only) passes through without inventing a pattern.
+    expect(translateCanonicalToolCall(
+      "glob",
+      { path: "src/**/*.ts", gitignore: false },
+      undefined,
+      toolInputs,
+    )).toBeUndefined()
+
+    // History peels the joined path back into OpenCode {pattern, path}.
+    expect(translateHostToolCallInput(
+      "glob",
+      { path: "src/**/*.ts", gitignore: true, hidden: false, limit: 50 },
+      toolInputs,
+    )).toEqual({
+      pattern: "**/*.ts",
+      path: "src",
+      gitignore: true,
+      hidden: false,
+      limit: 50,
+    })
+    expect(translateHostToolCallInput(
+      "glob",
+      { path: "**/*.{ts,tsx,js,json,md}" },
+      toolInputs,
+    )).toEqual({ pattern: "**/*.{ts,tsx,js,json,md}" })
+  })
+
   test("read folds OpenCode offset/limit into the host's inline path selector", () => {
     const tools = [{ name: "read", description: "Read a file", parameters: { type: "object" } }] as never
     const toolInputs = buildPiToolInputVocabulary(tools, ompProfile())
