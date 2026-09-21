@@ -26,6 +26,11 @@ import {
 
 export type ToolRole = keyof HostToolRoles
 
+/** UTF-16 code-unit order (JavaScript string comparison). */
+export function compareCanonicalKeys(left: string, right: string): number {
+  return left < right ? -1 : left > right ? 1 : 0
+}
+
 /** A host tool entry as it appears in LanguageModelV3CallOptions.tools. */
 export type ToolLike = {
   type?: string
@@ -150,7 +155,7 @@ function liftSubagentTypeSchema(schema: unknown): unknown {
 
 function sortSchemaEnum(schema: unknown): unknown {
   if (!isRecord(schema) || !Array.isArray(schema["enum"])) return schema
-  return { ...schema, enum: [...schema["enum"]].map(String).sort() }
+  return { ...schema, enum: [...schema["enum"]].map(String).sort(compareCanonicalKeys) }
 }
 
 function operationSchemaOf(schema: unknown): unknown {
@@ -367,7 +372,7 @@ export function translateCatalog<T>(tools: readonly T[], vocab: Vocabulary): T[]
 
   for (const binding of vocab.bindings) emitCanonical(binding)
 
-  return out.sort((left, right) => (nameOf(left) ?? "").localeCompare(nameOf(right) ?? ""))
+  return out.sort((left, right) => compareCanonicalKeys(nameOf(left) ?? "", nameOf(right) ?? ""))
 }
 
 /* -------------------------------------------------------------------------- */

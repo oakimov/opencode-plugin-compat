@@ -123,7 +123,7 @@ function splitSignature(params: VariantParam[], varying: Set<string>): string {
 /** `fast=true` → `-fast`; falsey flags and constant dimensions contribute nothing. */
 function suffixFor(params: VariantParam[], varying: Set<string>): string {
   const parts: string[] = []
-  const relevant = params.filter(p => !isEffortDimension(p.id) && varying.has(p.id)).sort((a, b) => a.id.localeCompare(b.id))
+  const relevant = params.filter(p => !isEffortDimension(p.id) && varying.has(p.id)).sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0))
   for (const p of relevant) {
     if (p.value === "false" || p.value === "") continue
     parts.push(p.value === "true" ? p.id : `${p.id}-${p.value}`)

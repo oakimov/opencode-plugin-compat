@@ -54,22 +54,42 @@ export {
   type AiSdkFactory,
   type AiSdkLikeProvider,
   type LoadedOpenCodePlugin,
-} from "./opencode/load.js"
-export { buildPiOAuth, createLoaderRunner, toOpenCodeAuth, toPiCredentials, tokenExpiryMs, type PiOAuthConfig, type PiOAuthCredentials } from "./opencode/auth.js"
-export { createMemoryAuthStore, createPluginInputStub, type AuthStore, type PluginInputStub } from "./opencode/host-stub.js"
-export { extractModelsFromConfigHook, toPiModel, type PiModelConfig } from "./opencode/models.js"
-export type * from "./opencode/types.js"
+} from "@opencode-compat/opencode-loader"
+export { buildPiOAuth, createLoaderRunner, toOpenCodeAuth, toPiCredentials, tokenExpiryMs, type PiOAuthConfig, type PiOAuthCredentials } from "@opencode-compat/opencode-loader"
+export { createMemoryAuthStore, createPluginInputStub, type AuthStore, type PluginInputStub } from "@opencode-compat/opencode-loader"
+export { extractModelsFromConfigHook, toPiModel, type PiModelConfig } from "@opencode-compat/opencode-loader"
+export type {
+  OpenCodeApiAuthorizeResult,
+  OpenCodeAuth,
+  OpenCodeAuthHook,
+  OpenCodeAuthMethod,
+  OpenCodeAuthOAuthResult,
+  OpenCodeAuthPrompt,
+  OpenCodeConfig,
+  OpenCodeHooks,
+  OpenCodeModelEntry,
+  OpenCodeOAuthCallbackResult,
+  OpenCodePluginFactory,
+  OpenCodeProviderConfigEntry,
+} from "@opencode-compat/opencode-loader"
 
 // Translation
 export { normalizeSystemPrompt, translateContextToPrompt, translateToolChoice, translateTools, type ToolSchemaFn } from "./translate/context.js"
 export { emptyUsage, runV3StreamToPi } from "./translate/stream.js"
 export {
+  asTranslatedCalls,
   buildPiSubagentVocabulary,
   buildPiTerminalResultVocabulary,
   buildPiToolInputVocabulary,
   canonicalSubagentDescription,
   canonicalSubagentSchema,
   canonicalToolName,
+  expandTodoSnapshotToHostOps,
+  isOpsTodoHostTool,
+  originalTodoFanoutId,
+  reconstructTodoSnapshotFromHostOps,
+  splitJoinedAbsolutePaths,
+  todoFanoutId,
   translateCanonicalSubagentCall,
   translateCanonicalToolCall,
   translateHostSubagentCall,

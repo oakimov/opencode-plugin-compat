@@ -50,6 +50,7 @@
       "version": "0.4.0",
       "dependencies": {
         "@ai-sdk/provider": "^3.0.14",
+        "@opencode-compat/opencode-loader": "workspace:*",
       },
       "peerDependencies": {
         "@deepseek-ai/cordis": ">=1.0.0",
@@ -130,6 +131,7 @@
       "version": "0.4.0",
       "dependencies": {
         "@ai-sdk/provider": "^3.0.14",
+        "@opencode-compat/opencode-loader": "workspace:*",
       },
       "devDependencies": {
         "@oh-my-pi/pi-ai": ">=17.0.0",

@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test"
 import { buildDynamicModels, type AiSdkProviderSpec } from "../packages/pi-bridge/src/bridge.ts"
-import type { PiModelConfig } from "../packages/pi-bridge/src/opencode/models.ts"
+import type { PiModelConfig } from "../packages/opencode-loader/src/models.ts"
 import { piProfile } from "../packages/pi-bridge/src/host/profile.ts"
 
 const MODEL: PiModelConfig = {

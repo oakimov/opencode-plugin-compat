@@ -18,6 +18,7 @@
 import type { HostId, HostProfile } from "@opencode-compat/profile"
 import {
   buildVocabulary,
+  compareCanonicalKeys,
   reconstructHostTodos,
   translateCall,
   translateCatalog,
@@ -406,11 +407,82 @@ function toolsInFixedOrder<T>(tools: readonly T[]): T[] {
   return [...tools].sort((left, right) => {
     const a = (left as { name?: unknown } | null)?.name
     const b = (right as { name?: unknown } | null)?.name
-    return String(a ?? "").localeCompare(String(b ?? ""))
+    return compareCanonicalKeys(String(a ?? ""), String(b ?? ""))
   })
 }
 
-function prepareCall(args: unknown[], roles: Pick<HostProfile, "tools"> | undefined): PreparedCall {
+function toolName(tool: unknown): string | undefined {
+  if (!isRecord(tool)) return undefined
+  return typeof tool.name === "string" && tool.name ? tool.name : undefined
+}
+
+function sessionAffinityFromCall(call: unknown): string | undefined {
+  if (!isRecord(call) || !isRecord(call.headers)) return undefined
+  const headers = call.headers
+  for (const expected of ["x-opencode-session", "x-session-affinity", "x-session-id"]) {
+    for (const [name, value] of Object.entries(headers)) {
+      if (name.toLowerCase() === expected && typeof value === "string" && value) return value
+    }
+  }
+  return undefined
+}
+
+type ResolveCatalogOrder = (call: unknown, tools: readonly unknown[]) => unknown[]
+
+/** Active sessions only. Past this, the oldest epoch re-freezes on its next call. */
+const MAX_CATALOG_EPOCHS = 256
+
+/**
+ * Freeze the initially sorted cacheable prefix for each provider session.
+ * Later discoveries are sorted only within that new batch and appended, so a
+ * newly advertised `a` cannot move ahead of an existing `z`. Temporarily
+ * absent tools keep their epoch positions and return there when re-advertised.
+ */
+function createCatalogOrderResolver(): ResolveCatalogOrder {
+  const epochs = new Map<string, readonly unknown[]>()
+
+  const remember = (session: string, tools: readonly unknown[]): void => {
+    epochs.delete(session)
+    epochs.set(session, tools)
+    while (epochs.size > MAX_CATALOG_EPOCHS) {
+      const oldest = epochs.keys().next().value
+      if (oldest === undefined) break
+      epochs.delete(oldest)
+    }
+  }
+
+  return (call, tools) => {
+    const session = sessionAffinityFromCall(call)
+    if (!session) return toolsInFixedOrder(tools)
+    if (tools.length === 0) return []
+
+    const incomingNames = tools.map(toolName)
+    if (incomingNames.some(name => !name) || new Set(incomingNames).size !== incomingNames.length) {
+      return toolsInFixedOrder(tools)
+    }
+
+    const cached = epochs.get(session)
+    if (!cached) {
+      const initial = toolsInFixedOrder(tools)
+      remember(session, initial)
+      return initial
+    }
+
+    const cachedNames = new Set(cached.map(toolName))
+    const newcomers = toolsInFixedOrder(tools.filter(tool => !cachedNames.has(toolName(tool))))
+    const epoch = newcomers.length > 0 ? [...cached, ...newcomers] : cached
+    remember(session, epoch)
+
+    const advertised = new Set(incomingNames)
+    return epoch.filter(tool => advertised.has(toolName(tool)))
+  }
+}
+
+function prepareCall(
+  args: unknown[],
+  roles: Pick<HostProfile, "tools"> | undefined,
+  resolveCatalogOrder: ResolveCatalogOrder,
+): PreparedCall {
   const call = args[0]
   const toolSchemas = toolSchemasFromCall(call)
   if (!call || typeof call !== "object") {
@@ -422,7 +494,7 @@ function prepareCall(args: unknown[], roles: Pick<HostProfile, "tools"> | undefi
   if (!tools) return { args, toolSchemas, context: undefined }
   if (!roles?.tools) {
     const next = [...args]
-    next[0] = { ...record, tools: toolsInFixedOrder(tools) }
+    next[0] = { ...record, tools: resolveCatalogOrder(call, tools) }
     return { args: next, toolSchemas, context: undefined }
   }
 
@@ -433,7 +505,8 @@ function prepareCall(args: unknown[], roles: Pick<HostProfile, "tools"> | undefi
   }
 
   const vocab = buildVocabulary(roles, advertised)
-  const ordered = vocab ? translateCatalog(tools, vocab) : toolsInFixedOrder(tools)
+  const canonical = vocab ? translateCatalog(tools, vocab) : toolsInFixedOrder(tools)
+  const ordered = resolveCatalogOrder(call, canonical)
   if (!vocab) {
     const next = [...args]
     next[0] = { ...record, tools: ordered }
@@ -469,6 +542,7 @@ export function adaptLanguageModel<T>(
   model: T,
   policy: StreamAdoptionPolicy,
   roles?: Pick<HostProfile, "tools">,
+  resolveCatalogOrder: ResolveCatalogOrder = createCatalogOrderResolver(),
 ): T {
   if (!model || typeof model !== "object") return model
 
@@ -486,7 +560,7 @@ export function adaptLanguageModel<T>(
   if (typeof original.doStream === "function") {
     const inner = original.doStream.bind(original)
     adapted.doStream = (...args: unknown[]) => {
-      const prepared = prepareCall(args, roles)
+      const prepared = prepareCall(args, roles, resolveCatalogOrder)
       const result = inner(...prepared.args)
       const finish = (resolved: unknown) => {
         if (!resolved || typeof resolved !== "object") return resolved
@@ -512,7 +586,7 @@ export function adaptLanguageModel<T>(
   if (typeof original.doGenerate === "function") {
     const inner = original.doGenerate.bind(original)
     adapted.doGenerate = (...args: unknown[]) => {
-      const prepared = prepareCall(args, roles)
+      const prepared = prepareCall(args, roles, resolveCatalogOrder)
       const result = inner(...prepared.args)
       const finish = (resolved: unknown) => {
         if (!resolved || typeof resolved !== "object") return resolved
@@ -553,12 +627,15 @@ export function wrapProviderSdk<T>(
   ) as typeof original
 
   const inner = original.languageModel.bind(original)
+  // One epoch map for every languageModel() this SDK returns. A fresh wrapper
+  // per call would re-sort the prefix on each turn.
+  const resolveCatalogOrder = createCatalogOrderResolver()
   adapted.languageModel = (...args: unknown[]) => {
     const model = inner(...args)
     if (isThenable(model)) {
-      return model.then((resolved) => adaptLanguageModel(resolved, policy, roles))
+      return model.then((resolved) => adaptLanguageModel(resolved, policy, roles, resolveCatalogOrder))
     }
-    return adaptLanguageModel(model, policy, roles)
+    return adaptLanguageModel(model, policy, roles, resolveCatalogOrder)
   }
   return adapted as T
 }

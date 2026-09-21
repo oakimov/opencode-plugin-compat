@@ -145,19 +145,26 @@ registers the tools that provider already bridges on:
 | Tool | Host | Behavior |
 |---|---|---|
 | `plan_enter` / `plan_exit` | **omp only** | Drive native omp plan mode (ACP-shaped session APIs via `AgentRegistry`) |
-| `cursor_plan_stage` | **omp only** | Stage Cursor CreatePlan markdown under omp's session-local `local://` root immediately before the provider calls native `write xd://propose` |
+| `cursor_plan_stage` | **omp only** | Stage Cursor CreatePlan markdown under omp's session-local `local://` root and wait on omp's plan-review overlay |
 | `cursor_image_save` | **omp and pi** | Commit staged Cursor image bytes (`image_id` only) |
 
-The CreatePlan bridge keeps Cursor's interaction open while
-`cursor_plan_stage` writes the native plan artifact and opens an interactive
-approval/refinement selector through omp's extension UI. Approval restores the
-pre-plan tools and queues an implementation turn; refinement keeps plan mode
-active. The bridge owns this UI directly because npm omp runs its bundled
-`InteractiveMode` — source changes in a separate checkout cannot affect it.
-This avoids both a tool-less detached plan and a repeated CreatePlan retry loop.
+`cursor_plan_stage` writes the session-local plan and does not return until
+omp's plan-review overlay is answered ([plan mode](https://omp.sh/docs/plan)).
+Approve and execute succeeds and queues implementation. Refine or dismissing
+the overlay is an error, so Cursor keeps planning. Returning before that
+choice let the model call `plan_exit` and continue with no review. `plan_exit`
+leaves plan mode; it is not the submit.
+
 Plain **pi** has no plan mode, so SwitchMode stays refused there. Image save
 works on both hosts when the Cursor provider is loaded in-process. Force
 registration in tests with `PI_BRIDGE_CURSOR_HOST_TOOLS=1`.
+
+These tools are registered in the host's global tool registry, but OCP exposes
+them only to the Cursor provider call. For every other configured provider,
+OCP removes them from the live catalog and replay history, then rejects any
+provider-emitted call outside that call's advertised catalog before it reaches
+the host. Devin and generic models therefore cannot inherit Cursor's private
+mode, staging, or image lifecycle even when both providers are configured.
 
 ## Path bridge
 
@@ -198,9 +205,12 @@ advertises it to the provider as `glob` and translates calls/results back to
 
 OMP's `todo` is ops-based (`op: init|start|done|…`). The bridge advertises it as
 OpenCode `todowrite` / `todoread` and folds Cursor-style
-`{todos:[{content,status}]}` snapshots into a single host op (`init` for open
-work, `rm` when nothing remains active, `view` for reads). Native `{op:…}` calls
-still pass through.
+`{todos:[{content,status}]}` snapshots into host ops: open-only snapshots stay
+a single `init` (or `rm` when empty); snapshots that mark work completed or
+cancelled fan out `init` → `done`/`drop` → `start` under derived call ids so
+statuses actually land on the host (a lone `init` of remaining open items would
+drop completions). Native `{op:…}` calls still pass through. Fanned-out history
+is folded back into one canonical `todowrite` on the next provider turn.
 
 OMP's `edit` is different again: it advertises a different schema per resolved
 edit mode (model override, then `PI_EDIT_VARIANT`, then the `edit.mode` setting,
@@ -255,8 +265,8 @@ installs both published packages and switches the same config entry back to the
 provider's bare package name. Other provider entries and optional fields on the
 selected entry are preserved.
 
-The local provider defaults to a sibling `cursor-opencode-provider` checkout or
-`~/Projects/cursor-opencode-provider`. Set `OCP_DEV_PROVIDER_PATH` and
+The local provider defaults to a sibling `cursor-opencode-provider` checkout.
+Set `OCP_DEV_PROVIDER_PATH` and
 `OCP_DEV_PLUGIN` for another provider. npm versions default to `latest`; pin
 them with `OCP_DEV_BRIDGE_VERSION` and `OCP_DEV_PLUGIN_VERSION`. Set
 `PI_BRIDGE_CONFIG` for a non-default config file, or `PI_CODING_AGENT_DIR` for

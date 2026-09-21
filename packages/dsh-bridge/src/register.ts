@@ -2,15 +2,25 @@
  * Register an unmodified OpenCode plugin as a DSH LlmAdapter.
  * Oriented on `packages/pi-bridge/src/register.ts`.
  */
+import {
+  createLoaderRunner,
+  createPluginInputStub,
+  derivePackageName,
+  extractModelsFromConfigHook,
+  inspectOpenCodePluginModule,
+  instantiateHooks,
+  loadOpenCodePluginModule,
+  openCodeAuthFromResolvedKey,
+  substituteApiKey,
+  type OpenCodeAuth,
+  type OpenCodeHooks,
+} from "@opencode-compat/opencode-loader"
 import { avoidProviderIdCollision, dshProfile } from "./host/profile.js"
-import { createPluginInputStub } from "./opencode/index.js"
-import { derivePackageName, inspectOpenCodePluginModule, instantiateHooks, loadOpenCodePluginModule, substituteApiKey } from "./opencode/index.js"
-import { extractModelsFromConfigHook } from "./opencode/index.js"
 import { DshLlmAdapter } from "./adapter.js"
 import type { OpenCodePluginSpec } from "./config.js"
+import { isCursorProviderPackage } from "./config.js"
 import { DSH_BRIDGE_SETTINGS_NS, settingsPathFor } from "./settings.js"
-import type { OpenCodeHooks } from "./opencode/index.js"
-import { expandModelVariants, thinkingConfigFor } from "./opencode/index.js"
+import { cursorSilentChildNoticeReason } from "./translate/cursor-continuation.js"
 
 // Minimal DSH Cordis types — structural
 type DshContext = {
@@ -36,6 +46,13 @@ type LlmModelInfo = {
   inputModalities?: readonly ("text" | "image")[]
 }
 
+function credentialFromAuth(auth: OpenCodeAuth | undefined): string | undefined {
+  if (!auth) return undefined
+  if (auth.type === "oauth") return auth.access || undefined
+  if (auth.type === "api") return auth.key || undefined
+  return undefined
+}
+
 function toDshModelInfo(provider: string, id: string, entry: any, variantNameSuffix = ""): LlmModelInfo {
   const name = (entry.name as string | undefined) ?? id
   const modalities: ("text" | "image")[] = entry.attachment ? ["text", "image"] : ["text"]
@@ -53,22 +70,31 @@ export type RegisterResult = {
   hasOAuth: boolean
 }
 
-export async function registerDshPlugin(ctx: DshContext, spec: OpenCodePluginSpec): Promise<RegisterResult> {
+export async function registerDshPlugin(
+  ctx: DshContext,
+  spec: OpenCodePluginSpec,
+): Promise<RegisterResult> {
+  const cursorIntegration = isCursorProviderPackage(spec.package)
   const loadSpec = {
     packageSpecifier: spec.package,
+    label: "dsh-bridge",
     ...(spec.factoryExport ? { factoryExport: spec.factoryExport } : {}),
     ...(spec.pluginExport ? { pluginExport: spec.pluginExport } : {}),
   }
 
-  // DSH has no host-module-loader like pi-bridge's `loadModuleThroughHost`; dynamic import is the path
-  const loaded = await loadOpenCodePluginModule(loadSpec as never)
+  const loaded = await loadOpenCodePluginModule(loadSpec)
 
-  const stub = createPluginInputStub({ directory: spec.directory ?? process.cwd() })
+  // `session` stays absent so optional host calls do not throw on lookup.
+  const stub = createPluginInputStub({
+    directory: spec.directory ?? process.cwd(),
+    bridgeName: "dsh-bridge",
+    absentClientKeys: ["session"],
+  })
 
   let hooks: OpenCodeHooks | undefined
   if (loaded.pluginFactory) {
     try {
-      hooks = await instantiateHooks(loaded.pluginFactory as never, stub as never)
+      hooks = await instantiateHooks(loaded.pluginFactory, stub, "dsh-bridge")
     } catch (err) {
       // eslint-disable-next-line no-console
       console.error(`dsh-bridge: "${spec.package}" plugin factory failed — continuing without auth/model hooks — ${err instanceof Error ? err.message : String(err)}`)
@@ -110,24 +136,11 @@ export async function registerDshPlugin(ctx: DshContext, spec: OpenCodePluginSpe
     return (spec.models as any[]).map((m: any) => ({ provider: providerName, id: m.id, name: m.name ?? m.id } as LlmModelInfo))
   }
 
-  // Initial models
-  let initialModels: LlmModelInfo[] = []
-  if (spec.models) initialModels = await harvest()
-  else if (hooks) initialModels = await harvest()
-  else initialModels = []
-
-  // Fallback: if extraction via Pi profile didn't produce DSH reasoning, do DSH-native expansion
-  if (initialModels.length === 0 && hooks) {
-    const raw = await extractModelsFromConfigHook(hooks as never, authHook?.provider, undefined as never)
-    for (const m of raw.models) {
-      initialModels.push({ provider: providerName, id: m.id, name: m.name })
-    }
-  }
-
   const providerOptionsKey = authHook?.provider ?? hooks?.auth?.provider ?? providerName
 
-  // Credentials: native ref name (e.g. CURSOR_API_KEY)
+  // Credentials: native ref name (env CredentialRef, not a secret).
   const credentialRef = spec.apiKey
+  const runLoader = authHook?.loader ? createLoaderRunner(authHook, stub.store) : undefined
 
   const resolveCredential = credentialRef
     ? async (ref: string, _signal?: AbortSignal): Promise<string | undefined> => {
@@ -136,6 +149,40 @@ export async function registerDshPlugin(ctx: DshContext, spec: OpenCodePluginSpe
       }
     : undefined
 
+  const preparedCredential = async (resolved: string | undefined): Promise<string | undefined> => {
+    if (authHook && runLoader) {
+      const stored = await stub.store.get()
+      const storedKey = stored?.type === "oauth" ? stored.access : stored?.type === "api" ? stored.key : undefined
+      if (resolved) {
+        const auth = stored && storedKey === resolved
+          ? stored
+          : openCodeAuthFromResolvedKey(authHook, resolved, spec.preferAuthMethod)
+        await runLoader(auth)
+      } else if (stored) {
+        await runLoader(stored)
+      }
+    }
+    const current = await stub.store.get()
+    return credentialFromAuth(current) ?? resolved
+  }
+
+  // Drive auth.loader before the catalog read when a credential is already
+  // resolved, so a catalog that appears only after login is not registered empty.
+  let initialModels: LlmModelInfo[] = []
+  if (spec.models) initialModels = await harvest()
+  else if (hooks) {
+    const resolved = credentialRef && resolveCredential ? await resolveCredential(credentialRef) : undefined
+    await preparedCredential(resolved)
+    initialModels = await harvest()
+  } else initialModels = []
+
+  if (initialModels.length === 0 && hooks) {
+    const raw = await extractModelsFromConfigHook(hooks, authHook?.provider, undefined, { splitDimensions: spec.splitDimensions })
+    for (const m of raw.models) {
+      initialModels.push({ provider: providerName, id: m.id, name: m.name })
+    }
+  }
+
   // Build per-model call data for variant handling (if we used Pi profile, reuse that; otherwise build from loader)
   // For DSH effort picker, we need to expose reasoning levels via resolveModel
   const modelMap = new Map(initialModels.map((m) => [m.id, m]))
@@ -143,12 +190,13 @@ export async function registerDshPlugin(ctx: DshContext, spec: OpenCodePluginSpe
 
   const adapter = new DshLlmAdapter({
     providerName,
+    skipGenerateReason: cursorIntegration ? cursorSilentChildNoticeReason : undefined,
     credentialRef,
     providerOptionsKey,
     resolveCredential: credentialRef ? (ref) => resolveCredential!(ref as string) : undefined,
-    createOptionsTemplate: spec.createOptions,
     getLanguageModel: async (modelId, apiKey) => {
-      const options = substituteApiKey(spec.createOptions ?? { apiKey: "$apiKey" }, apiKey) as Record<string, unknown>
+      const key = await preparedCredential(apiKey)
+      const options = substituteApiKey(spec.createOptions ?? { apiKey: "$apiKey" }, key) as Record<string, unknown>
       const provider = await (loaded.factory as any)(options)
       const call = getCallData(modelId)
       return provider.languageModel(call?.variant.baseId ?? modelId)

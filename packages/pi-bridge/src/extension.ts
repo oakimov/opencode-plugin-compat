@@ -4,7 +4,12 @@
  * OpenCode plugin(s) the user configured — see `config.ts`. No provider is
  * registered when no config file exists.
  */
-import { loadConfig, registerProvidersFromConfig, resolveConfigPath } from "./config.js"
+import {
+  isCursorProviderPackage,
+  loadConfig,
+  registerProvidersFromConfig,
+  resolveConfigPath,
+} from "./config.js"
 import { detectPiHost } from "./host/detect.js"
 import type { PiHostId } from "./host/profile.js"
 import { installPiPathBridge } from "./path-bridge.js"
@@ -52,13 +57,7 @@ function resolveHostIdForTools(detected?: PiHostId): PiHostId | undefined {
  * Leaves bare scoped names (`@scope/pkg`) and path segments that contain `@`
  * before a `/` unchanged.
  */
-export function stripTrailingNpmVersion(raw: string): string {
-  const at = raw.lastIndexOf("@")
-  if (at <= 0) return raw
-  const after = raw.slice(at + 1)
-  if (!after || after.includes("/")) return raw
-  return raw.slice(0, at)
-}
+export { stripTrailingNpmVersion } from "./config.js"
 
 /**
  * Advertise Cursor bridge tools when the Cursor provider is among the configured
@@ -71,14 +70,7 @@ export async function maybeRegisterCursorHostTools(
   config: { providers?: Array<{ package?: string; providerName?: string }> } | null | undefined,
 ): Promise<string[]> {
   const mentionsCursor = (config?.providers ?? []).some(entry => {
-    const raw = (entry.package ?? "").toLowerCase()
-    // Accept npm version suffixes (`cursor-opencode-provider@1.2.3`) and path/
-    // `file://` locations ending in the provider directory.
-    const packageName = stripTrailingNpmVersion(raw)
-    return packageName === "cursor-opencode-provider"
-      || packageName.startsWith("cursor-opencode-provider/")
-      || packageName.includes("/cursor-opencode-provider/")
-      || packageName.endsWith("/cursor-opencode-provider")
+    return isCursorProviderPackage(entry.package ?? "")
   })
   // Staging lives in-process with the bridged provider — only advertise when
   // Cursor is configured (or tests force registration via env). The Cursor host
@@ -145,8 +137,10 @@ export default async function piBridgeExtension(pi: PiExtensionApi): Promise<voi
       pi.on?.("session_start", installReplaceEdit)
     }
     if (resolvedHost) {
-      await maybeRegisterCursorHostTools(pi, resolvedHost, config)
+      const cursorHostToolNames = await maybeRegisterCursorHostTools(pi, resolvedHost, config)
+      await registerProvidersFromConfig(pi, config, { cursorHostToolNames })
+    } else {
+      await registerProvidersFromConfig(pi, config)
     }
-    await registerProvidersFromConfig(pi, config)
   }
 }

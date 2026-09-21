@@ -90,6 +90,18 @@ describe("translateCatalog", () => {
     expect(names).toEqual(["read", "task", "todoread", "todowrite"])
   })
 
+  test("catalog order is UTF-16 code-unit order, not process locale", () => {
+    // localeCompare follows process locale (and en collation puts "apple"
+    // before "Zebra"); UTF-16 code units match cursor-opencode-provider.
+    const mixed = [
+      { type: "function", name: "Zebra", inputSchema: { type: "object" } },
+      { type: "function", name: "apple", inputSchema: { type: "object" } },
+      { type: "function", name: "mango", inputSchema: { type: "object" } },
+    ]
+    const out = translateCatalog(mixed, mimoVocab())
+    expect(out.map((tool) => (tool as { name: string }).name)).toEqual(["Zebra", "apple", "mango"])
+  })
+
   test("unrelated tools pass through byte-identical", () => {
     const out = translateCatalog(tools, mimoVocab())
     expect(out.find((tool) => (tool as { name: string }).name === "read")).toBe(tools[0])

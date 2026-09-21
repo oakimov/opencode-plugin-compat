@@ -14,7 +14,7 @@ Instead, `@opencode-compat/dsh-bridge` is a **Cordis plugin** (`name`/`inject`/`
 |---|---|
 | provider id | `auth.provider` (else package name, de-collided against `deepseek-official` etc.) |
 | model catalog | `config` hook — `config.provider[id].models`, models.dev entry shape, variant `effort` → DSH ACP `reasoningEffort` |
-| API key | `CredentialRef` env name (`CURSOR_API_KEY`, `DEVIN_API_KEY` — native, not `DSH_`-prefixed) via `ctx.credentials.resolve` |
+| API key | `CredentialRef` env name (`CURSOR_API_KEY`, `DEVIN_API_KEY` — native, not `DSH_`-prefixed) via `ctx.credentials.resolve`, then the plugin `auth.loader` |
 | streaming | `createXxx()` AI-SDK V3 factory (`doStream`) → `StreamChunk` |
 | session affinity | `GenerateOptions.sessionId` (DSH-native) → V3 `headers["x-opencode-session"]` |
 
@@ -45,6 +45,8 @@ No `dsh-bridge.json` file search. Configuration is the Cordis patch `config.prov
             providerName: cursor          # optional
             apiKey: CURSOR_API_KEY      # CredentialRef env name, not a secret
             createOptions: { apiKey: "$apiKey" }
+          - package: devin-opencode-provider
+            apiKey: DEVIN_API_KEY
 ```
 
 Only `package` is required. The same `OpenCodePluginSpec` shape as `pi-bridge` is accepted (`providerName`, `apiKey`, `createOptions`, `disableOAuth`, `preferAuthMethod`, `splitDimensions`, `directory`) but stored in yml, not a JSON file.
@@ -62,11 +64,11 @@ Local/npm switch is via `scripts/ocp-dev.sh` (DSH family, local checkout + npm m
 ./scripts/ocp-dev.sh run dsh --mode npm
 ```
 
-`local` builds the local `opencode-loader` + `dsh-bridge` and provider, adds the bridge via `dsh plugin add`, and points the patch entry at the provider's absolute `dist/index.js`. `npm` switches back to bare npm names. Mirrors `docs/hosts/pi-family.md:87` for `pi/omp`.
+`local` runs `pnpm install` and the harness documented build (`build:native-system`, host/client lib, `build:web`; tsdown only for directories with `package.json`), builds local `opencode-loader` + `dsh-bridge` and the provider, adds the bridge via `dsh plugin add`, syncs those packages' `dist` into the profile `node_modules` copy (pnpm `file:` does not pick up newly emitted files), and points the patch entry at the provider's absolute `dist/index.js`. `npm` switches back to bare npm names. Mirrors `docs/hosts/pi-family.md:87` for `pi/omp`.
 
 ## Verify
 
-1. `dsh web` starts, model picker shows `cursor/*` (or `cursor-opencode/*` if de-collided).
+1. From a checkout, `node apps/cli/lib/bin.js web` starts (after the harness lib build). Do not use `pnpm dsh web` — that tsx source launcher dual-loads `dsh-tools` and every tool dies on `prepare`. Model picker shows `cursor/*` (or `cursor-opencode/*` if de-collided) and, when the Devin checkout is wired, `devin-opencode/*` (`devin` is reserved on DSH).
 2. One full turn: user → model stream → `StreamChunk` `tool-call` → DSH executes → follow-up turn.
 3. New provider = yml row only.
 
@@ -76,6 +78,27 @@ Programmatic smoke (no yml):
 import { registerDshPlugin } from "@opencode-compat/dsh-bridge/src/register.js"
 await registerDshPlugin(ctx, { package: "cursor-opencode-provider" })
 ```
+
+## Tool vocabulary
+
+`dsh-bridge` remaps only the host tools that have an OpenCode-equivalent
+vocabulary (same rule as pi-bridge `providerName`):
+
+| Host | Advertised | Call remap |
+|---|---|---|
+| `todo_write` | `todowrite` | strip `id`/`priority`/`merge`; omit `cancelled` |
+| `ask_user_question` | `question` | synthesize missing `id`; `multiple` ↔ `multi_select`; JSON `{answers}` → OpenCode `"<prompt>"="<answer>"` prose |
+
+`exit_plan_mode` stays host-named: DSH requires `{plan}` markdown starting with
+`#`. It remains advertised in both active and inactive plan state, exactly as
+the DSH plan-mode package specifies. The deployment's `plan:policy` guidance,
+`/plan` command, review UI, tool result, and step-boundary state transition are
+all host-owned. OCP does not synthesize `plan_enter` / `plan_exit`, parse a
+particular approval question, force `plan/mode`, or inject an “execute the
+plan” prompt. Models decide when the advertised tool satisfies the user's
+planning intent, and DSH enforces whether the current session is actually in
+plan mode. See the upstream
+[plan-mode README](https://github.com/deepseek-ai/deepseek-harness/blob/master/packages/plan/plan-mode/README.md).
 
 ## Path bridge
 

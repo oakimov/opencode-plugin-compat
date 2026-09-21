@@ -1,6 +1,7 @@
 import { existsSync } from "node:fs"
 import { homedir } from "node:os"
-import { join } from "node:path"
+import { dirname, join, resolve } from "node:path"
+import { repoRoot } from "./paths.ts"
 
 export const HOSTS = ["opencode", "mimo", "kilo", "pi", "omp", "dsh"] as const
 export type HostId = (typeof HOSTS)[number]
@@ -47,6 +48,7 @@ export function configCandidates(host: HostId): string[] {
     return [join(configDir(host), "pi-bridge.json")]
   }
   const dir = configDir(host)
+  if (host === "dsh") return [join(dir, "cordis.patch.yml")]
   if (host === "mimo") return [join(dir, "mimocode.json"), join(dir, "mimocode.jsonc")]
   if (host === "kilo") {
     return ["kilo.jsonc", "kilo.json", "opencode.json", "opencode.jsonc", "config.json"].map((name) => join(dir, name))
@@ -83,7 +85,36 @@ export async function resolveCli(host: HostId): Promise<string> {
   throw new Error(`${host} CLI not found on PATH (tried ${fallback})`)
 }
 
+export function isDshHarnessCheckout(dir: string): boolean {
+  return existsSync(join(dir, "package.json")) && existsSync(join(dir, "packages", "bundle"))
+}
+
+/**
+ * Stock installed CLI after the harness lib build. Checkout `pnpm dsh` is
+ * `node --import tsx/esm apps/cli/src/bin.ts`, which dual-loads
+ * `@deepseek-ai/dsh-tools` (tsx `src` vs profile-resolved `lib`) so
+ * `TOOL_RUNTIME_SCHEDULER.prepare` is undefined on every tool dispatch.
+ */
+export function dshBuiltCli(harness: string): string {
+  return join(harness, "apps/cli/lib/bin.js")
+}
+
+/** Prefer `$DSH_HARNESS_ROOT`, then the OCP sibling checkout. Never a hardcoded home path. */
+export function dshHarnessRoot(): string | undefined {
+  const candidates = [env("DSH_HARNESS_ROOT"), join(dirname(repoRoot()), "deepseek-harness")]
+  for (const candidate of candidates) {
+    if (!candidate) continue
+    const resolved = resolve(candidate)
+    if (isDshHarnessCheckout(resolved)) return resolved
+  }
+  return undefined
+}
+
 export async function isInstalled(host: HostId): Promise<boolean> {
+  if (host === "dsh") {
+    if (dshHarnessRoot()) return true
+    if (existsSync(join(configDir("dsh"), "package.json"))) return true
+  }
   try {
     await resolveCli(host)
     return true

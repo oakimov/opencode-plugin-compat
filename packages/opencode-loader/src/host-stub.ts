@@ -44,26 +44,26 @@ export type PluginInputStub = {
   readonly store: AuthStore
 }
 
-function loudStub(surface: string): never {
+function loudStub(bridgeName: string, surface: string): never {
   throw new Error(
-    `pi-bridge: this OpenCode plugin called host API "${surface}", which the Pi-family bridge does not emulate. ` +
+    `${bridgeName}: this OpenCode plugin called host API "${surface}", which this bridge does not emulate. ` +
       `Provider plugins that only register an AI-SDK model + auth/config hooks do not need it; if a plugin genuinely ` +
       `requires it, it is not usable through this bridge without adding that surface.`,
   )
 }
 
 /** Recursively-throwing proxy so any unstubbed nested access reports its own path. */
-function loudProxy(path: string): unknown {
+function loudProxy(bridgeName: string, path: string): unknown {
   return new Proxy(function () {} as unknown as object, {
     get(_target, prop) {
       if (prop === Symbol.toPrimitive || prop === "toString" || prop === Symbol.toStringTag) {
-        return () => `[pi-bridge stub ${path}]`
+        return () => `[${bridgeName} stub ${path}]`
       }
       if (prop === "then") return undefined // never look thenable to `await`
-      return loudProxy(`${path}.${String(prop)}`)
+      return loudProxy(bridgeName, `${path}.${String(prop)}`)
     },
     apply() {
-      return loudStub(path)
+      return loudStub(bridgeName, path)
     },
   })
 }
@@ -74,6 +74,14 @@ export type PluginInputStubOptions = {
   store?: AuthStore
   /** Provider id used to scope `client.auth.*` calls. */
   providerId?: string
+  /** Error prefix. Pi keeps `pi-bridge`; DSH passes `dsh-bridge`. */
+  bridgeName?: string
+  /**
+   * Client keys that read as `undefined` instead of a throwing proxy.
+   * DSH sets `session` so optional host APIs such as `session.promptAsync`
+   * stay absent rather than throwing on property access.
+   */
+  absentClientKeys?: readonly string[]
 }
 
 /**
@@ -81,6 +89,8 @@ export type PluginInputStubOptions = {
  * `client.app.*`, `$`, and every other client domain are loud stubs.
  */
 export function createPluginInputStub(options: PluginInputStubOptions): PluginInputStub {
+  const bridgeName = options.bridgeName?.trim() || "pi-bridge"
+  const absentClientKeys = new Set(options.absentClientKeys ?? [])
   const store = options.store ?? createMemoryAuthStore()
 
   const auth = {
@@ -107,7 +117,8 @@ export function createPluginInputStub(options: PluginInputStubOptions): PluginIn
       get(target, prop) {
         if (prop === "auth") return target.auth
         if (prop === "then") return undefined
-        return loudProxy(`client.${String(prop)}`)
+        if (typeof prop === "string" && absentClientKeys.has(prop)) return undefined
+        return loudProxy(bridgeName, `client.${String(prop)}`)
       },
     },
   )
@@ -116,8 +127,8 @@ export function createPluginInputStub(options: PluginInputStubOptions): PluginIn
     client,
     directory: options.directory,
     worktree: options.worktree ?? options.directory,
-    app: loudProxy("app"),
-    $: loudProxy("$"),
+    app: loudProxy(bridgeName, "app"),
+    $: loudProxy(bridgeName, "$"),
     store,
   }
 }

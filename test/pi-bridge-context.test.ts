@@ -293,6 +293,30 @@ describe("translateTools", () => {
     const toolInputs = buildPiToolInputVocabulary(hostTools, piProfile())
     expect(translateTools(hostTools, t => t.parameters as Record<string, unknown>, undefined, toolInputs)?.[0]?.name).toBe("glob")
   })
+
+  test("bash schema keys stay in fixed order regardless of host property order", () => {
+    // Hosts enumerate pty/async/timeout in whatever order their schema was
+    // authored; the advertised overlay must not reshuffle bytes with it.
+    const hostTools = [{
+      name: "bash",
+      description: "Run shell",
+      parameters: {
+        type: "object",
+        properties: {
+          async: { type: "boolean" },
+          timeout: { type: "number" },
+          command: { type: "string" },
+          pty: { type: "boolean" },
+          cwd: { type: "string" },
+        },
+      },
+    }] as never
+    const toolInputs = buildPiToolInputVocabulary(hostTools, ompProfile())
+    const advertised = translateTools(hostTools, t => t.parameters as Record<string, unknown>, undefined, toolInputs)
+    expect(Object.keys(
+      (advertised![0].inputSchema as { properties: Record<string, unknown> }).properties,
+    )).toEqual(["command", "workdir", "timeout", "pty", "async"])
+  })
 })
 
 describe("translateToolChoice", () => {

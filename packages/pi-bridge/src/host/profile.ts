@@ -68,7 +68,7 @@ export type PiToolInputProfile = {
   /** Harness-only provider fields that must not reach the host validator. */
   dropInputKeys?: readonly string[]
   /** Structural conversion required after aliases have been applied. */
-  inputShape?: "pi-edit" | "opencode-edit" | "opencode-read" | "opencode-todo" | "opencode-glob"
+  inputShape?: "pi-edit" | "opencode-edit" | "opencode-read" | "opencode-todo" | "opencode-glob" | "opencode-bash"
   /** Provider-facing tool name when the host uses a different name. */
   providerName?: string
   /** Extra provider-facing names for the same host tool (e.g. todoread beside todowrite). */
@@ -87,7 +87,18 @@ export type PiToolInputProfile = {
  */
 const OMP_ESSENTIAL_TOOL_INPUTS: Readonly<Record<string, PiToolInputProfile>> = {
   read: { inputAliases: { filePath: "path", file_path: "path" }, inputShape: "opencode-read" },
-  write: { inputAliases: { filePath: "path", file_path: "path" } },
+  // `contents` / Cursor `file_text` are sibling spellings of omp's required
+  // `content`. Without these aliases a write arrives as `{path}` only and
+  // ArkType rejects — the model retries with `content` (observed live).
+  write: {
+    inputAliases: {
+      filePath: "path",
+      file_path: "path",
+      contents: "content",
+      file_text: "content",
+      fileText: "content",
+    },
+  },
   // OMP's `edit` advertises a different schema per resolved edit mode
   // (utils/edit-mode.ts: model override -> PI_EDIT_VARIANT -> `edit.mode` ->
   // default `hashline`). `old_string` marks replace mode live. Under hashline
@@ -110,7 +121,16 @@ const OMP_ESSENTIAL_TOOL_INPUTS: Readonly<Record<string, PiToolInputProfile>> = 
     // to the schema. Unlike the aliases this is mode-independent.
     dropInputKeys: ["i"],
   },
-  bash: { inputAliases: { workdir: "cwd", working_directory: "cwd" } },
+  // Advertise OpenCode `workdir` (Cursor/provider dialect) with a tight
+  // description. Host schema uses `cwd` and a long bash.md that buries
+  // "Set cwd instead of cd"; models then put paths only in `command`
+  // (`mkdir DIR && pwd`) and never set the directory field. cursor-opencode-
+  // provider's bash remapper also forwards only `workdir`/`working_directory`
+  // — a model that follows host `cwd` loses the field before OCP runs.
+  bash: {
+    inputAliases: { workdir: "cwd", working_directory: "cwd" },
+    inputShape: "opencode-bash",
+  },
   // OMP's `glob` takes a single `path` that is itself the glob/file/dir
   // (`src/**/*.ts`). OpenCode/Cursor emit `{pattern, path}` where `path` is
   // only the search root — without a fold, ArkType drops `pattern` and the
@@ -123,8 +143,9 @@ const OMP_ESSENTIAL_TOOL_INPUTS: Readonly<Record<string, PiToolInputProfile>> = 
   },
   // OMP's `todo` is ops-based (`op: init|start|done|…`). OpenCode/Cursor emit
   // positional snapshots `{todos:[{content,status,…}]}`. Advertise that write
-  // contract as `todowrite` (+ empty `todoread`) and fold snapshots into one
-  // host op at the stream boundary.
+  // contract as `todowrite` (+ empty `todoread`) and expand snapshots into host
+  // ops at the stream boundary (open-only → one `init`; with completions →
+  // `init` + `done`/`drop` + `start` fan-out).
   todo: {
     inputAliases: {},
     inputShape: "opencode-todo",
@@ -148,7 +169,15 @@ const PI_ESSENTIAL_TOOL_INPUTS: Readonly<Record<string, PiToolInputProfile>> = {
   // `path:raw:150-229` and drops the separate args, hence its own `opencode-read`.
   // (`raw:` disables omp's +1/+3 ranged-read context padding.)
   read: { inputAliases: { filePath: "path", file_path: "path" } },
-  write: { inputAliases: { filePath: "path", file_path: "path" } },
+  write: {
+    inputAliases: {
+      filePath: "path",
+      file_path: "path",
+      contents: "content",
+      file_text: "content",
+      fileText: "content",
+    },
+  },
   edit: {
     inputAliases: { filePath: "path", file_path: "path" },
     inputShape: "pi-edit",

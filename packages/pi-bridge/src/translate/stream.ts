@@ -16,6 +16,8 @@ import type {
   PiUsage,
 } from "../pi-provider-types.js"
 import {
+  asTranslatedCalls,
+  todoFanoutId,
   translateCanonicalToolCall,
   type PiSubagentVocabulary,
   type PiTerminalResultVocabulary,
@@ -90,6 +92,8 @@ export async function runV3StreamToPi(options: {
   toolInputs?: PiToolInputVocabulary
   terminalResult?: PiTerminalResultVocabulary
   question?: PiQuestionVocabulary
+  /** Fail closed if a provider emits a tool that was not in this call's catalog. */
+  allowedProviderToolNames?: ReadonlySet<string>
 }): Promise<void> {
   const { model, piStream } = options
   const partial: AssistantMessage = {
@@ -188,17 +192,49 @@ export async function runV3StreamToPi(options: {
         case "tool-input-end":
           break
         case "tool-call": {
-          const idx = toolCallIndexById.get(part.toolCallId) ?? openToolCallBlock(part.toolCallId)
-          const input = parseToolInput(part.input)
-          const translated = translateCanonicalToolCall(part.toolName, input, options.vocabulary, options.toolInputs, options.question)
-          const toolCall: PiToolCall = {
-            type: "toolCall",
-            id: part.toolCallId,
-            name: translated?.toolName ?? part.toolName,
-            arguments: translated?.input ?? input,
+          if (options.allowedProviderToolNames && !options.allowedProviderToolNames.has(part.toolName)) {
+            throw new Error(`Provider emitted unadvertised tool call "${part.toolName}"`)
           }
-          partial.content[idx] = toolCall
-          piStream.push({ type: "toolcall_end", contentIndex: idx, toolCall, partial })
+          const input = parseToolInput(part.input)
+          const translated = asTranslatedCalls(
+            translateCanonicalToolCall(part.toolName, input, options.vocabulary, options.toolInputs, options.question),
+          )
+          const calls =
+            translated.length > 0
+              ? translated
+              : [{ toolName: part.toolName, input }]
+
+          // One canonical call can expand into several host ops (todo
+          // init/done/start, or a `;`-joined multi-path read). Fan out under
+          // derived ids so the host executes every op; history folding
+          // (translateContextToPrompt) collapses todo fan-outs back for the
+          // provider and keeps read fan-outs as separate entries.
+          const fanout = calls.length > 1
+          for (let index = 0; index < calls.length; index++) {
+            const call = calls[index]!
+            const callId = fanout ? todoFanoutId(part.toolCallId, index) : part.toolCallId
+            let idx: number
+            if (index === 0) {
+              idx = toolCallIndexById.get(part.toolCallId) ?? openToolCallBlock(callId)
+              if (fanout) {
+                // Retarget the block opened under the canonical id.
+                toolCallIndexById.delete(part.toolCallId)
+                toolCallIndexById.set(callId, idx)
+                const existing = partial.content[idx]
+                if (existing && existing.type === "toolCall") existing.id = callId
+              }
+            } else {
+              idx = openToolCallBlock(callId)
+            }
+            const toolCall: PiToolCall = {
+              type: "toolCall",
+              id: callId,
+              name: call.toolName,
+              arguments: call.input,
+            }
+            partial.content[idx] = toolCall
+            piStream.push({ type: "toolcall_end", contentIndex: idx, toolCall, partial })
+          }
           break
         }
         case "finish": {

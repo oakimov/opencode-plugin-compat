@@ -235,11 +235,25 @@ describe("catalog / toolChoice / history integration", () => {
     expect(tools?.map((t) => t.name).sort()).toEqual(["question", "read"])
     const q = tools?.find((t) => t.name === "question")
     expect(q?.description).toContain("clarifying questions")
+    expect(q?.description).toContain("named question")
+    expect(q?.description).toContain("AskQuestion")
     const schema = q?.inputSchema as {
       properties: { questions: { items: { properties: Record<string, unknown> } } }
     }
     expect(schema.properties.questions.items.properties["multiple"]).toBeDefined()
     expect(schema.properties.questions.items.properties["multi"]).toBeUndefined()
+  })
+
+  test("translateTools omits host terminal-result shim (yield)", () => {
+    const tools = translateTools(
+      [ASK_TOOL, READ_TOOL, { name: "yield", description: "settle", parameters: { type: "object" } }] as never,
+      toSchema,
+      undefined,
+      undefined,
+      question,
+      { hostToolName: "yield", input: { type: "result", result: {} } },
+    )
+    expect(tools?.map((t) => t.name).sort()).toEqual(["question", "read"])
   })
 
   test("translateTools without question vocab leaves ask as ask", () => {

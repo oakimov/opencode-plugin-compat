@@ -41,9 +41,22 @@ export function defaultProviderPath(): string {
   }
   const sibling = join(dirname(repoRoot()), "cursor-opencode-provider")
   if (existsSync(join(sibling, "package.json"))) return sibling
-  const fallback = join(homedir(), "Projects", "cursor-opencode-provider")
-  if (existsSync(join(fallback, "package.json"))) return fallback
   throw new Error("local provider not found; set OCP_DEV_PROVIDER_PATH")
+}
+
+/** Sibling `devin-opencode-provider` checkout, if present. */
+export function defaultDevinProviderPath(): string | undefined {
+  const override = process.env.OCP_DEV_DEVIN_PROVIDER_PATH
+  if (override) {
+    const resolved = resolve(override)
+    if (!existsSync(join(resolved, "package.json"))) {
+      throw new Error(`OCP_DEV_DEVIN_PROVIDER_PATH is not a package: ${resolved}`)
+    }
+    return resolved
+  }
+  const sibling = join(dirname(repoRoot()), "devin-opencode-provider")
+  if (existsSync(join(sibling, "package.json"))) return sibling
+  return undefined
 }
 
 export function assertManaged(path: string): void {

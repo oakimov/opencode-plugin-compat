@@ -24,6 +24,24 @@ export type DshBridgeConfig = {
   providers: OpenCodePluginSpec[]
 }
 
+/** Drop a trailing npm version suffix without changing scoped names or paths. */
+export function stripTrailingNpmVersion(raw: string): string {
+  const at = raw.lastIndexOf("@")
+  if (at <= 0) return raw
+  const after = raw.slice(at + 1)
+  if (!after || after.includes("/")) return raw
+  return raw.slice(0, at)
+}
+
+/** Provider-specific Cursor behavior is enabled only by the package identity. */
+export function isCursorProviderPackage(raw: string): boolean {
+  const packageName = stripTrailingNpmVersion(raw.toLowerCase())
+  return packageName === "cursor-opencode-provider"
+    || packageName.startsWith("cursor-opencode-provider/")
+    || packageName.includes("/cursor-opencode-provider/")
+    || packageName.endsWith("/cursor-opencode-provider")
+}
+
 export function validateConfig(raw: unknown): DshBridgeConfig {
   const providers = (raw as { providers?: unknown })?.providers
   if (!Array.isArray(providers)) {

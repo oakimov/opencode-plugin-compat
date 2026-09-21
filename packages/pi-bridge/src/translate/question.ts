@@ -69,7 +69,11 @@ export function canonicalQuestionSchema(): Record<string, unknown> {
 }
 
 export function canonicalQuestionDescription(_vocabulary: PiQuestionVocabulary): string {
-  return "Ask the user one or more clarifying questions before continuing."
+  return (
+    "Ask the user one or more clarifying questions before continuing. " +
+    "This session tool is named question (host may call it ask). " +
+    "Use it for human choices — do not look for AskQuestion, and do not open MCP catalogs to find a substitute."
+  )
 }
 
 /** Resolve the live question role from catalog + profile. */

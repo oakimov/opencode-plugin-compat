@@ -26,6 +26,7 @@ type ApplyContext = {
   llm: any
   credentials: any
   logger?: any
+  on?: (event: string, listener: (...args: any[]) => any) => void
   inject?: (deps: string[], fn: (ctx: any) => void) => void
 }
 
@@ -37,7 +38,6 @@ export async function apply(ctx: ApplyContext, config: DshBridgeConfig): Promise
     // eslint-disable-next-line no-console
     console.error(`dsh-bridge: path bridge not installed — ${err instanceof Error ? err.message : String(err)}`)
   }
-
   const validated = validateConfig(config as never)
   const profiles: Record<string, DshBridgeProviderProfile> = {}
 

@@ -5,9 +5,11 @@ import { buildStreamSimple } from "../packages/pi-bridge/src/bridge.ts"
 import { ompProfile, piProfile } from "../packages/pi-bridge/src/host/profile.ts"
 import type { PiEventStreamLike, PiRuntime } from "../packages/pi-bridge/src/host/runtime.ts"
 import { registerCursorHostTools } from "../packages/pi-bridge/src/cursor-host-tools.ts"
+import { runV3StreamToPi } from "../packages/pi-bridge/src/translate/stream.ts"
 
 type StreamCall = {
   tools?: Array<{ name: string }>
+  prompt?: Array<{ role: string; content: unknown }>
   headers?: Record<string, string>
   abortSignal?: AbortSignal
 }
@@ -162,5 +164,101 @@ describe("Cursor host tools remain an optional OCP layer", () => {
       },
     )
     expect(registered).toEqual([...expected])
+  })
+
+  test("keeps Cursor-only host tools out of another provider's catalog", async () => {
+    const calls: StreamCall[] = []
+    const arrived = makeCallAwaiter(1)
+    const excluded = ["plan_enter", "plan_exit", "cursor_plan_stage", "cursor_image_save"]
+    const streamSimple = buildStreamSimple(
+      {
+        name: "devin-opencode",
+        api: "devin-opencode-bridge",
+        baseUrl: "https://example.invalid",
+        excludedToolNames: excluded,
+        getLanguageModel: async () => ({
+          specificationVersion: "v3",
+          provider: "devin",
+          modelId: "swe",
+          supportedUrls: {},
+          doGenerate: async () => { throw new Error("not used") },
+          doStream: async (call: StreamCall) => {
+            calls.push(call)
+            arrived.arrived()
+            return {
+              stream: new ReadableStream({
+                start(controller) {
+                  controller.enqueue({
+                    type: "finish",
+                    finishReason: { unified: "stop", raw: "stop" },
+                    usage: {
+                      inputTokens: { total: 0, noCache: 0, cacheRead: 0, cacheWrite: 0 },
+                      outputTokens: { total: 0, text: 0, reasoning: 0 },
+                    },
+                  })
+                  controller.close()
+                },
+              }),
+            }
+          },
+        } as never),
+      },
+      {
+        profile: ompProfile(),
+        createAssistantMessageEventStream: () => new FakeEventStream(),
+        toolSchema: value => value.parameters as Record<string, unknown>,
+      } satisfies PiRuntime,
+    )
+
+    streamSimple(MODEL, {
+      messages: [
+        {
+          role: "assistant",
+          content: [
+            { type: "text", text: "kept" },
+            { type: "toolCall", id: "foreign-1", name: "cursor_plan_stage", arguments: {} },
+          ],
+        },
+        {
+          role: "toolResult",
+          toolCallId: "foreign-1",
+          toolName: "cursor_plan_stage",
+          content: "foreign result",
+        },
+      ],
+      tools: [tool("read"), ...excluded.map(tool)],
+    } as never, { sessionId: "devin-session" })
+    await arrived.wait()
+
+    expect(calls[0]?.tools?.map(value => value.name)).toEqual(["read"])
+    expect(JSON.stringify(calls[0]?.prompt)).toContain("kept")
+    expect(JSON.stringify(calls[0]?.prompt)).not.toContain("cursor_plan_stage")
+    expect(JSON.stringify(calls[0]?.prompt)).not.toContain("foreign result")
+  })
+
+  test("fails closed before a non-advertised provider call reaches the host", async () => {
+    const piStream = new FakeEventStream()
+    await runV3StreamToPi({
+      model: MODEL,
+      piStream: piStream as never,
+      allowedProviderToolNames: new Set(["read"]),
+      v3Stream: new ReadableStream({
+        start(controller) {
+          controller.enqueue({
+            type: "tool-call",
+            toolCallId: "foreign-1",
+            toolName: "cursor_plan_stage",
+            input: "{}",
+          } as never)
+          controller.close()
+        },
+      }) as never,
+    })
+
+    expect(piStream.events.some(event => (event as { type?: string }).type === "toolcall_end")).toBe(false)
+    expect(piStream.events.at(-1)).toMatchObject({
+      type: "error",
+      error: { errorMessage: 'Provider emitted unadvertised tool call "cursor_plan_stage"' },
+    })
   })
 })

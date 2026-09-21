@@ -6,6 +6,11 @@ import { applyCloneSlot, revertCloneSlot } from "../scripts/ocp-dev/config-slot.
 import { cleanPluginInstalls } from "../scripts/ocp-dev/clone.ts"
 import { parseJsonc, toValue } from "../scripts/ocp-dev/jsonc.ts"
 import { removePiProvider, upsertPiProvider } from "../scripts/ocp-dev/pi-config.ts"
+import { dshBuiltCli, dshHarnessRoot, isDshHarnessCheckout } from "../scripts/ocp-dev/hosts.ts"
+import { formatDshBridgePatch, syncInstalledFilePackageDist } from "../scripts/ocp-dev/dsh-family.ts"
+import { avoidProviderIdCollision, dshProfile } from "../packages/dsh-bridge/src/host/profile.ts"
+import { defaultDevinProviderPath } from "../scripts/ocp-dev/paths.ts"
+import { dshWorkspacePackageCwdFilter } from "../scripts/ocp-dev/dsh-tsdown.ts"
 
 describe("clone cache cleanup", () => {
   test("removes every cached plugin version without touching other packages", () => {
@@ -171,5 +176,152 @@ describe("orchestrator", () => {
     expect(source).toContain("scripts/ocp-dev/cli.ts")
     expect(source).not.toContain("host-dev-common")
     expect(source).not.toContain("pi-family-dev-common")
+  })
+
+  test("refuses to shim native OpenCode", async () => {
+    const cli = resolve(import.meta.dir, "../scripts/ocp-dev/cli.ts")
+    const result = Bun.spawnSync({
+      cmd: ["bun", cli, "run", "opencode"],
+      stdout: "pipe",
+      stderr: "pipe",
+    })
+    const output = `${result.stdout}${result.stderr}`
+    expect(result.exitCode).not.toBe(0)
+    expect(output).toContain("opencode is native")
+  })
+})
+
+describe("dsh discovery", () => {
+  test("prefers DSH_HARNESS_ROOT over a sibling name", () => {
+    const root = mkdtempSync(join(tmpdir(), "ocp-dsh-harness-"))
+    try {
+      mkdirSync(join(root, "packages", "bundle"), { recursive: true })
+      writeFileSync(join(root, "package.json"), "{}\n")
+      const previous = process.env.DSH_HARNESS_ROOT
+      process.env.DSH_HARNESS_ROOT = root
+      try {
+        expect(dshHarnessRoot()).toBe(resolve(root))
+        expect(isDshHarnessCheckout(root)).toBe(true)
+      } finally {
+        if (previous === undefined) delete process.env.DSH_HARNESS_ROOT
+        else process.env.DSH_HARNESS_ROOT = previous
+      }
+    } finally {
+      rmSync(root, { recursive: true, force: true })
+    }
+  })
+
+  test("does not treat a random package.json as a harness checkout", () => {
+    const root = mkdtempSync(join(tmpdir(), "ocp-dsh-not-harness-"))
+    try {
+      writeFileSync(join(root, "package.json"), "{}\n")
+      expect(isDshHarnessCheckout(root)).toBe(false)
+    } finally {
+      rmSync(root, { recursive: true, force: true })
+    }
+  })
+
+  test("copies newly emitted dist files into an existing file: profile package", () => {
+    const root = mkdtempSync(join(tmpdir(), "ocp-dsh-dist-sync-"))
+    try {
+      const source = join(root, "source")
+      const dest = join(root, "dest")
+      mkdirSync(join(source, "dist", "translate"), { recursive: true })
+      mkdirSync(join(dest, "dist", "translate"), { recursive: true })
+      writeFileSync(join(source, "dist", "index.js"), "export const n = 1\n")
+      writeFileSync(join(source, "dist", "translate", "question.js"), "export const q = 1\n")
+      writeFileSync(join(dest, "dist", "index.js"), "export const n = 0\n")
+      expect(syncInstalledFilePackageDist(source, dest)).toBe(true)
+      expect(readFileSync(join(dest, "dist", "index.js"), "utf8")).toContain("n = 1")
+      expect(readFileSync(join(dest, "dist", "translate", "question.js"), "utf8")).toContain("q = 1")
+      expect(syncInstalledFilePackageDist(source, join(root, "missing"))).toBe(false)
+    } finally {
+      rmSync(root, { recursive: true, force: true })
+    }
+  })
+
+  test("launches the built CLI instead of checkout pnpm dsh / tsx", () => {
+    expect(dshBuiltCli("/tmp/harness")).toBe(resolve("/tmp/harness/apps/cli/lib/bin.js"))
+    const source = readFileSync(resolve(import.meta.dir, "../scripts/ocp-dev/dsh-family.ts"), "utf8")
+    expect(source).toContain("dshBuiltCli")
+    expect(source).toContain("apps/cli/lib/bin.js")
+    expect(source).not.toContain("pnpm --prefix ${harness} dsh web")
+  })
+
+  test("does not hardcode a home-directory harness checkout", () => {
+    const files = [
+      resolve(import.meta.dir, "../scripts/ocp-dev/hosts.ts"),
+      resolve(import.meta.dir, "../scripts/ocp-dev/dsh-family.ts"),
+      resolve(import.meta.dir, "../scripts/ocp-dev/dsh-tsdown.ts"),
+      resolve(import.meta.dir, "../scripts/ocp-dev/cli.ts"),
+    ]
+    for (const file of files) {
+      const source = readFileSync(file, "utf8")
+      expect(source).not.toMatch(/homedir\(\)[^\n]+deepseek-harness/)
+    }
+  })
+
+  test("local shim always runs the harness build", () => {
+    const source = readFileSync(resolve(import.meta.dir, "../scripts/ocp-dev/dsh-family.ts"), "utf8")
+    expect(source).toContain("buildHarness")
+    expect(source).toContain('["pnpm", "install"]')
+    expect(source).toContain('["pnpm", "run", "build:native-system"]')
+    expect(source).toContain('["pnpm", "run", "build:web"]')
+    expect(source).toContain("runDshTsdown")
+  })
+
+  test("formats Cursor and Devin DSH provider rows", () => {
+    const yaml = formatDshBridgePatch([
+      { package: "/abs/cursor-opencode-provider/dist/index.js", apiKey: "CURSOR_API_KEY" },
+      { package: "/abs/devin-opencode-provider/dist/index.js", apiKey: "DEVIN_API_KEY" },
+    ])
+    expect(yaml).toContain("package: '/abs/cursor-opencode-provider/dist/index.js'")
+    expect(yaml).toContain("apiKey: CURSOR_API_KEY")
+    expect(yaml).toContain("package: '/abs/devin-opencode-provider/dist/index.js'")
+    expect(yaml).toContain("apiKey: DEVIN_API_KEY")
+  })
+
+  test("resolves Devin checkout from OCP_DEV_DEVIN_PROVIDER_PATH", () => {
+    const root = mkdtempSync(join(tmpdir(), "ocp-devin-provider-"))
+    const previous = process.env.OCP_DEV_DEVIN_PROVIDER_PATH
+    try {
+      writeFileSync(join(root, "package.json"), '{"name":"devin-opencode-provider"}\n')
+      process.env.OCP_DEV_DEVIN_PROVIDER_PATH = root
+      expect(defaultDevinProviderPath()).toBe(resolve(root))
+    } finally {
+      if (previous === undefined) delete process.env.OCP_DEV_DEVIN_PROVIDER_PATH
+      else process.env.OCP_DEV_DEVIN_PROVIDER_PATH = previous
+      rmSync(root, { recursive: true, force: true })
+    }
+  })
+
+  test("DSH de-collides reserved devin id to devin-opencode", () => {
+    expect(avoidProviderIdCollision("devin", dshProfile())).toBe("devin-opencode")
+  })
+
+  test("tsdown workspace filter skips leftover dirs without package.json", () => {
+    const root = mkdtempSync(join(tmpdir(), "ocp-dsh-tsdown-"))
+    try {
+      mkdirSync(join(root, "vendor", "cordis"), { recursive: true })
+      mkdirSync(join(root, "packages", "core", "agent-loop"), { recursive: true })
+      mkdirSync(join(root, "packages", "fs", "tool-present"), { recursive: true })
+      mkdirSync(join(root, "apps", "cli"), { recursive: true })
+      mkdirSync(join(root, "apps", "desktop"), { recursive: true })
+      writeFileSync(join(root, "vendor", "cordis", "package.json"), "{}\n")
+      writeFileSync(join(root, "packages", "core", "agent-loop", "package.json"), "{}\n")
+      writeFileSync(join(root, "apps", "cli", "package.json"), "{}\n")
+      writeFileSync(join(root, "apps", "desktop", "package.json"), "{}\n")
+      const host = dshWorkspacePackageCwdFilter(root, "host")
+      expect(host.test("vendor/cordis")).toBe(true)
+      expect(host.test("packages/core/agent-loop")).toBe(true)
+      expect(host.test("packages/fs/tool-present")).toBe(false)
+      expect(host.test("apps/cli")).toBe(true)
+      expect(host.test("apps/desktop")).toBe(true)
+      const client = dshWorkspacePackageCwdFilter(root, "client")
+      expect(client.test("apps/cli")).toBe(true)
+      expect(client.test("apps/desktop")).toBe(false)
+    } finally {
+      rmSync(root, { recursive: true, force: true })
+    }
   })
 })

@@ -7,13 +7,14 @@
  * `LlmAdapter.stream(GenerateOptions)` → `StreamChunk`.
  */
 import type { LanguageModelV3, LanguageModelV3CallOptions } from "@ai-sdk/provider"
-import { substituteApiKey } from "./opencode/index.js"
-import { translateGenerateOptionsToPrompt, translateTools, type DshGenerateOptions } from "./translate/context.js"
+import { optionsForLevel, type ModelCallData } from "@opencode-compat/opencode-loader"
+import { translateGenerateOptionsToPrompt, translateTools, type DshGenerateOptions, type DshMessage } from "./translate/context.js"
 import { v3StreamToDshChunks, type StreamChunk } from "./translate/stream.js"
-import type { ModelCallData } from "./opencode/index.js"
 
 export type DshLlmAdapterOptions = {
   providerName: string
+  /** Optional provider integration selected by the registration layer. */
+  skipGenerateReason?: (messages: readonly DshMessage[]) => string | undefined
   api?: string
   getLanguageModel: (modelId: string, apiKey: string | undefined) => Promise<LanguageModelV3> | LanguageModelV3
   /** Resolve per-model variant + entry options */
@@ -22,8 +23,6 @@ export type DshLlmAdapterOptions = {
   providerOptionsKey?: string
   /** Native CredentialRef env name, resolved via ctx.credentials */
   credentialRef?: string
-  /** Base createOptions from spec (with "$apiKey" placeholder) */
-  createOptionsTemplate?: Record<string, unknown>
   /** Resolve credential value from Cordis credentials service */
   resolveCredential?: (ref: string, signal?: AbortSignal) => Promise<string | undefined>
 }
@@ -82,21 +81,28 @@ export class DshLlmAdapter extends LlmAdapter {
   override stream(options: DshGenerateOptions): AsyncIterable<StreamChunk> {
     const self = this
     return (async function* (): AsyncGenerator<StreamChunk> {
+      const skipped = self.opts.skipGenerateReason?.(options.messages ?? [])
+      if (skipped) {
+        // eslint-disable-next-line no-console
+        console.log(
+          `dsh-bridge: skipped child-notice generate sessionId=${options.sessionId ?? "-"} kinds=${skipped}`,
+        )
+        yield { type: "usage", usage: { inputTokens: 0, outputTokens: 0, totalTokens: 0 } }
+        yield { type: "finish", reason: { kind: "stop" } }
+        return
+      }
       const modelId = options.model
       const callData = self.opts.resolveCallData?.(modelId)
       const variantBaseId = callData?.variant.baseId ?? modelId
 
-      // Resolve credential (native ref like CURSOR_API_KEY)
+      // Resolve the configured CredentialRef. Registration runs the plugin
+      // auth.loader and substitutes this value into the factory options.
       const apiKey = await resolveApiKeyFromResolve(self.opts.credentialRef, self.opts.resolveCredential, options.signal)
-
-      // Build createOptions with $apiKey substitution (like pi-bridge register.ts:174)
-      // (factory already bound with substituted options at registration; this is for per-request key)
-      void (substituteApiKey(self.opts.createOptionsTemplate ?? { apiKey: "$apiKey" }, apiKey) as unknown as Record<string, unknown>)
 
       const lm = await self.opts.getLanguageModel(variantBaseId, apiKey)
 
       // Translate DSH GenerateOptions → V3 call options
-      const prompt = translateGenerateOptionsToPrompt(options as DshGenerateOptions)
+      const prompt = translateGenerateOptionsToPrompt(options)
       const tools = translateTools(options.tools as never)
 
       // Session affinity: DSH native sessionId → V3 headers x-opencode-session (like pi-bridge bridge.ts:66)
@@ -119,7 +125,6 @@ export class DshLlmAdapter extends LlmAdapter {
       // Merge variant entryOptions + level options into providerOptions[providerOptionsKey]
       let callOptions = base
       if (callData && self.opts.providerOptionsKey) {
-        const { optionsForLevel } = await import("./opencode/index.js")
         const level = typeof options.reasoningEffort === "string" ? options.reasoningEffort : undefined
         const merged = { ...callData.entryOptions, ...optionsForLevel(callData.variant, level) }
         if (Object.keys(merged).length > 0) {
@@ -132,7 +137,9 @@ export class DshLlmAdapter extends LlmAdapter {
 
       try {
         const result = await lm.doStream(callOptions as never)
-        for await (const chunk of v3StreamToDshChunks(result.stream)) {
+        for await (const chunk of v3StreamToDshChunks(result.stream, undefined, {
+          allowedProviderToolNames: new Set(tools?.map(tool => tool.name) ?? []),
+        })) {
           yield chunk
         }
       } catch (err) {

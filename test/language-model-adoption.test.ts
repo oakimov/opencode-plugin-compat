@@ -416,6 +416,90 @@ describe("adaptLanguageModel / wrapProvider*", () => {
     ])
   })
 
+  test("sorts the initial cacheable prefix once, then appends new tools", async () => {
+    const seen: Array<Record<string, unknown>> = []
+    const model = {
+      async doGenerate(call: Record<string, unknown>) {
+        seen.push(call)
+        return { content: [] }
+      },
+    }
+    const adapted = adaptLanguageModel(model, policyForHostId("opencode"))
+    const headers = { "x-opencode-session": "stable-prefix" }
+
+    await adapted.doGenerate({
+      headers,
+      tools: [
+        { name: "z", description: "frozen z" },
+        { name: "m", description: "frozen m" },
+      ],
+    })
+    await adapted.doGenerate({
+      headers,
+      tools: [
+        { name: "a", description: "new a" },
+        { name: "m", description: "changed m" },
+        { name: "z", description: "changed z" },
+      ],
+    })
+
+    const catalogs = seen.map(call => call.tools as Array<{ name: string; description: string }>)
+    expect(catalogs[0]?.map(tool => tool.name)).toEqual(["m", "z"])
+    expect(catalogs[1]?.map(tool => tool.name)).toEqual(["m", "z", "a"])
+    expect(catalogs[1]?.map(tool => tool.description)).toEqual([
+      "frozen m",
+      "frozen z",
+      "new a",
+    ])
+  })
+
+  test("wrapProviderSdk shares one catalog epoch across languageModel() calls", async () => {
+    const seen: Array<Record<string, unknown>> = []
+    const sdk = {
+      languageModel() {
+        return {
+          async doGenerate(call: Record<string, unknown>) {
+            seen.push(call)
+            return { content: [] }
+          },
+        }
+      },
+    }
+    const wrapped = wrapProviderSdk(sdk, policyForHostId("opencode"))
+    const headers = { "x-opencode-session": "sdk-epoch" }
+    const first = wrapped.languageModel("a") as {
+      doGenerate: (call: Record<string, unknown>) => Promise<unknown>
+    }
+    const second = wrapped.languageModel("a") as {
+      doGenerate: (call: Record<string, unknown>) => Promise<unknown>
+    }
+
+    await first.doGenerate({
+      headers,
+      tools: [
+        { name: "z", description: "frozen z" },
+        { name: "m", description: "frozen m" },
+      ],
+    })
+    await second.doGenerate({
+      headers,
+      tools: [
+        { name: "a", description: "new a" },
+        { name: "m", description: "changed m" },
+        { name: "z", description: "changed z" },
+      ],
+    })
+
+    const catalogs = seen.map(call => call.tools as Array<{ name: string; description: string }>)
+    expect(catalogs[0]?.map(tool => tool.name)).toEqual(["m", "z"])
+    expect(catalogs[1]?.map(tool => tool.name)).toEqual(["m", "z", "a"])
+    expect(catalogs[1]?.map(tool => tool.description)).toEqual([
+      "frozen m",
+      "frozen z",
+      "new a",
+    ])
+  })
+
   test("MiMo doStream inserts preamble + bash description", async () => {
     const model = {
       async doStream() {

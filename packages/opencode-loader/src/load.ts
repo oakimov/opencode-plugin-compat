@@ -29,17 +29,23 @@ function isFunction(value: unknown): value is (...args: never[]) => unknown {
   return typeof value === "function"
 }
 
+function loaderPrefix(label?: string): string {
+  return label && label.length > 0 ? label : "pi-bridge"
+}
+
 /** Resolve the AI-SDK provider factory from a loaded module's exports. */
 export function detectAiSdkFactory(
   moduleExports: Record<string, unknown>,
   exportName?: string,
   packageSpecifier?: string,
+  label?: string,
 ): AiSdkFactory {
+  const prefix = loaderPrefix(label)
   if (exportName) {
     const named = moduleExports[exportName]
     if (isFunction(named)) return named as AiSdkFactory
     if (hasLanguageModelMethod(named)) return () => named
-    throw new Error(`pi-bridge: export "${exportName}" is neither a factory function nor an object with .languageModel`)
+    throw new Error(`${prefix}: export "${exportName}" is neither a factory function nor an object with .languageModel`)
   }
 
   const createExportNames = Object.keys(moduleExports).filter(name => /^create[A-Z]/.test(name) && isFunction(moduleExports[name]))
@@ -49,7 +55,7 @@ export function detectAiSdkFactory(
       const preferred = preferredFactoryName(packageSpecifier)
       if (preferred && createExportNames.includes(preferred)) return moduleExports[preferred] as AiSdkFactory
     }
-    throw new Error(`pi-bridge: multiple createXxx exports found (${createExportNames.join(", ")}); set "factoryExport" to disambiguate`)
+    throw new Error(`${prefix}: multiple createXxx exports found (${createExportNames.join(", ")}); set "factoryExport" to disambiguate`)
   }
 
   const rootCandidate = moduleExports.default ?? moduleExports
@@ -57,7 +63,7 @@ export function detectAiSdkFactory(
   if (isFunction(rootCandidate)) return rootCandidate as AiSdkFactory
 
   throw new Error(
-    "pi-bridge: could not detect an AI-SDK provider factory (no createXxx export, and the default/root export has no .languageModel); set \"factoryExport\" explicitly",
+    `${prefix}: could not detect an AI-SDK provider factory (no createXxx export, and the default/root export has no .languageModel); set "factoryExport" explicitly`,
   )
 }
 
@@ -69,12 +75,13 @@ export function detectAiSdkFactory(
  */
 export function detectPluginFactory(
   moduleExports: Record<string, unknown>,
-  options: { exportName?: string; exclude?: unknown; packageSpecifier?: string } = {},
+  options: { exportName?: string; exclude?: unknown; packageSpecifier?: string; label?: string } = {},
 ): OpenCodePluginFactory | undefined {
+  const prefix = loaderPrefix(options.label)
   if (options.exportName) {
     const named = moduleExports[options.exportName]
     if (!isFunction(named)) {
-      throw new Error(`pi-bridge: export "${options.exportName}" is not a function, so it cannot be an OpenCode plugin factory`)
+      throw new Error(`${prefix}: export "${options.exportName}" is not a function, so it cannot be an OpenCode plugin factory`)
     }
     return named as OpenCodePluginFactory
   }
@@ -87,7 +94,7 @@ export function detectPluginFactory(
       const preferred = preferredPluginName(options.packageSpecifier)
       if (preferred && pluginNamed.includes(preferred)) return moduleExports[preferred] as OpenCodePluginFactory
     }
-    throw new Error(`pi-bridge: multiple *Plugin exports found (${pluginNamed.join(", ")}); set "pluginExport" to disambiguate`)
+    throw new Error(`${prefix}: multiple *Plugin exports found (${pluginNamed.join(", ")}); set "pluginExport" to disambiguate`)
   }
 
   // Fall back to a default export, as long as it isn't the AI-SDK factory we already found.
@@ -104,13 +111,14 @@ export type LoadedOpenCodePlugin = {
 
 export function inspectOpenCodePluginModule(
   moduleExports: Record<string, unknown>,
-  spec: { packageSpecifier: string; factoryExport?: string; pluginExport?: string },
+  spec: { packageSpecifier: string; factoryExport?: string; pluginExport?: string; label?: string },
 ): LoadedOpenCodePlugin {
-  const factory = detectAiSdkFactory(moduleExports, spec.factoryExport, spec.packageSpecifier)
+  const factory = detectAiSdkFactory(moduleExports, spec.factoryExport, spec.packageSpecifier, spec.label)
   const pluginFactory = detectPluginFactory(moduleExports, {
     exportName: spec.pluginExport,
     exclude: factory,
     packageSpecifier: spec.packageSpecifier,
+    label: spec.label,
   })
   return { moduleExports, factory, pluginFactory }
 }
@@ -120,16 +128,21 @@ export async function loadOpenCodePluginModule(spec: {
   packageSpecifier: string
   factoryExport?: string
   pluginExport?: string
+  label?: string
 }): Promise<LoadedOpenCodePlugin> {
   const moduleExports = (await import(spec.packageSpecifier)) as Record<string, unknown>
   return inspectOpenCodePluginModule(moduleExports, spec)
 }
 
 /** Invoke a plugin factory and sanity-check that it produced a hooks-shaped object. */
-export async function instantiateHooks(pluginFactory: OpenCodePluginFactory, input: unknown): Promise<OpenCodeHooks> {
+export async function instantiateHooks(
+  pluginFactory: OpenCodePluginFactory,
+  input: unknown,
+  label?: string,
+): Promise<OpenCodeHooks> {
   const hooks = await pluginFactory(input)
   if (!hooks || typeof hooks !== "object") {
-    throw new Error("pi-bridge: OpenCode plugin factory did not return a hooks object")
+    throw new Error(`${loaderPrefix(label)}: OpenCode plugin factory did not return a hooks object`)
   }
   return hooks as OpenCodeHooks
 }

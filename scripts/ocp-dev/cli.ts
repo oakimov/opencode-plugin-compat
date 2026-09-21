@@ -19,14 +19,19 @@ function usage(): void {
   unshim   Remove that slot and restore factory package state. Other
            host config is left untouched.
 
-Hosts: ${HOSTS.join(", ")}. With no host names, act on every installed host.
+Shim hosts: mimo, kilo, pi, omp, dsh. OpenCode is native — run skips it;
+named "run opencode" is an error. With no host names, act on every installed
+shim host.
 
 Environment:
   OCP_DEV_PROVIDER_PATH   cursor-opencode-provider checkout
+  OCP_DEV_DEVIN_PROVIDER_PATH  devin-opencode-provider checkout (DSH extra row)
   OCP_DEV_PLUGIN          provider package name (default: cursor-opencode-provider)
   OCP_DEV_STATE_DIR       wrapper/manifest root (default: ~/.cache/ocp-dev)
   OCP_DEV_BRIDGE_VERSION  npm pi-bridge version (default: latest)
   OCP_DEV_PLUGIN_VERSION  npm provider version (default: latest)
+  DSH_HARNESS_ROOT        deepseek-harness checkout (else OCP sibling)
+  DSH_HOME                DSH data/config root (default ~/.dsh)
 `)
 }
 
@@ -61,15 +66,26 @@ function parseArgs(argv: string[]): { command: string; hosts: string[]; mode: Wi
   return { command, hosts, mode }
 }
 
-async function resolveTargets(requested: string[]): Promise<HostId[]> {
+const NATIVE_NO_SHIM: ReadonlySet<HostId> = new Set(["opencode"])
+
+async function resolveTargets(requested: string[], command: "run" | "unshim"): Promise<HostId[]> {
   if (requested.length === 0 || requested[0] === "--all" || requested[0] === "all") {
     const found = await installedHosts()
-    if (found.length === 0) die(`no supported hosts found on PATH (looked for: ${HOSTS.join(" ")})`)
-    return found
+    const targets = command === "run" ? found.filter((host) => !NATIVE_NO_SHIM.has(host)) : found
+    if (targets.length === 0) {
+      die(`no shim hosts found (looked for: mimo kilo pi omp dsh)`)
+    }
+    if (command === "run" && found.some((host) => NATIVE_NO_SHIM.has(host))) {
+      console.log("ocp-dev: skipping native OpenCode (loads provider dist/ directly)")
+    }
+    return targets
   }
   const targets: HostId[] = []
   for (const name of requested) {
     if (!isHostId(name)) die(`unknown host: ${name} (expected ${HOSTS.join("|")})`)
+    if (command === "run" && NATIVE_NO_SHIM.has(name)) {
+      die("opencode is native and does not need an ocp-dev shim (loads the provider checkout dist/ directly)")
+    }
     targets.push(name)
   }
   return targets
@@ -104,7 +120,7 @@ async function unshimHost(host: HostId): Promise<void> {
 }
 
 async function cmdRun(hosts: string[], mode: WireMode): Promise<void> {
-  const targets = await resolveTargets(hosts)
+  const targets = await resolveTargets(hosts, "run")
   console.log(`ocp-dev: wiring ${targets.length} host(s) in ${mode} mode: ${targets.join(" ")}`)
   const ok: string[] = []
   const failed: string[] = []
@@ -123,7 +139,7 @@ async function cmdRun(hosts: string[], mode: WireMode): Promise<void> {
 }
 
 async function cmdUnshim(hosts: string[]): Promise<void> {
-  const targets = await resolveTargets(hosts)
+  const targets = await resolveTargets(hosts, "unshim")
   console.log(`ocp-dev: unshimming ${targets.length} host(s): ${targets.join(" ")}`)
   for (const host of targets) {
     console.log(`\n=== ${host} ===`)

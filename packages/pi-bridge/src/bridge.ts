@@ -17,8 +17,7 @@
 import type { LanguageModelV3, LanguageModelV3CallOptions } from "@ai-sdk/provider"
 import { loadPiRuntime, type PiRuntime } from "./host/runtime.js"
 import { renderApiKeyRef, type PiHostProfile } from "./host/profile.js"
-import type { PiOAuthConfig } from "./opencode/auth.js"
-import type { PiModelConfig } from "./opencode/models.js"
+import type { PiModelConfig, PiOAuthConfig } from "@opencode-compat/opencode-loader"
 import { translateContextToPrompt, translateToolChoice, translateTools } from "./translate/context.js"
 import { emptyUsage, runV3StreamToPi } from "./translate/stream.js"
 import { buildPiSubagentVocabulary, buildPiTerminalResultVocabulary, buildPiToolInputVocabulary } from "./translate/subagent.js"
@@ -41,6 +40,8 @@ export interface AiSdkProviderSpec {
     options: PiSimpleStreamOptions | undefined
     base: LanguageModelV3CallOptions
   }) => LanguageModelV3CallOptions | Promise<LanguageModelV3CallOptions>
+  /** Host-global compatibility tools that must not enter this provider's catalog. */
+  excludedToolNames?: readonly string[]
   models?: readonly PiModelConfig[]
   /** Host-neutral dynamic model list; adapted to each host's calling convention below. */
   fetchModels?: (apiKey: string | undefined) => Promise<readonly PiModelConfig[]>
@@ -95,20 +96,39 @@ export function buildStreamSimple(spec: AiSdkProviderSpec, runtime: PiRuntime) {
       try {
         const apiKey = await resolveApiKey(options?.apiKey, options?.signal)
         const lm = await spec.getLanguageModel(model.id, apiKey)
-        const vocabulary = buildPiSubagentVocabulary(context.tools, runtime.toolSchema, runtime.profile)
-        const toolInputs = buildPiToolInputVocabulary(context.tools, runtime.profile, runtime.toolSchema)
-        const question = buildPiQuestionVocabulary(context.tools, runtime.profile)
-        const terminalResult = buildPiTerminalResultVocabulary(context.tools, runtime.profile)
+        const excluded = new Set(spec.excludedToolNames ?? [])
+        const providerTools = excluded.size === 0
+          ? context.tools
+          : context.tools?.filter(tool => !excluded.has(tool.name))
+        const vocabulary = buildPiSubagentVocabulary(providerTools, runtime.toolSchema, runtime.profile)
+        const toolInputs = buildPiToolInputVocabulary(providerTools, runtime.profile, runtime.toolSchema)
+        const question = buildPiQuestionVocabulary(providerTools, runtime.profile)
+        const terminalResult = buildPiTerminalResultVocabulary(providerTools, runtime.profile)
+        const translatedTools = translateTools(providerTools, runtime.toolSchema, vocabulary, toolInputs, question, terminalResult)
         const base: LanguageModelV3CallOptions = {
-          prompt: translateContextToPrompt(context, vocabulary, runtime.profile, toolInputs, question),
-          tools: translateTools(context.tools, runtime.toolSchema, vocabulary, toolInputs, question),
+          prompt: translateContextToPrompt(context, vocabulary, runtime.profile, toolInputs, question, excluded),
+          tools: translatedTools,
           toolChoice: translateToolChoice(options?.toolChoice, vocabulary, toolInputs, question),
           abortSignal: options?.signal,
           headers: aiSdkHeadersFromPi(options),
         }
         const callOptions = spec.buildCallOptions ? await spec.buildCallOptions({ model, context, options, base }) : base
+        const allowedProviderToolNames = new Set(
+          (callOptions.tools ?? []).flatMap(tool =>
+            "name" in tool && typeof tool.name === "string" ? [tool.name] : []
+          ),
+        )
         const result = await lm.doStream(callOptions)
-        await runV3StreamToPi({ model, v3Stream: result.stream, piStream, vocabulary, toolInputs, terminalResult, question })
+        await runV3StreamToPi({
+          model,
+          v3Stream: result.stream,
+          piStream,
+          vocabulary,
+          toolInputs,
+          terminalResult,
+          question,
+          allowedProviderToolNames,
+        })
       } catch (err) {
         const message = errorAssistantMessage(model, err)
         piStream.push({ type: "start", partial: message })

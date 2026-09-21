@@ -107,7 +107,7 @@ Defaults and overrides:
 
 | Variable | Meaning |
 |---|---|
-| `OCP_DEV_PROVIDER_PATH` | Local provider checkout; default is a sibling checkout or `~/Projects/cursor-opencode-provider` |
+| `OCP_DEV_PROVIDER_PATH` | Local provider checkout; default is the sibling `../cursor-opencode-provider` checkout |
 | `OCP_DEV_PLUGIN` | Provider npm name; default `cursor-opencode-provider` |
 | `OCP_DEV_BRIDGE_VERSION` | Published bridge version; default `latest` |
 | `OCP_DEV_PLUGIN_VERSION` | Published provider version; default `latest` |
@@ -251,14 +251,17 @@ the tools that provider already bridges on:
 | Tool | Host | Behavior |
 |---|---|---|
 | `plan_enter` / `plan_exit` | **omp only** | Drive native omp plan mode (ACP-shaped `setPlanModeState` + proposal handler via `AgentRegistry`) |
-| `cursor_plan_stage` | **omp only** | Stage the Cursor plan into omp's session-local artifact, then run omp's own review UI |
+| `cursor_plan_stage` | **omp only** | Stage the Cursor plan into omp's session-local artifact, then wait on omp's plan-review overlay |
 | `cursor_image_save` | **omp and pi** | Commit staged Cursor image bytes (`image_id` only) |
 
-`cursor_plan_stage` follows the provider's plan-approval contract: the tool
-**succeeds only when the user approved execution**. Choosing *Refine plan* (or
-dismissing the prompt) reports the plan as written but not accepted, so the
-provider keeps the model planning. Only returning real success there would make
-Cursor start implementing a plan the user had just declined.
+The host registry is shared, but these Cursor bridge tools are filtered out of
+every non-Cursor provider call. This keeps a simultaneously configured Devin
+provider on its own tool and prompt contract.
+
+`cursor_plan_stage` writes `local://<slug>-plan.md` and waits on omp's
+plan-review overlay. It succeeds only when the user approves execution.
+Refine or dismiss is an error, so the model stays in plan mode. Returning
+before the overlay let the model call `plan_exit` and skip the review.
 
 Plain **pi** has no plan mode, so SwitchMode stays refused there. Image save
 works on both hosts when the Cursor provider is loaded in-process.

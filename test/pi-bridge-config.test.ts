@@ -9,7 +9,13 @@ import { afterAll, describe, expect, test } from "bun:test"
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import path from "node:path"
-import { configSearchPaths, loadConfig, registerProvidersFromConfig, resolveConfigPath } from "../packages/pi-bridge/src/config.ts"
+import {
+  configSearchPaths,
+  isCursorProviderPackage,
+  loadConfig,
+  registerProvidersFromConfig,
+  resolveConfigPath,
+} from "../packages/pi-bridge/src/config.ts"
 
 const FIXTURE = path.join(import.meta.dir, "fixtures", "pi-bridge-acme-provider.ts")
 const AUTH_CATALOG_FIXTURE = path.join(import.meta.dir, "fixtures", "pi-bridge-auth-catalog-provider.ts")
@@ -29,6 +35,13 @@ async function refreshRegisteredModels(config: Record<string, unknown>, apiKey: 
 }
 
 describe("config path resolution", () => {
+  test("recognizes the Cursor package without confusing another provider id", () => {
+    expect(isCursorProviderPackage("cursor-opencode-provider@1.2.3")).toBe(true)
+    expect(isCursorProviderPackage("/abs/cursor-opencode-provider/dist/index.js")).toBe(true)
+    expect(isCursorProviderPackage("devin-opencode-provider")).toBe(false)
+    expect(isCursorProviderPackage("unrelated-tools")).toBe(false)
+  })
+
   test("PI_BRIDGE_CONFIG wins outright", () => {
     expect(configSearchPaths({ PI_BRIDGE_CONFIG: "/custom/path.json" })).toEqual(["/custom/path.json"])
   })

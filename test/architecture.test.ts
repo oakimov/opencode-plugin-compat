@@ -111,4 +111,28 @@ describe("OCP architecture boundaries", () => {
     ])
     expect(source.map(tool => tool.name)).toEqual(["read", "actor", "custom", "task"])
   })
+
+  test("dsh-bridge has no Pi host packages or static Cursor provider import", () => {
+    const files = filesUnder("packages/dsh-bridge/src", [".ts"])
+    expect(violations(
+      files,
+      /^\s*import[^\n]*(?:@oh-my-pi|@earendil-works|pi-bridge|cursor-opencode-provider|cursor-host-tools)/,
+    )).toEqual([])
+  })
+
+  test("generic DSH adapter has no provider identity or provider-specific branch", () => {
+    const adapter = path.join(ROOT, "packages/dsh-bridge/src/adapter.ts")
+    expect(violations(
+      [adapter],
+      /cursor|devin|isCursorProviderPackage|cursorIntegration|cursorSilentChildNoticeReason/i,
+    )).toEqual([])
+  })
+
+  test("dsh-bridge leaves native plan-mode policy and transitions to DSH", () => {
+    const files = filesUnder("packages/dsh-bridge/src", [".ts"])
+    expect(violations(
+      files,
+      /plan\/mode|sessionPromptAsync|installDshPlanModeBridge|cursorPlanBridge|createPlanReviewPlan|stripPlanReviewMessage|cursorQuestionFromExitPlanInput/,
+    )).toEqual([])
+  })
 })

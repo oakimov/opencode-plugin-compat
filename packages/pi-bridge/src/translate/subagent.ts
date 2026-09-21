@@ -53,6 +53,72 @@ export type TranslatedSubagentCall = {
   input: Record<string, unknown>
 }
 
+/** Normalize a translate result to a (possibly empty) call list. */
+export function asTranslatedCalls(
+  translated: TranslatedSubagentCall | TranslatedSubagentCall[] | undefined,
+): TranslatedSubagentCall[] {
+  if (!translated) return []
+  return Array.isArray(translated) ? translated : [translated]
+}
+
+function todoCallsForHost(
+  hostToolName: string,
+  input: Record<string, unknown>,
+  shape: PiToolInputProfile["inputShape"],
+): TranslatedSubagentCall | TranslatedSubagentCall[] {
+  if (shape === "opencode-todo") {
+    const ops = expandTodoSnapshotToHostOps(input)
+    if (!ops) return { toolName: hostToolName, input }
+    if (ops.length === 1) return { toolName: hostToolName, input: ops[0]! }
+    return ops.map(op => ({ toolName: hostToolName, input: op }))
+  }
+  if (shape === "opencode-read") {
+    return expandReadCalls(hostToolName, input)
+  }
+  return { toolName: hostToolName, input: applyInputShape(input, shape) }
+}
+
+/**
+ * Split a model-joined multi-path string into absolute path segments.
+ * Only `;` with every segment absolute (posix / Windows drive / UNC) — a
+ * lone semicolon inside a relative name is left alone.
+ */
+export function splitJoinedAbsolutePaths(path: string): string[] | undefined {
+  if (!path.includes(";")) return undefined
+  const parts = path.split(";").map(part => part.trim()).filter(part => part.length > 0)
+  if (parts.length < 2) return undefined
+  if (!parts.every(isAbsolutePathToken)) return undefined
+  return parts
+}
+
+function isAbsolutePathToken(path: string): boolean {
+  if (path.startsWith("/") || path.startsWith("\\\\")) return true
+  return /^[A-Za-z]:[\\/]/.test(path)
+}
+
+/**
+ * One OpenCode/Cursor read → one or more host reads. Models sometimes join
+ * glob hits with `;` into a single `path`; the host (and Cursor's pre-exec
+ * missing-file reject) treat that as one nonexistent target. Fan out so each
+ * absolute segment is a real read instead of a reject→retry loop.
+ */
+function expandReadCalls(
+  hostToolName: string,
+  input: Record<string, unknown>,
+): TranslatedSubagentCall | TranslatedSubagentCall[] {
+  const path = input["path"]
+  if (typeof path === "string") {
+    const parts = splitJoinedAbsolutePaths(path)
+    if (parts) {
+      return parts.map(part => ({
+        toolName: hostToolName,
+        input: applyReadShape({ ...input, path: part }),
+      }))
+    }
+  }
+  return { toolName: hostToolName, input: applyReadShape(input) }
+}
+
 function agentNamesFromSchema(schema: unknown): string[] {
   const names = new Set<string>()
   const seen = new Set<object>()
@@ -220,7 +286,7 @@ function canonicalAgentNames(vocabulary: PiSubagentVocabulary): string[] {
   for (const [canonical, host] of Object.entries(vocabulary.agentAliases)) {
     if ((host === null && names.size > 0) || (host !== null && names.has(host))) names.add(canonical)
   }
-  return [...names].sort()
+  return [...names].sort((left, right) => (left < right ? -1 : left > right ? 1 : 0))
 }
 
 /** OpenCode's flat `task` schema, carrying a live agent enum when available. */
@@ -247,13 +313,14 @@ export function canonicalSubagentSchema(vocabulary: PiSubagentVocabulary): Recor
   }
 }
 
-export function canonicalSubagentDescription(vocabulary: PiSubagentVocabulary): string {
-  const agents = canonicalAgentNames(vocabulary)
-  const catalog = agents.length > 0 ? ` Available agent types: ${agents.join(", ")}.` : ""
-  const lifecycle = vocabulary.coordinationToolName
-    ? ` Each call starts a new agent; never call task to poll or resume one. Results auto-deliver. Use the host's built-in ${vocabulary.coordinationToolName} tool for status and follow-up; it is not an MCP server.`
-    : ""
-  return `Launch a specialized agent for an isolated delegated task.${catalog}${lifecycle}`
+/**
+ * Constant OpenCode-shaped task-tool description. Agent membership lives only
+ * in the sorted `subagent_type` enum (see `canonicalSubagentSchema`); embedding
+ * the live agent list or coordination tool name here would re-tokenize the
+ * tools prefix every time host agent configuration changes.
+ */
+export function canonicalSubagentDescription(_vocabulary: PiSubagentVocabulary): string {
+  return "Launch a specialized agent for an isolated delegated task."
 }
 
 function hostAgentFor(canonical: unknown, vocabulary: PiSubagentVocabulary): string | null | undefined {
@@ -453,41 +520,112 @@ function normalizeOpenCodeTodoStatus(value: unknown): OpenCodeTodoStatus {
   return "pending"
 }
 
-/**
- * Fold an OpenCode/Cursor todo snapshot into one omp `todo` op.
- *
- * omp requires `op`; Cursor keeps emitting `{todos:[{content,status,…}]}` and
- * gets `op must be operation to apply (was missing)`. Active items become a
- * flat `init`; a snapshot with no remaining open work clears via `rm`. Native
- * `{op:…}` calls pass through with harness-only keys stripped.
- */
-function applyTodoShape(input: Record<string, unknown>): Record<string, unknown> {
-  if (typeof input["op"] === "string" && input["op"]) {
-    const rest = { ...input }
-    for (const key of OPENCODE_TODO_HARNESS_KEYS) delete rest[key]
-    return rest
-  }
+/** Suffix marking a host call fanned out of one canonical provider tool call. */
+export function todoFanoutId(toolCallId: string, index: number): string {
+  return `${toolCallId}#${index}`
+}
 
-  const todos = input["todos"]
-  if (!Array.isArray(todos)) return input
+/** Recover the canonical call id from a fanned-out host call id (`…#N`). */
+export function originalTodoFanoutId(toolCallId: string): string | undefined {
+  const at = toolCallId.lastIndexOf("#")
+  if (at <= 0) return undefined
+  const suffix = toolCallId.slice(at + 1)
+  if (!/^\d+$/.test(suffix)) return undefined
+  return toolCallId.slice(0, at)
+}
 
-  const active: string[] = []
-  const inProgress: string[] = []
+/** True when the live host tool is the ops-based OpenCode-todo bridge target. */
+export function isOpsTodoHostTool(
+  toolName: string,
+  toolInputs: PiToolInputVocabulary | undefined,
+): boolean {
+  return toolInputs?.[toolName]?.inputShape === "opencode-todo"
+}
+
+type SnapshotTodoRow = { content: string; status: OpenCodeTodoStatus }
+
+function readSnapshotTodoRows(todos: unknown): SnapshotTodoRow[] | undefined {
+  if (!Array.isArray(todos)) return undefined
+  const rows: SnapshotTodoRow[] = []
   for (const entry of todos) {
     if (!entry || typeof entry !== "object") continue
     const record = entry as Record<string, unknown>
     const content = record["content"]
     if (typeof content !== "string" || !content.trim()) continue
-    const status = normalizeOpenCodeTodoStatus(record["status"])
-    if (status === "completed" || status === "cancelled") continue
-    const trimmed = content.trim()
-    if (status === "in_progress") inProgress.push(trimmed)
-    else active.push(trimmed)
+    rows.push({
+      content: content.trim(),
+      status: normalizeOpenCodeTodoStatus(record["status"]),
+    })
+  }
+  return rows
+}
+
+/**
+ * Expand an OpenCode/Cursor todo snapshot into the ops-based host `todo` ops
+ * that realise it (`inputShape: "opencode-todo"`).
+ *
+ * That host shape is one op per call and `init` always creates pending rows —
+ * statuses cannot ride on one replace-all. Open-only snapshots stay a single
+ * `init` (creates). Snapshots that mark work done/cancelled fan out:
+ * `init` (full content list) → `done`/`drop` per terminal row → `start` for the
+ * active row. Without that fan-out, completions were dropped and the host only
+ * ever re-inited remaining open items — creates worked, completions stuck open.
+ *
+ * Native `{op:…}` calls pass through as a one-element list with harness keys
+ * stripped. Returns `undefined` when `todos` is present but not an array so the
+ * host validation error stays honest.
+ */
+export function expandTodoSnapshotToHostOps(
+  input: Record<string, unknown>,
+): Record<string, unknown>[] | undefined {
+  if (typeof input["op"] === "string" && input["op"]) {
+    const rest = { ...input }
+    for (const key of OPENCODE_TODO_HARNESS_KEYS) delete rest[key]
+    return [rest]
   }
 
-  const items = [...inProgress, ...active]
-  if (items.length === 0) return { op: "rm" }
-  return { op: "init", items }
+  if (!Object.hasOwn(input, "todos")) return [input]
+  const rows = readSnapshotTodoRows(input["todos"])
+  if (!rows) return undefined
+
+  if (rows.length === 0) return [{ op: "rm" }]
+
+  const hasTerminal = rows.some(
+    row => row.status === "completed" || row.status === "cancelled",
+  )
+  if (!hasTerminal) {
+    const inProgress: string[] = []
+    const pending: string[] = []
+    for (const row of rows) {
+      if (row.status === "in_progress") inProgress.push(row.content)
+      else pending.push(row.content)
+    }
+    const items = [...inProgress, ...pending]
+    return items.length === 0 ? [{ op: "rm" }] : [{ op: "init", items }]
+  }
+
+  // Full reconstruct: init every row, then apply terminal + active statuses.
+  // Order matches the snapshot so done/drop/start target the same content.
+  const ops: Record<string, unknown>[] = [{ op: "init", items: rows.map(row => row.content) }]
+  for (const row of rows) {
+    if (row.status === "completed") ops.push({ op: "done", task: row.content })
+    else if (row.status === "cancelled") ops.push({ op: "drop", task: row.content })
+  }
+  const active = rows.find(row => row.status === "in_progress")
+  if (active) ops.push({ op: "start", task: active.content })
+  return ops
+}
+
+/**
+ * Fold an OpenCode/Cursor todo snapshot into ops-based host `todo` op(s).
+ *
+ * Prefer {@link expandTodoSnapshotToHostOps} when the caller can fan out. This
+ * single-op helper keeps the first op only for call sites that cannot expand.
+ */
+function applyTodoShape(input: Record<string, unknown>): Record<string, unknown> {
+  const ops = expandTodoSnapshotToHostOps(input)
+  if (!ops) return input
+  return ops[0] ?? input
 }
 
 /**
@@ -569,7 +707,7 @@ function peelGlobPath(hostPath: string): { pattern: string; path?: string } {
 
 function applyInputShape(
   input: Record<string, unknown>,
-  shape: "pi-edit" | "opencode-edit" | "opencode-read" | "opencode-todo" | "opencode-glob" | undefined,
+  shape: "pi-edit" | "opencode-edit" | "opencode-read" | "opencode-todo" | "opencode-glob" | "opencode-bash" | undefined,
 ): Record<string, unknown> {
   if (shape === "opencode-read") return applyReadShape(input)
   if (shape === "opencode-todo") return applyTodoShape(input)
@@ -601,7 +739,7 @@ export function translateCanonicalToolCall(
   vocabulary: PiSubagentVocabulary | undefined,
   toolInputs?: PiToolInputVocabulary,
   question?: PiQuestionVocabulary,
-): TranslatedSubagentCall | undefined {
+): TranslatedSubagentCall | TranslatedSubagentCall[] | undefined {
   const subagent = translateCanonicalSubagentCall(toolName, input, vocabulary)
   if (subagent) return subagent
 
@@ -619,7 +757,7 @@ export function translateCanonicalToolCall(
     const [hostToolName, profile] = renamedProfile
     const source = toolName === "todoread" ? { op: "view", ...input } : input
     const translated = rewriteInputKeys(source, profile.inputAliases, profile.dropInputKeys)
-    return { toolName: hostToolName, input: applyInputShape(translated, profile.inputShape) }
+    return todoCallsForHost(hostToolName, translated, profile.inputShape)
   }
 
   const inputProfile = toolInputs?.[toolName]
@@ -631,9 +769,12 @@ export function translateCanonicalToolCall(
     dropInputKeys?.some(name => Object.hasOwn(input, name)) === true
   if (rewrites) {
     const translated = rewriteInputKeys(input, inputAliases, dropInputKeys)
-    return { toolName, input: applyInputShape(translated, inputShape) }
+    return todoCallsForHost(toolName, translated, inputShape)
   }
   if (inputShape) {
+    if (inputShape === "opencode-todo" || inputShape === "opencode-read") {
+      return todoCallsForHost(toolName, input, inputShape)
+    }
     const translated = applyInputShape(input, inputShape)
     if (translated !== input || Array.isArray(input.edits)) return { toolName, input: translated }
   }
@@ -683,6 +824,14 @@ export function translateHostToolCallInput(
     if (typeof input["limit"] === "number") rest.limit = input["limit"]
     return rest
   }
+  if (shape === "opencode-bash") {
+    // History must match the advertised `workdir` schema, not host `cwd`.
+    const cwd = input["cwd"]
+    if (typeof cwd !== "string") return input
+    const rest = { ...input }
+    delete rest.cwd
+    return { ...rest, workdir: cwd }
+  }
   if (shape !== "pi-edit") return input
   const edits = input["edits"]
   if (!Array.isArray(edits) || edits.length !== 1) return input
@@ -731,6 +880,46 @@ function hostTodoToOpenCodeSnapshot(input: Record<string, unknown>): Record<stri
   }
   if (items.length === 0) return input
   return { todos: items }
+}
+
+/** Reconstruct the canonical snapshot represented by one fanned-out host op sequence. */
+export function reconstructTodoSnapshotFromHostOps(
+  operations: readonly Record<string, unknown>[],
+): Record<string, unknown> | undefined {
+  let rows: Array<{ content: string; status: OpenCodeTodoStatus }> | undefined
+  for (const operation of operations) {
+    const op = operation["op"]
+    if (op === "init") {
+      const snapshot = hostTodoToOpenCodeSnapshot(operation)["todos"]
+      if (!Array.isArray(snapshot)) continue
+      rows = snapshot
+        .filter((row): row is { content: string; status?: unknown } =>
+          !!row && typeof row === "object" && typeof (row as { content?: unknown }).content === "string")
+        .map(row => ({ content: row.content, status: normalizeOpenCodeTodoStatus(row.status) }))
+      continue
+    }
+    if (op === "rm") {
+      rows = []
+      continue
+    }
+    if (!rows) continue
+    const task = typeof operation["task"] === "string" ? operation["task"].trim() : ""
+    if (!task) continue
+    let row = rows.find(item => item.content === task)
+    if (!row) {
+      row = { content: task, status: "pending" }
+      rows.push(row)
+    }
+    if (op === "done") row.status = "completed"
+    else if (op === "drop") row.status = "cancelled"
+    else if (op === "start") {
+      for (const item of rows) {
+        if (item.status === "in_progress") item.status = "pending"
+      }
+      row.status = "in_progress"
+    }
+  }
+  return rows ? { todos: rows } : undefined
 }
 
 /** Restate a stored host call for the OpenCode plugin's continuation prompt. */

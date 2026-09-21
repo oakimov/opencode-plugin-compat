@@ -8,8 +8,7 @@
  */
 import { describe, expect, test } from "bun:test"
 import { ompProfile, piProfile } from "../packages/pi-bridge/src/host/profile.ts"
-import { expandEntry } from "../packages/pi-bridge/src/opencode/models.ts"
-import { expandModelVariants, extractVariantParams, optionsForLevel, thinkingConfigFor } from "../packages/pi-bridge/src/opencode/variants.ts"
+import { expandEntry, expandModelVariants, extractVariantParams, optionsForLevel, thinkingConfigFor } from "../packages/opencode-loader/src/index.ts"
 
 /** Shaped exactly like what cursor-opencode-provider's config hook emits. */
 const GROK_ENTRY = {

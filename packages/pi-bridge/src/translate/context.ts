@@ -27,9 +27,13 @@ import {
   canonicalSubagentDescription,
   canonicalSubagentSchema,
   canonicalToolName,
+  isOpsTodoHostTool,
+  originalTodoFanoutId,
+  reconstructTodoSnapshotFromHostOps,
   translateHostSubagentCall,
   translateHostToolCallInput,
   type PiSubagentVocabulary,
+  type PiTerminalResultVocabulary,
   type PiToolInputVocabulary,
 } from "./subagent.js"
 import {
@@ -76,13 +80,24 @@ const OPENCODE_REPLACE_EDIT_SCHEMA: Record<string, unknown> = {
 const OPENCODE_READ_SCHEMA: Record<string, unknown> = {
   type: "object",
   properties: {
-    filePath: { type: "string", description: "Path to the file to read (relative or absolute)" },
+    filePath: {
+      type: "string",
+      description:
+        "Exactly one file location, relative or absolute. Never join multiple locations with ; , or |.",
+    },
     offset: { type: "integer", minimum: 1, description: "1-indexed line number to start reading from" },
     limit: { type: "integer", minimum: 1, description: "Maximum number of lines to read" },
   },
   required: ["filePath"],
   additionalProperties: false,
 }
+
+/** Matches {@link OPENCODE_READ_SCHEMA}. Host read.md talks about `path` and inline selectors. */
+const OPENCODE_READ_DESCRIPTION =
+  "Read one file, directory, archive, image, document, or URL. " +
+  "Pass filePath as exactly one location. Never join multiple locations with ; , or |. " +
+  "For a line range set offset (1-indexed start) and limit (line count). " +
+  "Do not encode the range inside filePath."
 
 /**
  * Provider-facing OpenCode glob contract. omp's live tool only accepts a single
@@ -103,13 +118,52 @@ const OPENCODE_GLOB_SCHEMA: Record<string, unknown> = {
   additionalProperties: false,
 }
 
-/** Upstream OpenCode `todowrite` — positional snapshot with no host `op`. */
+/** Matches {@link OPENCODE_GLOB_SCHEMA}. Host glob.md treats `path` as the glob itself. */
+const OPENCODE_GLOB_DESCRIPTION =
+  "Find files by glob. Set pattern to the glob (for example **/*.{ts,tsx}). " +
+  "Set path only as the directory to search, not as the glob. " +
+  "gitignore defaults to true. hidden defaults to true. limit caps the result count."
+
+/** Upstream OpenCode `todowrite` — full list replace; no host `op` fields. */
+const OPENCODE_TODO_WRITE_DESCRIPTION =
+  "Update the session task list. Every call replaces the whole list. Pass " +
+  "todos as [{ content, status }] with status pending, in_progress, completed, " +
+  "or cancelled. Do not send op/init/start/done fields."
+
+const OPENCODE_TODO_READ_DESCRIPTION = "Read the current session task list. Takes no arguments."
+
+/**
+ * OpenCode/Cursor bash surface. Lead with `workdir` — host bash.md buries
+ * "Set cwd instead of cd" and lists mkdir/`&&`, so models encode the directory
+ * only in `command` and then think the tool ignored cwd.
+ */
+const OPENCODE_BASH_DESCRIPTION =
+  "Run a shell command. To run outside the session root, set workdir to that " +
+  "directory. Do not use cd. A path that appears only inside command " +
+  "(including mkdir DIR && pwd) does not change the process working directory."
+
+const OPENCODE_BASH_SCHEMA: Record<string, unknown> = {
+  type: "object",
+  properties: {
+    command: { type: "string", description: "Shell command to execute" },
+    workdir: {
+      type: "string",
+      description:
+        "Process working directory for this command. Set this to leave the " +
+        "session root. Paths inside command alone do not change process cwd.",
+    },
+    timeout: { type: "number", description: "Optional timeout" },
+  },
+  required: ["command"],
+  additionalProperties: false,
+}
+
 const OPENCODE_TODO_WRITE_SCHEMA: Record<string, unknown> = {
   type: "object",
   properties: {
     todos: {
       type: "array",
-      description: "The updated todo list",
+      description: "The complete task list after this update",
       items: {
         type: "object",
         properties: {
@@ -145,6 +199,22 @@ function providerToolSchema(
   if (shape === "opencode-read") return OPENCODE_READ_SCHEMA
   if (shape === "opencode-todo") return OPENCODE_TODO_WRITE_SCHEMA
   if (shape === "opencode-glob") return OPENCODE_GLOB_SCHEMA
+  if (shape === "opencode-bash") {
+    // Keep host-only optional flags (pty/async) so those capabilities stay
+    // callable; directory field is always the OpenCode `workdir` name.
+    const host = toSchema(tool)
+    const hostProps = (host.properties ?? {}) as Record<string, unknown>
+    const properties: Record<string, unknown> = {
+      ...(OPENCODE_BASH_SCHEMA.properties as Record<string, unknown>),
+    }
+    if (hostProps.pty !== undefined) properties.pty = hostProps.pty
+    if (hostProps.async !== undefined) properties.async = hostProps.async
+    if (hostProps.timeout !== undefined) properties.timeout = hostProps.timeout
+    return {
+      ...OPENCODE_BASH_SCHEMA,
+      properties,
+    }
+  }
   return toSchema(tool)
 }
 
@@ -197,6 +267,8 @@ function assistantMessageToV3(
   vocabulary: PiSubagentVocabulary | undefined,
   toolInputs?: PiToolInputVocabulary,
   question?: PiQuestionVocabulary,
+  excludedToolNames?: ReadonlySet<string>,
+  excludedToolCallIds?: Set<string>,
 ) {
   const content: Array<
     | { type: "text"; text: string }
@@ -204,11 +276,43 @@ function assistantMessageToV3(
     | { type: "file"; data: string; mediaType: string }
     | { type: "tool-call"; toolCallId: string; toolName: string; input: unknown }
   > = []
+  // Fanned-out todo ops share one canonical todowrite id; emit it once.
+  // Other fan-outs (e.g. multi-path read) keep every host call as its own
+  // history entry so paths/results are not collapsed into an empty snapshot.
+  const foldedTodoFanouts = new Set<string>()
+  const todoOpsByOriginal = new Map<string, Record<string, unknown>[]>()
+  for (const block of message.content) {
+    if (block.type !== "toolCall") continue
+    const original = originalTodoFanoutId(block.id)
+    if (!original || !isOpsTodoHostTool(block.name, toolInputs)) continue
+    const operations = todoOpsByOriginal.get(original) ?? []
+    operations.push(block.arguments)
+    todoOpsByOriginal.set(original, operations)
+  }
   for (const block of message.content) {
     if (block.type === "text") content.push({ type: "text", text: block.text })
     else if (block.type === "thinking") content.push({ type: "reasoning", text: block.thinking })
     else if (block.type === "image") content.push({ type: "file", data: block.data, mediaType: block.mimeType })
     else if (block.type === "toolCall") {
+      if (excludedToolNames?.has(block.name)) {
+        excludedToolCallIds?.add(block.id)
+        continue
+      }
+      const fanoutOriginal = originalTodoFanoutId(block.id)
+      if (fanoutOriginal && isOpsTodoHostTool(block.name, toolInputs)) {
+        if (foldedTodoFanouts.has(fanoutOriginal)) continue
+        foldedTodoFanouts.add(fanoutOriginal)
+        const snapshot = reconstructTodoSnapshotFromHostOps(
+          todoOpsByOriginal.get(fanoutOriginal) ?? [],
+        ) ?? { todos: [] }
+        content.push({
+          type: "tool-call",
+          toolCallId: fanoutOriginal,
+          toolName: canonicalToolName(block.name, vocabulary, toolInputs, { op: "init" }),
+          input: snapshot,
+        })
+        continue
+      }
       const translated =
         translateHostSubagentCall(block.name, block.arguments, vocabulary) ??
         translateHostQuestionCall(block.name, block.arguments, question)
@@ -246,11 +350,20 @@ export function translateContextToPrompt(
   profile?: PiHostProfile,
   toolInputs?: PiToolInputVocabulary,
   question?: PiQuestionVocabulary,
+  excludedToolNames?: ReadonlySet<string>,
 ): LanguageModelV3Prompt {
   const prompt: LanguageModelV3Prompt = []
+  const excludedToolCallIds = new Set<string>()
 
   const systemText = normalizeSystemPrompt(context.systemPrompt)
   if (systemText) prompt.push({ role: "system", content: systemText })
+
+  // Fanned-out todo results collapse into the first message for their canonical id.
+  // Multi-path read fan-outs are left as separate results (matched by call id).
+  const foldedTodoResults = new Map<
+    string,
+    { toolName: string; texts: string[]; isError: boolean; promptIndex: number }
+  >()
 
   for (const message of context.messages) {
     if (message.role === "user") {
@@ -279,8 +392,51 @@ export function translateContextToPrompt(
       const text = flattenToPlainText(message.content)
       if (text.length > 0) prompt.push({ role: "system", content: text })
     } else if (message.role === "assistant") {
-      prompt.push(assistantMessageToV3(message, vocabulary, toolInputs, question))
+      const translated = assistantMessageToV3(
+        message,
+        vocabulary,
+        toolInputs,
+        question,
+        excludedToolNames,
+        excludedToolCallIds,
+      )
+      if (translated.content.length > 0) prompt.push(translated)
     } else if (message.role === "toolResult") {
+      if (excludedToolNames?.has(message.toolName) || excludedToolCallIds.has(message.toolCallId)) continue
+      const fanoutOriginal = originalTodoFanoutId(message.toolCallId)
+      if (fanoutOriginal && isOpsTodoHostTool(message.toolName, toolInputs)) {
+        const text = flattenToPlainText(message.content)
+        const existing = foldedTodoResults.get(fanoutOriginal)
+        if (existing) {
+          if (text.length > 0) existing.texts.push(text)
+          if (message.isError) existing.isError = true
+          continue
+        }
+        const toolName = canonicalToolName(
+          canonicalQuestionToolName(message.toolName, question),
+          vocabulary,
+          toolInputs,
+          { op: "init" },
+        )
+        prompt.push({
+          role: "tool",
+          content: [
+            {
+              type: "tool-result",
+              toolCallId: fanoutOriginal,
+              toolName,
+              output: { type: "text", value: "" },
+            },
+          ],
+        })
+        foldedTodoResults.set(fanoutOriginal, {
+          toolName,
+          texts: text.length > 0 ? [text] : [],
+          isError: message.isError === true,
+          promptIndex: prompt.length - 1,
+        })
+        continue
+      }
       prompt.push({
         role: "tool",
         content: [
@@ -299,6 +455,15 @@ export function translateContextToPrompt(
     }
   }
 
+  // Fill folded fan-out tool results with concatenated host text.
+  for (const folded of foldedTodoResults.values()) {
+    const entry = prompt[folded.promptIndex]
+    if (!entry || entry.role !== "tool" || !Array.isArray(entry.content) || !entry.content[0]) continue
+    const part = entry.content[0] as LanguageModelV3ToolResultPart
+    const value = folded.texts.join("\n") || "Todo list updated."
+    part.output = { type: folded.isError ? "error-text" : "text", value }
+  }
+
   return prompt
 }
 
@@ -311,10 +476,15 @@ export function translateTools(
   vocabulary?: PiSubagentVocabulary,
   toolInputs?: PiToolInputVocabulary,
   question?: PiQuestionVocabulary,
+  terminalResult?: PiTerminalResultVocabulary,
 ): LanguageModelV3FunctionTool[] | undefined {
   if (!tools || tools.length === 0) return undefined
   const translated: LanguageModelV3FunctionTool[] = []
   for (const tool of tools) {
+    // Host-only settle shim (omp `yield`). The stream injects it on stop;
+    // advertising it makes catalogs look like subagent surfaces and confuses
+    // models hunting for ask/todo tools.
+    if (terminalResult && tool.name === terminalResult.hostToolName) continue
     if (vocabulary && tool.name === vocabulary.hostToolName) {
       translated.push({
         type: "function",
@@ -333,22 +503,36 @@ export function translateTools(
       })
       continue
     }
+    const shape = toolInputs?.[tool.name]?.inputShape
+    // When we rewrite the schema to OpenCode, rewrite the description too —
+    // leaving host prose (ops-based todo, buried cwd bullets) beside a different
+    // schema confuses models into the wrong call shape.
+    const description =
+      shape === "opencode-todo"
+        ? OPENCODE_TODO_WRITE_DESCRIPTION
+        : shape === "opencode-bash"
+          ? OPENCODE_BASH_DESCRIPTION
+          : shape === "opencode-read"
+            ? OPENCODE_READ_DESCRIPTION
+            : shape === "opencode-glob"
+              ? OPENCODE_GLOB_DESCRIPTION
+              : tool.description
     translated.push({
       type: "function",
       name: canonicalToolName(tool.name, vocabulary, toolInputs),
-      description: tool.description,
+      description,
       inputSchema: providerToolSchema(tool, toSchema, toolInputs) as unknown as JSONSchema7,
     })
     for (const extra of toolInputs?.[tool.name]?.extraProviderNames ?? []) {
       translated.push({
         type: "function",
         name: extra,
-        description: tool.description,
+        description: extra === "todoread" ? OPENCODE_TODO_READ_DESCRIPTION : description,
         inputSchema: extra === "todoread" ? TODO_READ_SCHEMA : providerToolSchema(tool, toSchema, toolInputs) as unknown as JSONSchema7,
       })
     }
   }
-  return translated.sort((left, right) => left.name.localeCompare(right.name))
+  return translated.sort((left, right) => (left.name < right.name ? -1 : left.name > right.name ? 1 : 0))
 }
 
 /** Translate the host's `toolChoice` into AI-SDK V3's shape. */

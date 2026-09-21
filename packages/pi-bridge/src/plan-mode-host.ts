@@ -387,7 +387,7 @@ export async function exitOmpPlanMode(
   }
 
   return {
-    content: [{ type: "text", text: "Plan mode disabled." }],
+      content: [{ type: "text", text: "Left plan mode. No plan was approved." }],
     details: { action: "plan_exit" },
   }
 }

@@ -138,6 +138,7 @@ describe("Cursor host tool registration", () => {
       hostId: "omp",
       resolvePlanHost: async () => host,
       executeImageSave: async () => "saved",
+      reviewPlan: async () => "Approve and execute",
     })
 
     expect(names).toEqual([
@@ -156,7 +157,6 @@ describe("Cursor host tool registration", () => {
     expect(session.getPlanModeState()?.enabled).toBe(true)
 
     const stage = pi.registered.find(tool => tool.name === CURSOR_PLAN_STAGE_TOOL)!
-    let reviewTitle = ""
     const stageResult = (await stage.execute(
       "c-stage",
       {
@@ -166,19 +166,10 @@ describe("Cursor host tool registration", () => {
       },
       undefined,
       undefined,
-      {
-        hasUI: true,
-        ui: {
-          select: async (title: string) => {
-            reviewTitle = title
-            return "Approve and execute"
-          },
-        },
-      },
-    )) as { content: Array<{ text: string }>; details: { action: string; planFilePath: string } }
+      {},
+    )) as { details: { action: string; planFilePath: string } }
     expect(stageResult.details.action).toBe("plan_approved")
     expect(stageResult.details.planFilePath).toBe("local://sample-plan.md")
-    expect(reviewTitle).toContain("# Sample")
     expect(session.getPlanModeState()).toBeUndefined()
     expect(session.followUps).toEqual([
       "The user approved the plan at local://sample-plan.md. Execute the approved plan now.",
@@ -201,15 +192,13 @@ describe("Cursor host tool registration", () => {
       hostId: "omp",
       resolvePlanHost: async () => host,
       executeImageSave: async () => "saved",
+      reviewPlan: async () => "Refine plan",
     })
 
     const enter = pi.registered.find(tool => tool.name === PLAN_ENTER_TOOL)!
     await enter.execute("c1", {}, undefined, undefined, {})
     const stage = pi.registered.find(tool => tool.name === CURSOR_PLAN_STAGE_TOOL)!
 
-    // Refinement must surface as an error: the Cursor provider reads tool
-    // success as "the user approved execution", so a success result here made
-    // Cursor start implementing a plan the user had just asked to change.
     let error: Error | undefined
     try {
       await stage.execute(
@@ -221,23 +210,20 @@ describe("Cursor host tool registration", () => {
         },
         undefined,
         undefined,
-        {
-          hasUI: true,
-          ui: { select: async () => "Refine plan" },
-        },
+        {},
       )
     } catch (caught) {
       error = caught as Error
     }
 
-    expect(error?.message).toBe(
-      "Plan refinement requested. Update local://refine-plan.md, then propose it again when ready.",
-    )
+    expect(error?.message).toContain("Plan refinement requested")
+    expect(error?.message).toContain("local://refine-plan.md")
     expect(session.getPlanModeState()?.enabled).toBe(true)
     expect(session.getPlanModeState()?.planFilePath).toBe("local://refine-plan.md")
+    expect(session.followUps).toEqual([])
   })
 
-  test("a cancelled review reports not-approved without claiming refinement", async () => {
+  test("a dismissed review reports not-approved and stays in plan mode", async () => {
     const session = fakeSession({ hasWrite: true })
     const host = bindOmpPlanModeHostFromSession(session)
     const pi = fakePi()
@@ -245,6 +231,7 @@ describe("Cursor host tool registration", () => {
       hostId: "omp",
       resolvePlanHost: async () => host,
       executeImageSave: async () => "saved",
+      reviewPlan: async () => undefined,
     })
     const enter = pi.registered.find(tool => tool.name === PLAN_ENTER_TOOL)!
     await enter.execute("c1", {}, undefined, undefined, {})
@@ -261,10 +248,7 @@ describe("Cursor host tool registration", () => {
         },
         undefined,
         undefined,
-        {
-          hasUI: true,
-          ui: { select: async () => undefined },
-        },
+        {},
       )
     } catch (caught) {
       error = caught as Error

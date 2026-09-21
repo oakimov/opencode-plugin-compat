@@ -51,7 +51,7 @@ plugin from the host's own package manager and removes that provider from
 config file. It finishes by restoring the provider checkout if an older script
 left it dirty.
 
-Defaults: provider checkout from `OCP_DEV_PROVIDER_PATH` if set, else `../cursor-opencode-provider`, else `~/Projects/cursor-opencode-provider`.
+Defaults: provider checkout from `OCP_DEV_PROVIDER_PATH` if set, otherwise the sibling `../cursor-opencode-provider` checkout.
 
 **The provider checkout is read-only in local mode.** Every host gets a private
 instrumented copy under `${OCP_DEV_STATE_DIR:-~/.cache/ocp-dev}/<host>/provider`
@@ -292,9 +292,12 @@ and operator setup live here:
 
 **[docs/guides/cursor-ocp-self-verify.md](./docs/guides/cursor-ocp-self-verify.md)**
 
-That is the interactive proof for Cursor-through-OCP (tools, catalog affinity,
-plan/mode, canonical `task` / `task_id`). Unit tests in this repo do not replace
-it. The provider's own checklist is
+That is the interactive proof for Cursor-through-OCP (tools, **full todo
+lifecycle**, catalog affinity, plan/mode, spawn) — **same exercises and scoring
+outcomes on every host**, using each session's advertised tool names (OpenCode
+names when OCP remapped them; otherwise host-native snapshot/spawn equivalents).
+Unit tests in this repo do not replace it.
+The provider's own checklist is
 `cursor-opencode-provider/docs/host-compat-acceptance.md`.
 
 ---

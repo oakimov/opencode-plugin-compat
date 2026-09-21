@@ -1,17 +1,24 @@
 # omp tool-shape self-verify prompt
 
-Paste-ready agent prompt that checks the **omp-specific** OpenCode → host
-folds recently fixed in `@opencode-compat/pi-bridge`:
+Narrow **omp-only** smoke for folds that have no shared-host equivalent:
+read paging, replace-edit vs hashline, hashline coalesce, and glob path join.
+
+**Todos are not tested here.** Every host uses the same create → verify →
+progress → complete → cancel → close suite in
+[`cursor-ocp-self-verify.md`](./cursor-ocp-self-verify.md) (items T4a–T4f; same
+lifecycle on every host, including dsh via advertised snapshot tools).
+
+Paste-ready agent prompt for the omp-specific OpenCode → host folds in
+`@opencode-compat/pi-bridge`:
 
 | Area | What broke before | Bridge fix |
 |------|-------------------|------------|
 | **Read paging** | Cursor `{offset,limit}` rejected / ignored; omp only accepts `path` | `inputShape: "opencode-read"` → `path:raw:N-M` (raw disables host context padding) |
 | **Replace edit** | Under default hashline mode, OpenCode `{oldString,newString}` could not run as live `{input}` | replace overlay + advertised flat `edit` |
 | **Hashline** | Parallel same-tag hunks burned snapshot history; eviction looked like fabrication | separate `hashline` tool, coalesce, overlap/eviction restatement — **H2 requires two concurrent same-tag calls** |
-| **Todos** | Cursor `{todos:[…]}` → `op must be operation to apply (was missing)` | `inputShape: "opencode-todo"` → `init` / `rm` / `view` |
 | **Glob** | OpenCode `{pattern,path}` dropped `pattern`; omp searched the root as `**/*` | `inputShape: "opencode-glob"` → join into omp `path` (keeps `gitignore`/`hidden`/`limit`) |
 
-This is **not** the full Cursor+OCP acceptance suite. For warm-cache /
+This is **not** the Cursor+OCP acceptance suite. For todos, warm-cache,
 plan / subagent / provider-log scoring, use
 [`cursor-ocp-self-verify.md`](./cursor-ocp-self-verify.md).
 
@@ -68,18 +75,20 @@ evidence.
   is inside it.
 - Prefer the **OpenCode / Cursor** argument shapes when a tool advertises
   them (`filePath`, `offset`/`limit`, `oldString`/`newString`,
-  `todowrite` + `{todos:[…]}`). Do not “help” the host by inventing omp-native
+  `glob` + `{pattern,path}`). Do not “help” the host by inventing omp-native
   shapes unless a case explicitly asks for `hashline`.
 - If a required tool is missing from the catalog, mark that case `blocked`
   with the advertised names — do not invent a substitute.
 - Do not print secrets. Do not dump any debug log into the conversation.
+- Do **not** exercise todos here — run
+  [`cursor-ocp-self-verify.md`](./cursor-ocp-self-verify.md) for that.
 
 ### Setup
 
 1. Create the scratch dir.
 2. Record host (`omp`), model id, and session id if shown.
 3. Confirm you see provider-facing tools roughly like: `read`, `write`,
-   `edit`, `hashline`, `todowrite`, `todoread` (plus shell/search as usual).
+   `edit`, `hashline`, `glob` (plus shell/search as usual).
    Fail early if `edit` is missing or only a raw omp `{input}` hashline schema
    is advertised with no flat `oldString`/`newString` fields and no separate
    `hashline` tool.
@@ -166,44 +175,6 @@ item with a single multi-section patch.
 - **blocked:** `hashline` not advertised. Do **not** mark `skipped` because
   a single merged patch was easier.
 
-#### T1 — Todo snapshot write (`todowrite`)
-
-- Call **`todowrite`** with an OpenCode snapshot body — **no** `op` field:
-
-  ```json
-  {
-    "todos": [
-      { "content": "omp-shape-a", "status": "in_progress" },
-      { "content": "omp-shape-b", "status": "pending" }
-    ]
-  }
-  ```
-
-- **Pass:** tool succeeds. Transcript must **not** contain
-  `op must be operation to apply (was missing)` (or equivalent).
-- **Fail:** that error, or you “fixed” it by switching to omp-native
-  `{op:"init",…}` yourself.
-
-#### T2 — Todo read + clear
-
-- Call **`todoread`** (empty args). Confirm both items are visible in some
-  form (exact formatting may be host-native).
-- Call **`todowrite`** again with only completed/cancelled items, or an
-  empty `todos: []`, still **without** sending `op` yourself — e.g.
-
-  ```json
-  {
-    "todos": [
-      { "content": "omp-shape-a", "status": "completed" },
-      { "content": "omp-shape-b", "status": "cancelled" }
-    ]
-  }
-  ```
-
-- `todoread` again.
-- **Pass:** read/clear path works; still no missing-`op` errors; plugin-facing
-  names stay `todowrite` / `todoread` (not a raw fork tracker name).
-
 #### G1 — Glob pattern + path (+ gitignore)
 
 - Under the scratch dir, create `keep.ts` and `noise.py`.
@@ -231,8 +202,6 @@ or file evidence. No cite → not passed.
 | E1 | Flat OpenCode `edit` replaced a line under default hashline mode |
 | H1 | `hashline` tool applied a tagged patch successfully |
 | H2 | Two same-tag `hashline` calls in one turn; both lines updated (coalesce path) |
-| T1 | `todowrite` snapshot without `op` succeeded |
-| T2 | `todoread` + clear/terminal snapshot worked; canonical todo names |
 | G1 | OpenCode `{pattern,path}` glob excludes non-matching extensions |
 | H3 | Scratch dir is the only tree you changed |
 
@@ -251,8 +220,6 @@ scratch:
 | E1 |        |          |
 | H1 |        |          |
 | H2 |        |          |
-| T1 |        |          |
-| T2 |        |          |
 | G1 |        |          |
 | H3 |        |          |
 
@@ -260,8 +227,9 @@ verdict: pass | fail
 notes:
 ```
 
-`verdict` is `pass` only if R1, R2, E1, H1, **H2**, T1, T2, G1, and H3 all
+`verdict` is `pass` only if R1, R2, E1, H1, **H2**, G1, and H3 all
 `passed`. H2 is **not** skippable via a single merged patch. End with that
-table.
+table. Todo lifecycle scores live only in
+[`cursor-ocp-self-verify.md`](./cursor-ocp-self-verify.md).
 
 ---

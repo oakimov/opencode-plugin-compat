@@ -55,7 +55,8 @@
     "prepack": "bunx tsc -p tsconfig.json"
   },
   "dependencies": {
-    "@ai-sdk/provider": "^3.0.14"
+    "@ai-sdk/provider": "^3.0.14",
+    "@opencode-compat/opencode-loader": "0.4.0"
   },
   "peerDependencies": {
     "@earendil-works/pi-ai": ">=0.80.0",

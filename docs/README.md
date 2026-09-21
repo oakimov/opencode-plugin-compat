@@ -22,8 +22,9 @@ install, local development, per-host internals, and verification.
 | [`../packages/pi-bridge/README.md`](../packages/pi-bridge/README.md) | pi-bridge config reference + pi/omp host-difference table |
 | [`../packages/dsh-bridge/README.md`](../packages/dsh-bridge/README.md) | dsh-bridge contract + Cordis patch config |
 | [`../TESTING.md`](../TESTING.md) | Manual local dev — unpublished OCP checkout + local plugins |
-| [`guides/cursor-ocp-self-verify.md`](./guides/cursor-ocp-self-verify.md) | Paste-ready agent prompt: exercise Cursor-through-OCP, then score the provider debug log |
-| [`guides/omp-tool-shape-self-verify.md`](./guides/omp-tool-shape-self-verify.md) | Paste-ready omp prompt: read paging, replace `edit` vs `hashline`, and OpenCode todo snapshots |
+| [`guides/cursor-ocp-self-verify.md`](./guides/cursor-ocp-self-verify.md) | Paste-ready agent prompt: **same** Cursor-through-OCP exercises + scoring outcomes on every host (T4a–T4f lifecycle; host-advertised tool names) |
+| [`guides/devin-ocp-self-verify.md`](./guides/devin-ocp-self-verify.md) | Paste-ready agent prompt: **same** Devin-through-OCP exercises + scoring (`DEVIN_PROVIDER_DEBUG`) |
+| [`guides/omp-tool-shape-self-verify.md`](./guides/omp-tool-shape-self-verify.md) | Narrow omp-only fold smoke (read paging / hashline / glob). No todos — use the shared guide above |
 | [`guides/npm-publish.md`](./guides/npm-publish.md) | Publishing the public `@opencode-compat/*` train (OIDC Trusted Publishing on `v*` tags) |
 
 ## Companion guides (not OCP runtime)

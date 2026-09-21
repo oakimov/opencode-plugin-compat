@@ -11,6 +11,7 @@ import {
   createPlanModeBinderState,
   enterOmpPlanMode,
   exitOmpPlanMode,
+  findHostCodingAgentPackageRoot,
   type OmpPlanModeHost,
   type PlanModeBinderState,
 } from "./plan-mode-host.js"
@@ -59,16 +60,6 @@ const IMAGE_ID_SCHEMA = {
 type TextToolResult = {
   content: Array<{ type: "text"; text: string }>
   details?: Record<string, unknown>
-}
-
-type OmpExtensionContext = {
-  hasUI?: boolean
-  ui?: {
-    select?: (
-      title: string,
-      options: Array<string | { value: string; label?: string; description?: string }>,
-    ) => Promise<string | undefined>
-  }
 }
 
 type ImageSaveAsk = (input: {
@@ -149,6 +140,11 @@ export type RegisterCursorHostToolsOptions = {
   resolvePlanHost?: () => Promise<OmpPlanModeHost | undefined>
   /** Override image-save execute (tests / when provider package is absent). */
   executeImageSave?: ImageSaveExecute
+  /**
+   * Override the host plan-review prompt (tests). Production waits on omp's
+   * plan-review overlay and does not return until the user chooses.
+   */
+  reviewPlan?: (input: { content: string; title: string; planUri: string }) => Promise<string | undefined>
 }
 
 async function loadExecuteCursorImageSave(): Promise<ImageSaveExecute | undefined> {
@@ -197,10 +193,118 @@ function localPlanPath(host: OmpPlanModeHost, planUri: string): string {
   return resolved
 }
 
+const PLAN_REVIEW_APPROVE = "Approve and execute"
+const PLAN_REVIEW_REFINE = "Refine plan"
+const PLAN_REVIEW_TITLE = "Plan mode - next step"
+
+type PlanReviewOverlayCtor = new (
+  planContent: string,
+  options: { promptTitle?: string; options: string[]; helpText?: string },
+  callbacks: { onPick: (label: string) => void; onCancel: () => void },
+) => unknown
+
+type HostReviewUi = {
+  custom?: (
+    factory: (
+      tui: { setFocus?: (component: unknown) => void },
+      theme: unknown,
+      keybindings: unknown,
+      done: (result: string | undefined) => void,
+    ) => unknown,
+    options?: {
+      overlay?: boolean
+      overlayOptions?: {
+        anchor?: string
+        width?: string
+        maxHeight?: string
+        margin?: number
+        fullscreen?: boolean
+      }
+    },
+  ) => Promise<string | undefined>
+}
+
+async function loadPlanReviewOverlay(): Promise<PlanReviewOverlayCtor | undefined> {
+  const { existsSync, readFileSync, realpathSync } = await import("node:fs")
+  const { pathToFileURL } = await import("node:url")
+  const entry = process.argv[1]
+  if (!entry) return undefined
+  const root = findHostCodingAgentPackageRoot(
+    entry,
+    "@oh-my-pi/pi-coding-agent",
+    { existsSync, readFileSync, realpathSync },
+    path,
+  )
+  if (!root) return undefined
+  const overlayPath = path.join(path.dirname(root), "pi-tui", "src", "overlays", "plan-review-overlay.ts")
+  if (!existsSync(overlayPath)) return undefined
+  try {
+    const mod = (await import(pathToFileURL(overlayPath).href)) as { PlanReviewOverlay?: PlanReviewOverlayCtor }
+    return mod.PlanReviewOverlay
+  } catch {
+    return undefined
+  }
+}
+
+/**
+ * Block on omp's plan-review overlay. Returning before this choice is what let
+ * the model call `plan_exit` ("Plan mode disabled.") and skip approval.
+ */
+async function presentHostPlanReview(
+  ctx: unknown,
+  content: string,
+  title: string,
+): Promise<string | undefined> {
+  const ui = (ctx as { ui?: HostReviewUi } | undefined)?.ui
+  if (typeof ui?.custom !== "function") {
+    throw new Error("omp native plan review requires an interactive TUI session")
+  }
+  const Overlay = await loadPlanReviewOverlay()
+  if (!Overlay) {
+    throw new Error("omp plan review overlay is not available in this host")
+  }
+  return ui.custom(
+    (_tui, _theme, _keybindings, done) => new Overlay(
+      content,
+      {
+        promptTitle: PLAN_REVIEW_TITLE,
+        options: [PLAN_REVIEW_APPROVE, PLAN_REVIEW_REFINE],
+        helpText: "esc cancel",
+      },
+      {
+        onPick: choice => done(choice),
+        onCancel: () => done(undefined),
+      },
+    ),
+    {
+      overlay: true,
+      overlayOptions: {
+        anchor: "bottom-center",
+        width: "100%",
+        maxHeight: "100%",
+        margin: 0,
+        fullscreen: true,
+      },
+    },
+  )
+}
+
+function assertPlanReviewChoice(choice: string | undefined, planUri: string): void {
+  if (choice === PLAN_REVIEW_APPROVE || (typeof choice === "string" && choice.startsWith("Approve and "))) return
+  if (choice === PLAN_REVIEW_REFINE) {
+    throw new PlanNotApprovedError(
+      `Plan refinement requested. Update ${planUri}, then stage it again when ready. Stay in plan mode.`,
+    )
+  }
+  throw new PlanNotApprovedError(
+    `Plan review was dismissed. The plan at ${planUri} was not approved for execution. Stay in plan mode.`,
+  )
+}
+
 async function stageNativeOmpPlan(
   host: OmpPlanModeHost,
   params: Record<string, unknown>,
-): Promise<TextToolResult> {
+): Promise<{ planUri: string; title: string }> {
   const planUri = typeof params.plan_uri === "string" ? params.plan_uri.trim() : ""
   const content = typeof params.content === "string" ? params.content : ""
   const title = typeof params.title === "string" ? params.title.trim() : ""
@@ -210,71 +314,13 @@ async function stageNativeOmpPlan(
   const state = host.getPlanModeState()
   if (!state?.enabled) throw new Error("omp plan mode is not active")
 
-  // This bridge tool stages only the session-local artifact. The provider emits
-  // a second ordinary `write xd://propose` in the same tool batch, so omp's own
-  // resolution-device dispatcher and plan approval UI remain authoritative.
+  // The file is only the artifact. The caller waits on the host review
+  // before this tool returns, so the model cannot skip it with plan_exit.
   const target = localPlanPath(host, planUri)
   await mkdir(path.dirname(target), { recursive: true })
   await writeFile(target, content, "utf8")
   host.setPlanModeState({ ...state, planFilePath: planUri })
-  return textResult(JSON.stringify({ plan_uri: planUri }), {
-    action: CURSOR_PLAN_STAGE_TOOL,
-    planFilePath: planUri,
-    title,
-    planExists: true,
-  })
-}
-
-async function reviewNativeOmpPlan(
-  host: OmpPlanModeHost,
-  title: string,
-  content: string,
-  context: OmpExtensionContext | undefined,
-  state: PlanModeBinderState,
-): Promise<TextToolResult> {
-  const prepared = await host.preparePlanForReview(title) as {
-    details?: { planFilePath?: unknown; title?: unknown; planExists?: unknown }
-  }
-  const details = prepared.details
-  const planFilePath = typeof details?.planFilePath === "string" ? details.planFilePath : ""
-  const resolvedTitle = typeof details?.title === "string" ? details.title : title
-  if (!planFilePath || details?.planExists !== true) {
-    throw new Error("omp native plan proposal did not resolve a reviewable plan")
-  }
-  if (context?.hasUI !== true || typeof context.ui?.select !== "function") {
-    throw new Error("omp native plan review requires an interactive TUI session")
-  }
-
-  const choice = await context.ui.select(
-    `Review plan: ${resolvedTitle}\n\n${content}`,
-    ["Approve and execute", "Refine plan"],
-  )
-  if (choice !== "Approve and execute") {
-    // The provider's CreatePlan contract is success = the user approved
-    // execution, error = the plan was written but not accepted. Returning a
-    // success result here made Cursor treat a refinement request as approval
-    // and start implementing the plan the user had just declined.
-    // Distinguish a dismissed/cancelled prompt from an explicit "Refine plan"
-    // choice so the model is not told the user asked for changes when they
-    // simply closed the dialog.
-    const message = choice === "Refine plan"
-      ? `Plan refinement requested. Update ${planFilePath}, then propose it again when ready.`
-      : `Plan review was cancelled. The plan at ${planFilePath} was not approved for execution.`
-    throw new PlanNotApprovedError(message)
-  }
-
-  const session = host.getSession()
-  session?.setPlanReferencePath?.(planFilePath)
-  await exitOmpPlanMode(host, state)
-  await session?.followUp?.(
-    `The user approved the plan at ${planFilePath}. Execute the approved plan now.`,
-  )
-  return textResult(`Plan approved at ${planFilePath}. Plan mode exited; execution queued.`, {
-    action: "plan_approved",
-    planFilePath,
-    title: resolvedTitle,
-    planExists: true,
-  })
+  return { planUri, title }
 }
 
 /**
@@ -329,8 +375,8 @@ export function registerCursorHostTools(
       name: PLAN_EXIT_TOOL,
       label: "Exit plan mode",
       description:
-        "Leave omp plan mode and restore normal build tools. " +
-        "OpenCode / Cursor SwitchMode maps non-plan targets here.",
+        "Leave omp plan mode without approving a plan, and restore normal build tools. " +
+        "This is not plan review. OpenCode / Cursor SwitchMode maps non-plan targets here.",
       parameters: emptyParams,
       loadMode: "essential",
       approval: "read",
@@ -347,8 +393,8 @@ export function registerCursorHostTools(
       name: CURSOR_PLAN_STAGE_TOOL,
       label: "Stage Cursor plan",
       description:
-        "Stage Cursor CreatePlan markdown in omp's session-local plan artifact. " +
-        "The Cursor provider issues this immediately before native plan proposal.",
+        "Stage Cursor CreatePlan markdown in omp's session-local plan artifact and " +
+        "wait for the host plan review. Do not call plan_exit to submit or skip that review.",
       parameters: planStageParams,
       loadMode: "essential",
       approval: "read",
@@ -356,14 +402,24 @@ export function registerCursorHostTools(
         try {
           const host = await resolvePlanHost(resolveHost)
           const input = params as Record<string, unknown>
-          await stageNativeOmpPlan(host, input)
-          return await reviewNativeOmpPlan(
-            host,
-            typeof input.title === "string" ? input.title : "",
-            typeof input.content === "string" ? input.content : "",
-            ctx as OmpExtensionContext | undefined,
-            binderState,
+          const staged = await stageNativeOmpPlan(host, input)
+          const content = typeof input.content === "string" ? input.content : ""
+          const choice = options.reviewPlan
+            ? await options.reviewPlan({ content, title: staged.title, planUri: staged.planUri })
+            : await presentHostPlanReview(ctx, content, staged.title)
+          assertPlanReviewChoice(choice, staged.planUri)
+          const session = host.getSession()
+          session?.setPlanReferencePath?.(staged.planUri)
+          await exitOmpPlanMode(host, binderState)
+          await session?.followUp?.(
+            `The user approved the plan at ${staged.planUri}. Execute the approved plan now.`,
           )
+          return textResult(`Plan approved at ${staged.planUri}. Plan mode exited; execution queued.`, {
+            action: "plan_approved",
+            planFilePath: staged.planUri,
+            title: staged.title,
+            planExists: true,
+          })
         } catch (error) {
           mapPlanModeError(error)
         }

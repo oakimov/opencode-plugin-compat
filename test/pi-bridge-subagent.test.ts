@@ -92,10 +92,20 @@ describe("Pi-family subagent vocabulary", () => {
     expect(vocabulary?.availableAgents).toEqual(["task", "scout", "reviewer"])
     expect(vocabulary?.agentCatalogComplete).toBe(true)
     expect(vocabulary?.coordinationToolName).toBe("hub")
-    expect(canonicalSubagentDescription(vocabulary!)).toContain(
-      "built-in hub tool for status and follow-up; it is not an MCP server",
+    // Cache stability: the task description is constant across agent-set and
+    // coordination changes; membership lives only in the sorted enum below.
+    expect(canonicalSubagentDescription(vocabulary!)).toBe(
+      "Launch a specialized agent for an isolated delegated task.",
     )
-    expect(canonicalSubagentDescription(vocabulary!)).toContain("never call task to poll or resume")
+    const otherVocabulary = buildPiSubagentVocabulary(
+      [OMP_TASK] as never,
+      toSchema as never,
+      ompProfile(),
+    )!
+    expect(otherVocabulary.coordinationToolName).toBeUndefined()
+    expect(canonicalSubagentDescription(otherVocabulary)).toBe(
+      canonicalSubagentDescription(vocabulary!),
+    )
 
     const schema = canonicalSubagentSchema(vocabulary!)
     expect(schema.required).toEqual(["description", "prompt", "subagent_type"])
@@ -222,7 +232,11 @@ describe("Pi-family subagent vocabulary", () => {
       { name: "hub" },
     ] as never
     const toolInputs = buildPiToolInputVocabulary(tools, ompProfile())
-    expect(toolInputs?.write?.inputAliases).toMatchObject({ filePath: "path" })
+    expect(toolInputs?.write?.inputAliases).toMatchObject({
+      filePath: "path",
+      contents: "content",
+      file_text: "content",
+    })
     expect(toolInputs?.edit?.dropInputKeys).toEqual(["i"])
     expect(translateCanonicalToolCall(
       "write",
@@ -232,6 +246,15 @@ describe("Pi-family subagent vocabulary", () => {
     )).toEqual({
       toolName: "write",
       input: { path: "xd://mcp__everything_echo", content: '{"message":"ok"}' },
+    })
+    expect(translateCanonicalToolCall(
+      "write",
+      { filePath: "/tmp/a.txt", contents: "hello\n" },
+      undefined,
+      toolInputs,
+    )).toEqual({
+      toolName: "write",
+      input: { path: "/tmp/a.txt", content: "hello\n" },
     })
     expect(translateCanonicalToolCall(
       "edit",
@@ -259,6 +282,38 @@ describe("Pi-family subagent vocabulary", () => {
     )).toEqual({
       toolName: "bash",
       input: { command: "ls", cwd: "/tmp" },
+    })
+    expect(toolInputs?.bash?.inputShape).toBe("opencode-bash")
+    const bashCatalog = translateTools(
+      [{ name: "bash", description: "Set `cwd` instead of `cd`. Use mkdir && pwd.", parameters: {
+        type: "object",
+        properties: {
+          command: { type: "string" },
+          cwd: { type: "string", description: "working directory" },
+          timeout: { type: "number" },
+          pty: { type: "boolean" },
+        },
+        required: ["command"],
+      } }] as never,
+      toSchema as never,
+      undefined,
+      toolInputs,
+    )
+    const bashTool = bashCatalog?.find(tool => tool.name === "bash")
+    expect(bashTool?.description).toContain("set workdir")
+    expect(bashTool?.description).toContain("mkdir DIR && pwd")
+    expect(bashTool?.description).not.toContain("Set `cwd`")
+    const bashSchema = bashTool?.inputSchema as {
+      properties?: Record<string, unknown>
+      required?: string[]
+    }
+    expect(bashSchema?.required).toEqual(["command"])
+    expect(bashSchema?.properties?.workdir).toBeDefined()
+    expect(bashSchema?.properties?.cwd).toBeUndefined()
+    expect(bashSchema?.properties?.pty).toBeDefined()
+    expect(translateHostToolCallInput("bash", { command: "pwd", cwd: "/tmp/x" }, toolInputs)).toEqual({
+      command: "pwd",
+      workdir: "/tmp/x",
     })
     // Absent tools stay unmapped so a disabled write cannot steal aliases.
     expect(buildPiToolInputVocabulary([{ name: "hub" }] as never, ompProfile())?.write).toBeUndefined()
@@ -366,12 +421,26 @@ describe("Pi-family subagent vocabulary", () => {
     // so neither may be aliased onto omp's shape.
     const tools = [{ name: "read" }, { name: "write" }, { name: "edit" }, { name: "bash" }] as never
     const toolInputs = buildPiToolInputVocabulary(tools, piProfile())
-    expect(toolInputs?.write?.inputAliases).toEqual({ filePath: "path", file_path: "path" })
+    expect(toolInputs?.write?.inputAliases).toEqual({
+      filePath: "path",
+      file_path: "path",
+      contents: "content",
+      file_text: "content",
+      fileText: "content",
+    })
     expect(toolInputs?.edit?.inputAliases).toEqual({ filePath: "path", file_path: "path" })
     expect(toolInputs?.edit?.inputShape).toBe("pi-edit")
     expect(toolInputs?.bash).toBeUndefined()
     expect(translateCanonicalToolCall("bash", { command: "ls", workdir: "/tmp" }, undefined, toolInputs)).toBeUndefined()
     expect(translateCanonicalToolCall("write", { filePath: "a.ts", content: "x" }, undefined, toolInputs)).toEqual({
+      toolName: "write",
+      input: { path: "a.ts", content: "x" },
+    })
+    expect(translateCanonicalToolCall("write", { filePath: "a.ts", contents: "x" }, undefined, toolInputs)).toEqual({
+      toolName: "write",
+      input: { path: "a.ts", content: "x" },
+    })
+    expect(translateCanonicalToolCall("write", { path: "a.ts", file_text: "x" }, undefined, toolInputs)).toEqual({
       toolName: "write",
       input: { path: "a.ts", content: "x" },
     })
@@ -511,11 +580,19 @@ describe("Pi-family subagent vocabulary", () => {
   })
 
   test("omp folds OpenCode glob pattern+path into the host's single path glob", () => {
-    const tools = [{ name: "glob", description: "Find files", parameters: { type: "object" } }] as never
+    const tools = [{
+      name: "glob",
+      description: "`path`: glob, file, or directory; separate targets with `;`.",
+      parameters: { type: "object" },
+    }] as never
     const toolInputs = buildPiToolInputVocabulary(tools, ompProfile())
 
     expect(toolInputs?.glob?.inputShape).toBe("opencode-glob")
-    expect(translateTools(tools, toSchema as never, undefined, toolInputs)?.[0]?.inputSchema).toEqual({
+    const globTool = translateTools(tools, toSchema as never, undefined, toolInputs)?.[0]
+    expect(globTool?.description).toContain("pattern")
+    expect(globTool?.description).toContain("Set path only as the directory to search")
+    expect(globTool?.description).not.toContain("separate targets")
+    expect(globTool?.inputSchema).toEqual({
       type: "object",
       properties: {
         pattern: { type: "string", description: "Glob pattern to match files (e.g. **/*.{ts,tsx})" },
@@ -591,14 +668,27 @@ describe("Pi-family subagent vocabulary", () => {
   })
 
   test("read folds OpenCode offset/limit into the host's inline path selector", () => {
-    const tools = [{ name: "read", description: "Read a file", parameters: { type: "object" } }] as never
+    const tools = [{
+      name: "read",
+      description: "Read files via `path`. Append `:<sel>` to `path`.",
+      parameters: { type: "object" },
+    }] as never
     const toolInputs = buildPiToolInputVocabulary(tools, ompProfile())
 
     expect(toolInputs?.read?.inputShape).toBe("opencode-read")
-    expect(translateTools(tools, toSchema as never, undefined, toolInputs)?.[0]?.inputSchema).toEqual({
+    const readTool = translateTools(tools, toSchema as never, undefined, toolInputs)?.[0]
+    expect(readTool?.description).toContain("filePath")
+    expect(readTool?.description).toContain("offset")
+    expect(readTool?.description).toContain("limit")
+    expect(readTool?.description).not.toContain("`path`")
+    expect(readTool?.inputSchema).toEqual({
       type: "object",
       properties: {
-        filePath: { type: "string", description: "Path to the file to read (relative or absolute)" },
+        filePath: {
+          type: "string",
+          description:
+            "Exactly one file location, relative or absolute. Never join multiple locations with ; , or |.",
+        },
         offset: { type: "integer", minimum: 1, description: "1-indexed line number to start reading from" },
         limit: { type: "integer", minimum: 1, description: "Maximum number of lines to read" },
       },
@@ -651,6 +741,135 @@ describe("Pi-family subagent vocabulary", () => {
       offset: 150,
       limit: 80,
     })
+  })
+
+  test("read fans out semicolon-joined absolute paths", () => {
+    const tools = [{ name: "read", description: "Read a file", parameters: { type: "object" } }] as never
+    const toolInputs = buildPiToolInputVocabulary(tools, ompProfile())
+
+    expect(translateCanonicalToolCall(
+      "read",
+      { path: "/tmp/hello.txt;/tmp/second.txt" },
+      undefined,
+      toolInputs,
+    )).toEqual([
+      { toolName: "read", input: { path: "/tmp/hello.txt" } },
+      { toolName: "read", input: { path: "/tmp/second.txt" } },
+    ])
+    expect(translateCanonicalToolCall(
+      "read",
+      { filePath: "/tmp/a.txt;/tmp/b.txt", offset: 1, limit: 5 },
+      undefined,
+      toolInputs,
+    )).toEqual([
+      { toolName: "read", input: { path: "/tmp/a.txt:raw:1-5" } },
+      { toolName: "read", input: { path: "/tmp/b.txt:raw:1-5" } },
+    ])
+    // Relative or mixed tokens are not multi-path joins.
+    expect(translateCanonicalToolCall(
+      "read",
+      { path: "hello.txt;second.txt" },
+      undefined,
+      toolInputs,
+    )).toEqual({ toolName: "read", input: { path: "hello.txt;second.txt" } })
+    expect(translateCanonicalToolCall(
+      "read",
+      { path: "/tmp/only-one.txt" },
+      undefined,
+      toolInputs,
+    )).toEqual({ toolName: "read", input: { path: "/tmp/only-one.txt" } })
+  })
+
+  test("next-turn history keeps multi-path read fan-outs as separate calls", () => {
+    const tools = [{ name: "read", description: "Read a file", parameters: { type: "object" } }] as never
+    const toolInputs = buildPiToolInputVocabulary(tools, ompProfile())
+    const context = {
+      messages: [
+        {
+          role: "assistant",
+          content: [
+            { type: "toolCall", id: "call_r#0", name: "read", arguments: { path: "/tmp/a.txt" } },
+            { type: "toolCall", id: "call_r#1", name: "read", arguments: { path: "/tmp/b.txt" } },
+          ],
+          api: "acme",
+          provider: "acme",
+          model: "m",
+          usage: {},
+          stopReason: "toolUse",
+          timestamp: 1,
+        },
+        {
+          role: "toolResult",
+          toolCallId: "call_r#0",
+          toolName: "read",
+          content: "aaa",
+          isError: false,
+          timestamp: 2,
+        },
+        {
+          role: "toolResult",
+          toolCallId: "call_r#1",
+          toolName: "read",
+          content: "bbb",
+          isError: false,
+          timestamp: 3,
+        },
+      ],
+    }
+
+    expect(translateContextToPrompt(context as never, undefined, undefined, toolInputs)).toEqual([
+      {
+        role: "assistant",
+        content: [
+          { type: "tool-call", toolCallId: "call_r#0", toolName: "read", input: { filePath: "/tmp/a.txt" } },
+          { type: "tool-call", toolCallId: "call_r#1", toolName: "read", input: { filePath: "/tmp/b.txt" } },
+        ],
+      },
+      {
+        role: "tool",
+        content: [
+          { type: "tool-result", toolCallId: "call_r#0", toolName: "read", output: { type: "text", value: "aaa" } },
+        ],
+      },
+      {
+        role: "tool",
+        content: [
+          { type: "tool-result", toolCallId: "call_r#1", toolName: "read", output: { type: "text", value: "bbb" } },
+        ],
+      },
+    ])
+  })
+
+  test("stream fans out semicolon-joined absolute reads under #N ids", async () => {
+    const tools = [{ name: "read", description: "Read a file", parameters: { type: "object" } }] as never
+    const toolInputs = buildPiToolInputVocabulary(tools, ompProfile())
+    const piStream = new FakeAssistantMessageEventStream()
+    await runV3StreamToPi({
+      model: MODEL,
+      toolInputs,
+      v3Stream: v3Parts([
+        {
+          type: "tool-call",
+          toolCallId: "call_r",
+          toolName: "read",
+          input: JSON.stringify({ path: "/tmp/a.txt;/tmp/b.txt" }),
+        },
+        {
+          type: "finish",
+          usage: { inputTokens: {}, outputTokens: {} },
+          finishReason: { unified: "tool-calls", raw: "tool_calls" },
+        },
+      ]) as never,
+      piStream: piStream as never,
+    })
+
+    const done = piStream.events.at(-1) as {
+      message: { content: Array<{ id: string; name: string; arguments: Record<string, unknown> }> }
+    }
+    expect(done.message.content).toEqual([
+      { type: "toolCall", id: "call_r#0", name: "read", arguments: { path: "/tmp/a.txt" } },
+      { type: "toolCall", id: "call_r#1", name: "read", arguments: { path: "/tmp/b.txt" } },
+    ])
   })
 
   test("read handles colon filenames, Windows paths, and URLs", () => {
@@ -745,7 +964,7 @@ describe("Pi-family subagent vocabulary", () => {
     )).toEqual({ toolName: "read", input: { path: "/a/b.swift", offset: 150, limit: 80 } })
   })
 
-  test("omp exposes its live todo tool as OpenCode todowrite and todoread", () => {
+  test("ops-based host todo is advertised as OpenCode todowrite and todoread", () => {
     const tools = [{ name: "todo", description: "Track tasks", parameters: { type: "object" } }] as never
     const toolInputs = buildPiToolInputVocabulary(tools, ompProfile())
 
@@ -754,6 +973,9 @@ describe("Pi-family subagent vocabulary", () => {
     expect(toolInputs?.todo?.extraProviderNames).toEqual(["todoread"])
     const catalog = translateTools(tools, toSchema as never, undefined, toolInputs)
     expect(catalog?.map(tool => tool.name)).toEqual(["todoread", "todowrite"])
+    expect(catalog?.find(tool => tool.name === "todoread")?.description).toContain("Takes no arguments")
+    expect(catalog?.find(tool => tool.name === "todowrite")?.description).toContain("replaces the whole list")
+    expect(catalog?.find(tool => tool.name === "todowrite")?.description).not.toContain("Track tasks")
     expect(catalog?.find(tool => tool.name === "todoread")?.inputSchema).toEqual({
       type: "object",
       properties: {},
@@ -776,92 +998,6 @@ describe("Pi-family subagent vocabulary", () => {
     })
     expect(canonicalToolName("todo", undefined, toolInputs, { op: "view" })).toBe("todoread")
     expect(canonicalToolName("todo", undefined, toolInputs, { op: "init" })).toBe("todowrite")
-  })
-
-  test("todo folds OpenCode snapshots into omp ops", () => {
-    const tools = [{ name: "todo", description: "Track tasks", parameters: { type: "object" } }] as never
-    const toolInputs = buildPiToolInputVocabulary(tools, ompProfile())
-
-    // Active snapshot → flat init; in_progress first.
-    expect(translateCanonicalToolCall(
-      "todowrite",
-      {
-        todos: [
-          { content: "Later", status: "pending", priority: "medium" },
-          { content: "Now", status: "in_progress", priority: "high" },
-          { content: "Done", status: "completed", priority: "low" },
-          { content: "Dropped", status: "cancelled" },
-        ],
-      },
-      undefined,
-      toolInputs,
-    )).toEqual({
-      toolName: "todo",
-      input: { op: "init", items: ["Now", "Later"] },
-    })
-
-    // Same fold when the live name is already host `todo`.
-    expect(translateCanonicalToolCall(
-      "todo",
-      { todos: [{ content: "Only open", status: "pending" }] },
-      undefined,
-      toolInputs,
-    )).toEqual({
-      toolName: "todo",
-      input: { op: "init", items: ["Only open"] },
-    })
-
-    // No remaining open work → clear.
-    expect(translateCanonicalToolCall(
-      "todowrite",
-      {
-        todos: [
-          { content: "A", status: "completed" },
-          { content: "B", status: "cancelled" },
-        ],
-      },
-      undefined,
-      toolInputs,
-    )).toEqual({ toolName: "todo", input: { op: "rm" } })
-    expect(translateCanonicalToolCall(
-      "todowrite",
-      { todos: [] },
-      undefined,
-      toolInputs,
-    )).toEqual({ toolName: "todo", input: { op: "rm" } })
-
-    // Native ops pass through; harness keys stripped.
-    expect(translateCanonicalToolCall(
-      "todo",
-      { op: "done", task: "Wire omp", todos: [{ content: "ignore", status: "pending" }], i: "note" },
-      undefined,
-      toolInputs,
-    )).toEqual({
-      toolName: "todo",
-      input: { op: "done", task: "Wire omp", i: "note" },
-    })
-
-    // Unusable snapshot left alone so the host error stays honest.
-    expect(translateCanonicalToolCall(
-      "todo",
-      { todos: "nope" as unknown as never },
-      undefined,
-      toolInputs,
-    )).toBeUndefined()
-
-    // History replay restates init/rm/view without leaking `op` into write schema.
-    expect(translateHostToolCallInput("todo", { op: "init", items: ["A", "B"] }, toolInputs)).toEqual({
-      todos: [
-        { content: "A", status: "in_progress" },
-        { content: "B", status: "pending" },
-      ],
-    })
-    expect(translateHostToolCallInput("todo", { op: "view" }, toolInputs)).toEqual({})
-    expect(translateHostToolCallInput("todo", { op: "rm" }, toolInputs)).toEqual({ todos: [] })
-    expect(translateHostToolCallInput("todo", { op: "done", task: "A" }, toolInputs)).toEqual({
-      op: "done",
-      task: "A",
-    })
   })
 
   test("already host-shaped calls and unrelated calls remain intact", () => {
@@ -1011,44 +1147,6 @@ describe("subagent call and result round trip", () => {
       id: "call_hub_1",
       name: "hub",
       arguments: { op: "jobs" },
-    })
-  })
-
-  test("stream output folds OpenCode todowrite snapshots into omp todo ops", async () => {
-    const tools = [{ name: "todo", description: "Track tasks", parameters: { type: "object" } }] as never
-    const toolInputs = buildPiToolInputVocabulary(tools, ompProfile())
-    const piStream = new FakeAssistantMessageEventStream()
-    await runV3StreamToPi({
-      model: MODEL,
-      toolInputs,
-      v3Stream: v3Parts([
-        {
-          type: "tool-call",
-          toolCallId: "call_todo_1",
-          toolName: "todowrite",
-          input: JSON.stringify({
-            todos: [
-              { content: "Wire omp", status: "in_progress" },
-              { content: "Run tests", status: "pending" },
-            ],
-          }),
-        },
-        {
-          type: "finish",
-          usage: { inputTokens: {}, outputTokens: {} },
-          finishReason: { unified: "tool-calls", raw: "tool_calls" },
-        },
-      ]) as never,
-      piStream: piStream as never,
-    })
-
-    const done = piStream.events.at(-1) as {
-      message: { content: Array<{ id: string; name: string; arguments: Record<string, unknown> }> }
-    }
-    expect(done.message.content[0]).toMatchObject({
-      id: "call_todo_1",
-      name: "todo",
-      arguments: { op: "init", items: ["Wire omp", "Run tests"] },
     })
   })
 

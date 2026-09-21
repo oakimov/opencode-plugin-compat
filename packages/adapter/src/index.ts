@@ -44,6 +44,7 @@ export {
 
 export {
   buildVocabulary,
+  compareCanonicalKeys,
   diffTodos,
   fanoutId,
   originalCallId,

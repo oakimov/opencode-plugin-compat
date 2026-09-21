@@ -5,6 +5,20 @@
  * messages with `source.kind === "tool"` / `tool-result` blocks).
  */
 import type { LanguageModelV3FunctionTool, LanguageModelV3Prompt } from "@ai-sdk/provider"
+import { dshToolInputs } from "../host/profile.js"
+import {
+  canonicalQuestionDescription,
+  canonicalQuestionSchema,
+  formatOpenCodeQuestionResult,
+  questionPromptsFromInput,
+} from "./question.js"
+import {
+  canonicalToolName,
+  compareCanonicalKeys,
+  providerToolSchema,
+  translateHostToolCallInput,
+  type DshToolInputVocabulary,
+} from "./tools.js"
 
 export type DshToolSchema = {
   name: string
@@ -65,12 +79,18 @@ function toolResultOutput(block: { content?: unknown; isError?: boolean }): { ty
   return { type: block.isError ? "error-text" : "text", value }
 }
 
-export function translateGenerateOptionsToPrompt(options: DshGenerateOptions): LanguageModelV3Prompt {
+export function translateGenerateOptionsToPrompt(
+  options: DshGenerateOptions,
+  toolInputs: DshToolInputVocabulary = dshToolInputs(),
+  excludedToolNames?: ReadonlySet<string>,
+): LanguageModelV3Prompt {
   const prompt: LanguageModelV3Prompt = []
   const system = normalizeSystemPrompt(options.system)
   if (system) prompt.push({ role: "system", content: system })
 
   const toolNames = new Map<string, string>()
+  const excludedToolCallIds = new Set<string>()
+  const questionPrompts = new Map<string, ReturnType<typeof questionPromptsFromInput>>()
 
   for (const msg of options.messages) {
     if (msg.role === "system") {
@@ -89,8 +109,19 @@ export function translateGenerateOptionsToPrompt(options: DshGenerateOptions): L
           let input: unknown = {}
           try { input = JSON.parse(block.arguments ?? "{}") } catch { input = {} }
           const name = typeof block.name === "string" ? block.name : ""
-          if (name.length > 0) toolNames.set(block.id, name)
-          items.push({ type: "tool-call", toolCallId: block.id, toolName: name, input })
+          if (excludedToolNames?.has(name)) {
+            excludedToolCallIds.add(block.id)
+            continue
+          }
+          const providerName = canonicalToolName(name, toolInputs)
+          if (name.length > 0) toolNames.set(block.id, providerName)
+          if (providerName === "question") {
+            questionPrompts.set(block.id, questionPromptsFromInput(input))
+          }
+          if (input && typeof input === "object" && !Array.isArray(input)) {
+            input = translateHostToolCallInput(name, input as Record<string, unknown>, toolInputs)
+          }
+          items.push({ type: "tool-call", toolCallId: block.id, toolName: providerName, input })
         }
       }
       if (items.length > 0) prompt.push({ role: "assistant", content: items })
@@ -115,13 +146,20 @@ export function translateGenerateOptionsToPrompt(options: DshGenerateOptions): L
       const toolCallId = typeof result.toolCallId === "string" ? result.toolCallId : ""
       const sourceCallId = msg.source?.kind === "tool" && typeof msg.source.callId === "string" ? msg.source.callId : ""
       const id = sourceCallId || toolCallId
+      if (excludedToolCallIds.has(id)) continue
+      const output = toolResultOutput(result)
+      const prompts = questionPrompts.get(id)
+      if (prompts && prompts.length > 0 && output.type === "text") {
+        const formatted = formatOpenCodeQuestionResult(prompts, output.value)
+        if (formatted) output.value = formatted
+      }
       prompt.push({
         role: "tool",
         content: [{
           type: "tool-result",
           toolCallId: id,
           toolName: toolNames.get(id) ?? "unknown",
-          output: toolResultOutput(result),
+          output,
         }],
       })
     }
@@ -129,12 +167,25 @@ export function translateGenerateOptionsToPrompt(options: DshGenerateOptions): L
   return prompt
 }
 
-export function translateTools(tools?: DshToolSchema[]): LanguageModelV3FunctionTool[] | undefined {
+export function translateTools(
+  tools?: DshToolSchema[],
+  toolInputs: DshToolInputVocabulary = dshToolInputs(),
+  excludedToolNames?: ReadonlySet<string>,
+): LanguageModelV3FunctionTool[] | undefined {
   if (!tools || tools.length === 0) return undefined
-  return tools.map((t) => ({
-    type: "function" as const,
-    name: t.name,
-    description: t.description,
-    inputSchema: t.parameters as any,
-  }))
+  // UTF-16 code-unit order (same as pi/clone/provider): host insertion
+  // order must not reshuffle overlay bytes between turns (cache stability).
+  const translated = tools.filter(t => !excludedToolNames?.has(t.name)).map((t) => {
+    const providerName = canonicalToolName(t.name, toolInputs)
+    const question = toolInputs[t.name]?.providerName === "question"
+    return {
+      type: "function" as const,
+      name: providerName,
+      description: question ? canonicalQuestionDescription() : t.description,
+      inputSchema: (question
+        ? canonicalQuestionSchema()
+        : providerToolSchema(t.parameters, t.name, toolInputs)) as any,
+    }
+  }).sort((left, right) => compareCanonicalKeys(left.name, right.name))
+  return translated.length > 0 ? translated : undefined
 }

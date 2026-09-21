@@ -8,10 +8,7 @@
  */
 import { describe, expect, test } from "bun:test"
 import path from "node:path"
-import { buildPiOAuth, createLoaderRunner, openCodeAuthFromOAuthCallback, openCodeAuthFromResolvedKey, toOpenCodeAuth, toPiCredentials, tokenExpiryMs } from "../packages/pi-bridge/src/opencode/auth.ts"
-import { createMemoryAuthStore, createPluginInputStub } from "../packages/pi-bridge/src/opencode/host-stub.ts"
-import { derivePackageName, detectAiSdkFactory, detectPluginFactory, instantiateHooks, loadOpenCodePluginModule } from "../packages/pi-bridge/src/opencode/load.ts"
-import { extractModelsFromConfigHook, toPiModel } from "../packages/pi-bridge/src/opencode/models.ts"
+import { buildPiOAuth, createLoaderRunner, createMemoryAuthStore, createPluginInputStub, derivePackageName, detectAiSdkFactory, detectPluginFactory, extractModelsFromConfigHook, instantiateHooks, loadOpenCodePluginModule, openCodeAuthFromOAuthCallback, openCodeAuthFromResolvedKey, toOpenCodeAuth, toPiCredentials, tokenExpiryMs, toPiModel } from "../packages/opencode-loader/src/index.ts"
 import { loadModuleThroughHost } from "../packages/pi-bridge/src/host-module-loader.ts"
 
 const FIXTURE = path.join(import.meta.dir, "fixtures", "pi-bridge-acme-provider.ts")
@@ -128,6 +125,34 @@ describe("auth translation", () => {
     const creds = toPiCredentials({ type: "api", key: "exchanged:acme_x", metadata: { refreshToken: "r" } })
     expect(creds.access).toBe("exchanged:acme_x")
     expect(creds.refresh).toBe("r")
+  })
+
+  test("a credential with no refresh token is presented as long-lived", () => {
+    // Pi-family hosts gate logout on `expires` and cannot refresh a credential
+    // with no refresh token, so a short expiry logs the user off every restart.
+    const now = 1_000_000_000_000
+    const YEAR_MS = 365 * 24 * 60 * 60 * 1000
+
+    // Static API key (e.g. sk-ws-01-… / cog_…) — previously expired 1h out.
+    const apiKey = toPiCredentials({ type: "api", key: "sk-ws-01-not-a-jwt" }, now)
+    expect(apiKey.refresh).toBe("")
+    expect(apiKey.expires).toBeGreaterThan(now + YEAR_MS)
+
+    // OAuth credential whose plugin renews internally in auth.loader (refresh:"").
+    // Its declared short expiry must not force a per-restart re-login.
+    const oauth = toPiCredentials({ type: "oauth", access: "a", refresh: "", expires: now + 60_000 }, now)
+    expect(oauth.refresh).toBe("")
+    expect(oauth.expires).toBeGreaterThan(now + YEAR_MS)
+  })
+
+  test("a credential that carries a refresh token keeps its real expiry", () => {
+    const now = 1_000_000_000_000
+    // Real OAuth rotation is untouched.
+    expect(toPiCredentials({ type: "oauth", access: "a", refresh: "r", expires: 123 }, now).expires).toBe(123)
+    // An API key exposing a refresh token keeps the decoded/fallback expiry.
+    const withRefresh = toPiCredentials({ type: "api", key: "not-a-jwt", metadata: { refreshToken: "r" } }, now)
+    expect(withRefresh.refresh).toBe("r")
+    expect(withRefresh.expires).toBe(now + 3_600_000)
   })
 
   test("tokenExpiryMs decodes a JWT exp, and falls back an hour out", () => {

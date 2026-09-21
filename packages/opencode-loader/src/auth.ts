@@ -46,6 +46,15 @@ export type PiOAuthConfig = {
 const HOUR_MS = 3_600_000
 
 /**
+ * Effective "never expires" horizon (~10 years) for a credential the bridge
+ * cannot refresh. A host that treats `expires` as a hard logout gate would
+ * otherwise drop to a re-login prompt every restart for a credential with no
+ * refresh token, even though OpenCode keeps it valid through the plugin's
+ * `auth.loader`. See {@link toPiCredentials}.
+ */
+const NO_REFRESH_CREDENTIAL_TTL_MS = 10 * 365 * 24 * HOUR_MS
+
+/**
  * Best-effort expiry for a bearer token. JWT is a universal format (not a
  * provider detail), so decoding `exp` here stays generic; anything undecodable
  * falls back to an hour out, matching what Pi's own built-in OAuth flows do.
@@ -85,16 +94,29 @@ export function openCodeAuthFromOAuthCallback(result: Extract<OpenCodeOAuthCallb
   throw new Error("pi-bridge: OAuth callback succeeded without access token or key")
 }
 
-/** OpenCode stored credential → Pi credentials. */
+/**
+ * OpenCode stored credential → Pi credentials.
+ *
+ * A credential with **no refresh token** cannot be renewed by the bridge, so it
+ * is presented as long-lived ({@link NO_REFRESH_CREDENTIAL_TTL_MS}); a host that
+ * gates logout on `expires` would otherwise re-prompt for login every restart.
+ * Credentials that carry a refresh token keep their true expiry so genuine
+ * rotation still happens on time.
+ */
 export function toPiCredentials(auth: OpenCodeAuth, now = Date.now()): PiOAuthCredentials {
   if (auth.type === "oauth") {
-    return { access: auth.access, refresh: auth.refresh, expires: auth.expires || tokenExpiryMs(auth.access, now) }
+    const refresh = auth.refresh ?? ""
+    const expires = refresh
+      ? (auth.expires || tokenExpiryMs(auth.access, now))
+      : now + NO_REFRESH_CREDENTIAL_TTL_MS
+    return { access: auth.access, refresh, expires }
   }
   // An API-key method yields a key (often already an exchanged JWT) plus an
   // optional refresh token in metadata. Represent it in the same credential
   // shape so `getApiKey` and the streaming path stay uniform.
   const refresh = auth.metadata?.refreshToken ?? ""
-  return { access: auth.key, refresh, expires: tokenExpiryMs(auth.key, now) }
+  const expires = refresh ? tokenExpiryMs(auth.key, now) : now + NO_REFRESH_CREDENTIAL_TTL_MS
+  return { access: auth.key, refresh, expires }
 }
 
 /** Pi credentials → OpenCode stored credential, for handing back to a plugin's loader. */

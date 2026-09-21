@@ -17,12 +17,23 @@ import { registerAiSdkProvider } from "./bridge.js"
 import { avoidProviderIdCollision, type PiHostProfile } from "./host/profile.js"
 import { loadPiRuntime } from "./host/runtime.js"
 import { loadModuleThroughHost } from "./host-module-loader.js"
-import { buildPiOAuth, createLoaderRunner, openCodeAuthFromResolvedKey, type PiOAuthConfig } from "./opencode/auth.js"
-import { createPluginInputStub } from "./opencode/host-stub.js"
-import { derivePackageName, inspectOpenCodePluginModule, instantiateHooks, loadOpenCodePluginModule, substituteApiKey } from "./opencode/load.js"
-import { extractModelsFromConfigHook, type ModelCallData, type PiModelConfig } from "./opencode/models.js"
-import { optionsForLevel } from "./opencode/variants.js"
-import type { OpenCodeHooks } from "./opencode/types.js"
+import {
+  buildPiOAuth,
+  createLoaderRunner,
+  createPluginInputStub,
+  derivePackageName,
+  extractModelsFromConfigHook,
+  inspectOpenCodePluginModule,
+  instantiateHooks,
+  loadOpenCodePluginModule,
+  openCodeAuthFromResolvedKey,
+  optionsForLevel,
+  substituteApiKey,
+  type ModelCallData,
+  type OpenCodeHooks,
+  type PiModelConfig,
+  type PiOAuthConfig,
+} from "@opencode-compat/opencode-loader"
 import type { PiExtensionApi } from "./pi-provider-types.js"
 
 export type OpenCodePluginSpec = {
@@ -66,8 +77,17 @@ export type RegisterResult = {
   hasOAuth: boolean
 }
 
+export type RegisterOpenCodePluginOptions = {
+  /** Host-global compatibility tools owned by another configured provider. */
+  excludedToolNames?: readonly string[]
+}
+
 /** Discover everything the plugin exposes, then register it with the host. */
-export async function registerOpenCodePlugin(pi: PiExtensionApi, spec: OpenCodePluginSpec): Promise<RegisterResult> {
+export async function registerOpenCodePlugin(
+  pi: PiExtensionApi,
+  spec: OpenCodePluginSpec,
+  registration: RegisterOpenCodePluginOptions = {},
+): Promise<RegisterResult> {
   const loadSpec = {
     packageSpecifier: spec.package,
     ...(spec.factoryExport ? { factoryExport: spec.factoryExport } : {}),
@@ -171,6 +191,9 @@ export async function registerOpenCodePlugin(pi: PiExtensionApi, spec: OpenCodeP
     ...(initialModels.length > 0 ? { models: initialModels } : {}),
     ...(fetchModels ? { fetchModels } : {}),
     ...(oauth ? { oauth } : {}),
+    ...(registration.excludedToolNames?.length
+      ? { excludedToolNames: registration.excludedToolNames }
+      : {}),
     getLanguageModel: async (modelId, apiKey) => {
       const options = substituteApiKey(spec.createOptions ?? { apiKey: "$apiKey" }, apiKey) as Record<string, unknown>
       const provider = await loaded.factory(options)

@@ -17,6 +17,29 @@ export type PiBridgeConfig = {
   providers: OpenCodePluginSpec[]
 }
 
+export type ProviderRegistrationOptions = {
+  /** Cursor-only tools registered globally by the Pi-family host extension. */
+  cursorHostToolNames?: readonly string[]
+}
+
+/** Drop a trailing npm version suffix without changing scoped names or paths. */
+export function stripTrailingNpmVersion(raw: string): string {
+  const at = raw.lastIndexOf("@")
+  if (at <= 0) return raw
+  const after = raw.slice(at + 1)
+  if (!after || after.includes("/")) return raw
+  return raw.slice(0, at)
+}
+
+/** True only for the Cursor provider package, never merely a provider id. */
+export function isCursorProviderPackage(raw: string): boolean {
+  const packageName = stripTrailingNpmVersion(raw.toLowerCase())
+  return packageName === "cursor-opencode-provider"
+    || packageName.startsWith("cursor-opencode-provider/")
+    || packageName.includes("/cursor-opencode-provider/")
+    || packageName.endsWith("/cursor-opencode-provider")
+}
+
 /**
  * Search order: `$PI_BRIDGE_CONFIG`, then `$PI_CODING_AGENT_DIR`, then the
  * running host's agent dir, then the other host. Both locations stay in the
@@ -73,10 +96,17 @@ export function loadConfig(configPath: string): PiBridgeConfig | undefined {
  * extension loader treats a thrown extension factory as a total load failure,
  * so one bad entry must not take down the others.
  */
-export async function registerProvidersFromConfig(pi: PiExtensionApi, config: PiBridgeConfig): Promise<void> {
+export async function registerProvidersFromConfig(
+  pi: PiExtensionApi,
+  config: PiBridgeConfig,
+  options: ProviderRegistrationOptions = {},
+): Promise<void> {
   for (const spec of config.providers) {
     try {
-      await registerOpenCodePlugin(pi, spec)
+      const excludedToolNames = isCursorProviderPackage(spec.package)
+        ? undefined
+        : options.cursorHostToolNames
+      await registerOpenCodePlugin(pi, spec, { excludedToolNames })
     } catch (err) {
       const label = spec.providerName ?? spec.package
       console.error(`pi-bridge: failed to register provider "${label}" — ${err instanceof Error ? err.message : String(err)}`)

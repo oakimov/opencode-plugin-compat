@@ -46,12 +46,18 @@ export function assertStockClean(provider: string): void {
   )
 }
 
+const builtProviders = new Set<string>()
+
 export function ensureStockBuild(provider: string): void {
-  const entry = join(provider, "dist", "index.js")
-  if (existsSync(entry)) return
-  console.log(`ocp-dev: stock dist missing — building once in ${provider}`)
+  if (builtProviders.has(provider)) return
+  console.log(`ocp-dev: building stock provider ${provider}`)
+  if (existsSync(join(provider, "bun.lock"))) run(provider, ["bun", "install", "--frozen-lockfile"])
+  else if (existsSync(join(provider, "package-lock.json"))) run(provider, ["npm", "ci"])
+  else run(provider, ["bun", "install"])
   run(provider, existsSync(join(provider, "bun.lock")) ? ["bun", "run", "build"] : ["npm", "run", "build"])
+  const entry = join(provider, "dist", "index.js")
   if (!existsSync(entry)) throw new Error(`provider entry missing after build: ${entry}`)
+  builtProviders.add(provider)
 }
 
 export function repairStock(provider: string): void {
