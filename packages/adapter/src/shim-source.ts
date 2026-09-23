@@ -109,7 +109,6 @@ export function renderProviderShimSource(
   source: string,
 ): string {
   const hostHint = JSON.stringify(meta.hostHint ?? "")
-  const packageName = JSON.stringify(meta.packageName ?? "")
   const stockSource = stripProviderShimSource(source)
   const instrumentedSource = makeFactoryConstsMutable(stockSource, meta.factories)
   const factoryEntries = meta.factories
@@ -131,7 +130,7 @@ export function renderProviderShimSource(
 
   const header = `${HEADER_START}
 import {
-  cursorUsageIntegrationForPackage,
+  usageIntegrationForHost,
   detectHostId,
   installPathBridge,
   policyForHostId,
@@ -141,7 +140,7 @@ import {
 
 const __host = detectHostId(process.env, process.argv, process.execPath, ${hostHint})
 installPathBridge(__host, process.env)
-const __usage = cursorUsageIntegrationForPackage(${packageName}, __host, process.env)
+const __usage = usageIntegrationForHost(__host, process.env)
 const __policy = policyForHostId(__host)
 const __roles = toolRolesForHostId(__host)
 ${HEADER_END}`

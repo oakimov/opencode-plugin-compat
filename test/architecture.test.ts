@@ -138,7 +138,9 @@ describe("OCP architecture boundaries", () => {
       generic,
       /providerMetadata\.cursor|metadata\.cursor|inputTokensRaw|cacheReadRaw|reasoningTokensRaw/,
     )).toEqual([])
-    expect(text("packages/adapter/src/cursor-usage-reconciliation.ts")).toContain('packageName !== CURSOR_PROVIDER_PACKAGE')
+    const usage = text("packages/adapter/src/usage-reconciliation.ts")
+    expect(usage).toContain("usageVersion === 3")
+    expect(usage).not.toMatch(/cursor-opencode-provider|devin-opencode-provider|metadata\.cursor|metadata\.devin/)
     expect(text("packages/pi-bridge/src/register.ts")).toContain('isCursorProviderPackage(spec.package)')
     expect(text("packages/dsh-bridge/src/register.ts")).toContain('isCursorProviderPackage(spec.package)')
   })

@@ -20,13 +20,16 @@ function packageName(spec: string): string {
 
 export function linkWrapperDeps(wrapper: string, stock: string): void {
   const specifiers = new Set<string>()
+  const self = JSON.parse(readFileSync(join(stock, "package.json"), "utf8")) as { name?: string }
   for (const file of walkJs(join(wrapper, "dist"))) {
     const source = readFileSync(file, "utf8")
     const from = source.matchAll(/\b(?:from|import)\s+["']([^"']+)["']/g)
     for (const match of from) {
       const spec = match[1]!
-      if (!spec || spec.startsWith(".") || spec.startsWith("node:") || spec.startsWith("/")) continue
-      specifiers.add(packageName(spec))
+      if (!spec || spec.startsWith(".") || spec.startsWith("node:") || spec.startsWith("bun:") || spec.startsWith("/")) continue
+      const name = packageName(spec)
+      if (name === self.name) continue
+      specifiers.add(name)
     }
   }
   const modules = join(wrapper, "node_modules")
@@ -52,8 +55,7 @@ export function linkWrapperDeps(wrapper: string, stock: string): void {
   }
 }
 
-export async function buildWrapper(host: string, stock: string): Promise<string> {
-  const wrapper = wrapperDir(host)
+export async function buildWrapper(host: string, stock: string, wrapper = wrapperDir(host)): Promise<string> {
   assertManaged(wrapper)
   if (!existsSync(join(stock, "dist"))) {
     throw new Error(`stock dist missing: ${join(stock, "dist")} (run bun run build in the provider checkout)`)

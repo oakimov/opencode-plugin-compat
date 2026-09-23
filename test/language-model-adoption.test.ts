@@ -27,7 +27,6 @@ import {
   mimoProfile,
   opencodeProfile,
 } from "../packages/profile/src/index.ts"
-import { cursorUsageIntegrationForPackage } from "../packages/adapter/src/cursor-usage-reconciliation.ts"
 
 describe("HostProfile stream / bash capabilities", () => {
   test("mimo requires adoption (no ensureToolCall; bash.description required)", () => {
@@ -59,7 +58,7 @@ describe("HostProfile stream / bash capabilities", () => {
       bashDescriptionRequired: false,
       clearSettledTodos: true,
       clearSettledTodoMode: "completed-only",
-      collapseOccupancyUsage: true,
+      collapseOccupancyUsage: false,
     })
     expect(policyForHostId("opencode")).toEqual({
       streamToolCallEnsure: true,
@@ -74,9 +73,9 @@ describe("HostProfile stream / bash capabilities", () => {
 describe("adoptStreamPart — MiMo vs Kilo", () => {
   const mimo = policyForHostId("mimo")
   const kilo = policyForHostId("kilo")
-  const cursorUsage = cursorUsageIntegrationForPackage("cursor-opencode-provider", "opencode")
+  const usageIntegration = { isOccupancyFinish: () => true, recordFinishUsage: () => {} }
 
-  test("Kilo zeros intermediate occupancy and preserves the terminal context/raw finish", () => {
+  test("Kilo and MiMo preserve intermediate occupancy and Kilo preserves the terminal finish", () => {
     const occupancy = {
       type: "finish",
       usage: {
@@ -99,11 +98,9 @@ describe("adoptStreamPart — MiMo vs Kilo", () => {
         },
       },
     }
-    expect(adoptStreamPart(occupancy, kilo, new Set(), new Map(), undefined, cursorUsage)[0]?.usage).toEqual({
-      inputTokens: { total: 0, noCache: 0, cacheRead: 0, cacheWrite: 0 },
-      outputTokens: { total: 0, text: 0, reasoning: 0 },
-    })
-    expect(adoptStreamPart(terminal, kilo, new Set(), new Map(), undefined, cursorUsage)[0]).toEqual(terminal)
+    expect(adoptStreamPart(occupancy, kilo, new Set(), new Map(), undefined, usageIntegration)[0]?.usage).toEqual(occupancy.usage)
+    expect(adoptStreamPart(occupancy, mimo, new Set(), new Map(), undefined, usageIntegration)[0]?.usage).toEqual(occupancy.usage)
+    expect(adoptStreamPart(terminal, kilo, new Set(), new Map(), undefined, usageIntegration)[0]).toEqual(terminal)
     expect(adoptStreamPart(occupancy, policyForHostId("opencode"), new Set())[0]?.usage).toEqual(occupancy.usage)
     expect(adoptStreamPart(occupancy, kilo, new Set())[0]?.usage).toEqual(occupancy.usage)
   })
@@ -430,7 +427,7 @@ describe("schema-driven argument key adoption", () => {
 })
 
 describe("adaptLanguageModel / wrapProvider*", () => {
-  test("package-selected usage changes Cursor finishes but leaves generic providers unchanged", async () => {
+  test("Kilo keeps Cursor occupancy for the assistant while MiMo and generic providers pass it through", async () => {
     const finish = {
       type: "finish",
       usage: {
@@ -457,9 +454,17 @@ describe("adaptLanguageModel / wrapProvider*", () => {
       policyForHostId("kilo"),
       undefined,
       undefined,
-      cursorUsageIntegrationForPackage("cursor-opencode-provider", "opencode"),
+      { isOccupancyFinish: () => true, recordFinishUsage: () => {} },
     )
-    expect((await readFinish(cursor)).usage.inputTokens.total).toBe(0)
+    expect((await readFinish(cursor)).usage.inputTokens.total).toBe(100)
+    const mimo = adaptLanguageModel(
+      model,
+      policyForHostId("mimo"),
+      undefined,
+      undefined,
+      undefined,
+    )
+    expect((await readFinish(mimo)).usage).toEqual(finish.usage)
   })
 
   test("pass-through hosts still wrap for schema adoption", async () => {
@@ -1002,7 +1007,7 @@ export const VERSION = "1.0.0"
     // tool vocabulary — the exact gap this generator previously had.
     expect(src).toContain("toolRolesForHostId")
     expect(src).toContain("const __roles = toolRolesForHostId(__host)")
-    expect(src).toContain('cursorUsageIntegrationForPackage("cursor-opencode-provider", __host, process.env)')
+    expect(src).toContain("usageIntegrationForHost(__host, process.env)")
     expect(src).toContain("}, __policy, __roles, __usage)")
   })
 

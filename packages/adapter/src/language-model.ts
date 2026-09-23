@@ -8,10 +8,9 @@
  *   is cleared. MiMo stores `[]` (abandon fan-out). Kilo keeps `completed`
  *   rows and drops `cancelled` so the sidebar can hide without erasing the
  *   named finish snapshot.
- * - collapseOccupancyUsage=true (Kilo): occupancy-only finish snapshots are
- *   stored as zero tokens. The terminal assistant message keeps checkpoint
- *   occupancy. A package-selected integration can reconcile its separate
- *   persisted step record to exact aggregate counters.
+ * - Provider-declared occupancy finishes keep checkpoint context on each
+ *   assistant message. Kilo reconciles its separately persisted step records
+ *   without counting cumulative occupancy as usage.
  * - argument keys: universally align unique case/separator variants with the
  *   exact tool schema advertised by the active host
  *
@@ -53,10 +52,16 @@ export type StreamPartLike = {
   [key: string]: unknown
 }
 
-/** Optional provider integration selected by the install-tree shim. */
+/** Optional host usage integration for provider-declared metadata contracts. */
 export type ProviderUsageIntegration = {
   isOccupancyFinish(part: StreamPartLike): boolean
-  recordTerminalUsage(sessionID: string | undefined, part: StreamPartLike): void
+  recordFinishUsage(sessionID: string | undefined, part: StreamPartLike, step?: {
+    textChars: number
+    reasoningChars: number
+    toolChars: number
+    elapsedMs: number
+    hasTools: boolean
+  }): void
 }
 
 type SchemaLike = Record<string, unknown>
@@ -88,7 +93,7 @@ export function policyForHostId(id: HostId | string): StreamAdoptionPolicy {
         bashDescriptionRequired: false,
         clearSettledTodos: true,
         clearSettledTodoMode: "completed-only",
-        collapseOccupancyUsage: true,
+        collapseOccupancyUsage: false,
       }
     case "opencode":
       return {
@@ -493,11 +498,40 @@ function wrapReadableStream(
   usageIntegration: ProviderUsageIntegration | undefined,
 ): ReadableStream<StreamPartLike> {
   const seenStarts = new Set<string>()
+  let startedAt = performance.now()
+  let textChars = 0
+  let reasoningChars = 0
+  let toolChars = 0
   return stream.pipeThrough(
     new TransformStream<StreamPartLike, StreamPartLike>({
       transform(chunk, controller) {
+        if (chunk.type === "text-delta" && typeof chunk.delta === "string") textChars += chunk.delta.length
+        if (chunk.type === "reasoning-delta" && typeof chunk.delta === "string") reasoningChars += chunk.delta.length
+        if (chunk.type === "tool-call") {
+          if (typeof chunk.input === "string") toolChars += chunk.input.length
+          else {
+            try {
+              toolChars += JSON.stringify(chunk.input ?? {}).length
+            } catch {
+              // Opaque tool inputs must not interrupt the provider stream.
+            }
+          }
+          toolChars += typeof chunk.toolName === "string" ? chunk.toolName.length : 0
+        }
         for (const part of adoptStreamPart(chunk, policy, seenStarts, toolSchemas, context, usageIntegration)) {
-          if (part.type === "finish") usageIntegration?.recordTerminalUsage(sessionID, part)
+          if (part.type === "finish") {
+            usageIntegration?.recordFinishUsage(sessionID, part, {
+              textChars,
+              reasoningChars,
+              toolChars,
+              elapsedMs: Math.max(1, Math.round(performance.now() - startedAt)),
+              hasTools: toolSchemas.size > 0,
+            })
+            startedAt = performance.now()
+            textChars = 0
+            reasoningChars = 0
+            toolChars = 0
+          }
           controller.enqueue(part)
         }
       },
@@ -717,7 +751,7 @@ export function adaptLanguageModel<T>(
         const content: StreamPartLike[] = []
         for (const part of record.content as StreamPartLike[]) {
           for (const adopted of adoptStreamPart(part, policy, seenStarts, prepared.toolSchemas, prepared.context, usageIntegration)) {
-            if (adopted.type === "finish") usageIntegration?.recordTerminalUsage(sessionID, adopted)
+            if (adopted.type === "finish") usageIntegration?.recordFinishUsage(sessionID, adopted)
             content.push(adopted)
           }
         }

@@ -432,14 +432,15 @@ once OCP Layer A is installed.
 | `bashDescriptionRequired` | `false` | Pass-through (do not invent `description`) |
 | `clearSettledTodos` | `true` | A finished `todowrite` snapshot keeps `completed` rows and drops `cancelled` |
 | `clearSettledTodoMode` | `completed-only` | Named finish stays visible; sidebar hides once every remaining row is completed |
-| `collapseOccupancyUsage` | `true` | Intermediate occupancy-only step finishes store zero tokens; the terminal assistant message keeps context occupancy while OCP reconciles its persisted step record to Cursor's exact aggregate counters |
+| `collapseOccupancyUsage` | `false` | Assistant messages keep declared checkpoint occupancy; OCP estimates interim step accounting and settles the step sum to declared exact turn counters |
 
 `ocp setup --host kilo` still writes the same in-place entry shim layout as MiMo
 (classic plugins often load `file://…/dist/index.js` directly). At runtime the
 shim detects `kilo`, leaves stream preamble and bash description alone, keeps
-the named completed `todowrite` snapshot, and, for an explicitly matched Cursor
-provider package, reconciles the host's separate context and aggregate-token
-stores through the neutral provider event bridge.
+the named completed `todowrite` snapshot, and reconciles declared occupancy
+and exact usage metadata from any provider through the neutral event bridge.
+Intermediate usage and speed are estimates; the summed token usage is exact
+after the provider's terminal counters arrive.
 Use `--no-provider-shim` only when you intentionally skip Option B.
 
 ### 4.3 Project dirs / `.opencode`

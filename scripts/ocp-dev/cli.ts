@@ -1,9 +1,12 @@
+import { existsSync, readFileSync } from "node:fs"
+import { join } from "node:path"
 import { runClone, unshimClone, type CloneHost } from "./clone.ts"
 import { runDsh, unshimDsh } from "./dsh-family.ts"
-import { familyOf, HOSTS, installedHosts, isHostId, type HostId, type WireMode } from "./hosts.ts"
-import { defaultProviderPath } from "./paths.ts"
+import { configFile, familyOf, HOSTS, installedHosts, isHostId, type HostId, type WireMode } from "./hosts.ts"
+import { assertManaged, defaultProviderPath, hostStateDir } from "./paths.ts"
 import { runPi, unshimPi, type PiHost } from "./pi-family.ts"
-import { isStockDirty, repairStock } from "./stock.ts"
+import { assertSafeProvider, assertStockClean, ensureStockBuild, isStockDirty, repairStock } from "./stock.ts"
+import { buildWrapper } from "./wrapper.ts"
 
 function die(message: string): never {
   console.error(`ocp-dev: ${message}`)
@@ -16,6 +19,8 @@ function usage(): void {
   run      Wire hosts to this OCP checkout + cursor provider (local)
            or published packages (--mode npm). Existing host config is
            preserved; only the OCP/provider slot is inserted or replaced.
+  refresh-provider <mimo|kilo> <checkout> <wrapper-name>
+           Rebuild an existing additional provider wrapper without changing config.
   unshim   Remove that slot and restore factory package state. Other
            host config is left untouched.
 
@@ -159,9 +164,34 @@ async function cmdUnshim(hosts: string[]): Promise<void> {
   console.log("\nocp-dev: factory state restored")
 }
 
+async function cmdRefreshProvider(args: string[]): Promise<void> {
+  if (args.length !== 3) die("refresh-provider expects <mimo|kilo> <checkout> <wrapper-name>")
+  const [host, stock, name] = args as [string, string, string]
+  if (host !== "mimo" && host !== "kilo") die("refresh-provider supports clone hosts only")
+  if (!/^[a-z0-9][a-z0-9-]*$/.test(name) || name === "provider") die("invalid additional wrapper name")
+  const wrapper = join(hostStateDir(host), name)
+  assertManaged(wrapper)
+  if (!existsSync(join(wrapper, "package.json"))) die(`existing wrapper missing: ${wrapper}`)
+  const config = configFile(host)
+  if (!existsSync(config) || !readFileSync(config, "utf8").includes(join(wrapper, "dist", "index.js"))) {
+    die(`host config does not reference existing wrapper: ${wrapper}`)
+  }
+  assertSafeProvider(stock)
+  assertStockClean(stock)
+  const sourcePackage = JSON.parse(readFileSync(join(stock, "package.json"), "utf8")) as { name?: string }
+  const wrapperPackage = JSON.parse(readFileSync(join(wrapper, "package.json"), "utf8")) as { name?: string }
+  if (!sourcePackage.name || sourcePackage.name !== wrapperPackage.name) {
+    die(`wrapper package differs from checkout: ${wrapper}`)
+  }
+  ensureStockBuild(stock)
+  await buildWrapper(host, stock, wrapper)
+  console.log(`ocp-dev: refreshed ${sourcePackage.name} for ${host}: ${wrapper}`)
+}
+
 async function main(): Promise<void> {
   const { command, hosts, mode } = parseArgs(process.argv)
   if (command === "run" || command === "shim") await cmdRun(hosts, mode)
+  else if (command === "refresh-provider") await cmdRefreshProvider(hosts)
   else if (command === "unshim") await cmdUnshim(hosts)
   else if (command === "-h" || command === "--help" || command === "help" || command === "") usage()
   else die(`unknown command: ${command}`)

@@ -190,7 +190,7 @@ export function kiloProfile(options?: DraftOptions): HostProfile {
       bashDescriptionRequired: false,
       clearSettledTodos: true,
       clearSettledTodoMode: "completed-only",
-      collapseOccupancyUsage: true,
+      collapseOccupancyUsage: false,
     },
     hooks: {
       core: CORE_HOOKS,

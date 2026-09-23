@@ -8,10 +8,10 @@ export {
 } from "./runtime-host"
 
 export {
-  cursorUsageIntegrationForPackage,
+  usageIntegrationForHost,
   installUsageReconciliation,
-  recordTerminalUsage,
-} from "./cursor-usage-reconciliation"
+  recordFinishUsage,
+} from "./usage-reconciliation"
 
 export {
   adaptLanguageModel,
