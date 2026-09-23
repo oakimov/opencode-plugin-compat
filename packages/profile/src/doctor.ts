@@ -54,6 +54,9 @@ export function profileSummaryLines(profile: {
     scansDotOpencode: boolean
     streamToolCallEnsure: boolean
     bashDescriptionRequired: boolean
+    clearSettledTodos: boolean
+    clearSettledTodoMode: "empty" | "completed-only"
+    collapseOccupancyUsage: boolean
     marketplacePlugins?: boolean
   }
   hooks: { missing: readonly string[]; extensions: readonly string[] }
@@ -81,6 +84,9 @@ export function profileSummaryLines(profile: {
     `scansDotOpencode: ${caps.scansDotOpencode}`,
     `streamToolCallEnsure: ${caps.streamToolCallEnsure}`,
     `bashDescriptionRequired: ${caps.bashDescriptionRequired}`,
+    `clearSettledTodos: ${caps.clearSettledTodos}`,
+    `clearSettledTodoMode: ${caps.clearSettledTodoMode}`,
+    `collapseOccupancyUsage: ${caps.collapseOccupancyUsage}`,
     caps.marketplacePlugins ? "marketplacePlugins: true" : undefined,
     profile.hooks.missing.length
       ? `hooks.missing: ${profile.hooks.missing.join(", ")}`

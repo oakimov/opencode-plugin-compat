@@ -6,7 +6,7 @@
  * Mirrors `packages/pi-bridge/src/bridge.ts` `buildStreamSimple` but for
  * `LlmAdapter.stream(GenerateOptions)` → `StreamChunk`.
  */
-import type { LanguageModelV3, LanguageModelV3CallOptions } from "@ai-sdk/provider"
+import type { LanguageModelV3, LanguageModelV3CallOptions, LanguageModelV3StreamPart, LanguageModelV3Usage } from "@ai-sdk/provider"
 import { optionsForLevel, type ModelCallData } from "@opencode-compat/opencode-loader"
 import { translateGenerateOptionsToPrompt, translateTools, type DshGenerateOptions, type DshMessage } from "./translate/context.js"
 import { v3StreamToDshChunks, type StreamChunk } from "./translate/stream.js"
@@ -15,6 +15,7 @@ export type DshLlmAdapterOptions = {
   providerName: string
   /** Optional provider integration selected by the registration layer. */
   skipGenerateReason?: (messages: readonly DshMessage[]) => string | undefined
+  finishUsage?: (part: LanguageModelV3StreamPart & { type: "finish" }) => LanguageModelV3Usage | null | undefined
   api?: string
   getLanguageModel: (modelId: string, apiKey: string | undefined) => Promise<LanguageModelV3> | LanguageModelV3
   /** Resolve per-model variant + entry options */
@@ -139,6 +140,7 @@ export class DshLlmAdapter extends LlmAdapter {
         const result = await lm.doStream(callOptions as never)
         for await (const chunk of v3StreamToDshChunks(result.stream, undefined, {
           allowedProviderToolNames: new Set(tools?.map(tool => tool.name) ?? []),
+          finishUsage: self.opts.finishUsage,
         })) {
           yield chunk
         }

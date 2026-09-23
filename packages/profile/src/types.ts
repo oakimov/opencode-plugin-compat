@@ -20,6 +20,29 @@ export type HostCapabilities = {
    * OCP may fill a missing description on bash tool-call inputs only.
    */
   bashDescriptionRequired: boolean
+  /**
+   * A todo snapshot with no pending or in-progress row should leave the
+   * sidebar. MiMo keeps recent `done` tasks visible and hides `abandoned`.
+   * Kilo keeps the panel open while any stored row is not `completed`.
+   * When true, OCP clears that finished snapshot. OpenCode leaves it.
+   */
+  clearSettledTodos: boolean
+  /**
+   * How to clear a finished todo snapshot when `clearSettledTodos` is true.
+   * - `empty` (MiMo): store `[]` so the rotated `task` fan-out abandons rows.
+   * - `completed-only` (Kilo): keep `completed` rows and drop `cancelled`.
+   *   Kilo's sidebar already hides when every remaining row is `completed`,
+   *   and emptying the finish call erased the named snapshot the model (and
+   *   self-verify T4f) needs to see.
+   */
+  clearSettledTodoMode: "empty" | "completed-only"
+  /**
+   * The host sums every step-finish token snapshot. Occupancy snapshots are
+   * display-only repeats of the context total. When true (Kilo), intermediate
+   * repeats are stored as zeros; OCP reconciles the terminal persisted step to
+   * exact counters while leaving assistant-message occupancy intact.
+   */
+  collapseOccupancyUsage: boolean
   /** ZCode marketplace ABI — not OCP */
   marketplacePlugins?: boolean
 }

@@ -413,6 +413,29 @@ function normalizeStatus(value: unknown): TodoStatus {
   return STATUS_FROM_HOST[value] ?? "pending"
 }
 
+function isLiveStatus(status: TodoStatus): boolean {
+  return status === "pending" || status === "in_progress"
+}
+
+/**
+ * A snapshot with no live row is finished.
+ *
+ * MiMo's task sidebar keeps a recent `done` tail and does not render
+ * `abandoned`. Abandon every known row so the panel is empty. While any row
+ * is still live, `completed` stays `done` so that one finished item remains
+ * visible beside open work.
+ */
+function abandonSettled(previous: readonly HostTodo[]): Array<Record<string, unknown>> {
+  const transitions: Array<Record<string, unknown>> = []
+  for (const prior of previous) {
+    if (!prior.hostId || prior.status === "cancelled") continue
+    // `abandoned` is the status the sidebar does not render. `event_summary`
+    // marks a successful finish so the prompt the model sees can say done.
+    transitions.push({ action: "abandon", id: prior.hostId, event_summary: "completed" })
+  }
+  return transitions
+}
+
 /** Host action that moves an existing item into `status`. */
 function actionForStatus(status: TodoStatus): "start" | "done" | "abandon" | undefined {
   switch (status) {
@@ -506,6 +529,10 @@ function readTodos(input: Record<string, unknown>): TodoItem[] {
  * re-derived from the next snapshot once the create result has landed.
  */
 export function diffTodos(previous: readonly HostTodo[], next: readonly TodoItem[]): Array<Record<string, unknown>> {
+  if (next.every((todo) => !isLiveStatus(todo.status))) {
+    return abandonSettled(previous)
+  }
+
   const creates: Array<Record<string, unknown>> = []
   const renames: Array<Record<string, unknown>> = []
   const transitions: Array<Record<string, unknown>> = []
@@ -743,6 +770,48 @@ export function reconstructHostTodos(prompt: unknown, vocab: Vocabulary): HostTo
 /* Prompt translation (host -> plugin)                                         */
 /* -------------------------------------------------------------------------- */
 
+export type CompletionClear = {
+  hostIds: Set<string>
+  callIds: Set<string>
+}
+
+/** Abandons that cleared a finished list, distinct from a real cancellation. */
+export function completionClears(prompt: readonly unknown[]): CompletionClear {
+  const hostIds = new Set<string>()
+  const callIds = new Set<string>()
+  if (!Array.isArray(prompt)) return { hostIds, callIds }
+  for (const message of prompt) {
+    if (!isRecord(message) || !Array.isArray(message["content"])) continue
+    for (const part of message["content"]) {
+      if (!isRecord(part) || part["type"] !== "tool-call") continue
+      const operation = operationOf(part["input"])
+      if (!operation || operation["action"] !== "abandon" || operation["event_summary"] !== "completed") continue
+      if (typeof operation["id"] === "string") hostIds.add(operation["id"])
+      if (typeof part["toolCallId"] === "string") callIds.add(part["toolCallId"])
+    }
+  }
+  return { hostIds, callIds }
+}
+
+/**
+ * The host reports a completion-clear as `abandoned` because that is the
+ * status its sidebar hides. The model must see a finished item, not a drop.
+ * A cancellation abandon is left unchanged.
+ */
+export function rewriteCompletionClearText(
+  text: string,
+  hostIds: ReadonlySet<string>,
+  ownResult = false,
+): string {
+  let out = text
+  for (const id of hostIds) {
+    out = out.split(`${id} abandoned`).join(`${id} done`)
+    out = out.split(`Task ${id}: abandoned`).join(`Task ${id}: done`)
+  }
+  if (ownResult) out = out.split("abandon → abandoned").join("done → done")
+  return out
+}
+
 /**
  * Restate prior turns in canonical vocabulary.
  *
@@ -754,6 +823,7 @@ export function reconstructHostTodos(prompt: unknown, vocab: Vocabulary): HostTo
  * results concatenated into one.
  */
 export function translatePrompt<T>(prompt: readonly T[], vocab: Vocabulary): T[] {
+  const cleared = completionClears(prompt)
   const hostToCanonical = new Map<string, RoleBinding>()
   for (const binding of vocab.bindings) {
     // todoWrite and todoRead share one host name; the call id decides which,
@@ -784,14 +854,15 @@ export function translatePrompt<T>(prompt: readonly T[], vocab: Vocabulary): T[]
       }
 
       const binding = hostToCanonical.get(toolName)
+      const visible = rewriteClearPart(part, cleared)
       if (!binding) {
-        out.push(part)
+        out.push(visible)
         continue
       }
 
       // A subagent result carries the host's actor_id; rewrite it once here so
       // every later path (restated or folded) exposes canonical task_id.
-      let active: Record<string, unknown> = part
+      let active: Record<string, unknown> = visible
       if (binding.role === "subagent" && active["type"] === "tool-result") {
         const rewritten = translateResultOutput(active, binding)
         if (isRecord(rewritten)) active = rewritten
@@ -847,6 +918,20 @@ function restateSingle(part: Record<string, unknown>, binding: RoleBinding): Rec
   if (typeof operation["model"] === "string") input["model"] = operation["model"]
   restated["input"] = input
   return restated
+}
+
+function rewriteClearPart(part: Record<string, unknown>, cleared: CompletionClear): Record<string, unknown> {
+  if (cleared.hostIds.size === 0 || part["type"] !== "tool-result") return part
+  const callId = typeof part["toolCallId"] === "string" ? part["toolCallId"] : ""
+  const ownResult = cleared.callIds.has(callId)
+  const next: Record<string, unknown> = { ...part }
+  if (typeof next["output"] === "string") {
+    next["output"] = rewriteCompletionClearText(next["output"], cleared.hostIds, ownResult)
+  }
+  if (typeof next["result"] === "string") {
+    next["result"] = rewriteCompletionClearText(next["result"], cleared.hostIds, ownResult)
+  }
+  return next
 }
 
 function mergeFoldedPart(target: Record<string, unknown>, part: Record<string, unknown>): void {

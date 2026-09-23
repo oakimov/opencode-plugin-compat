@@ -7,6 +7,7 @@
  */
 import { describe, expect, test } from "bun:test"
 import { emptyUsage, runV3StreamToPi } from "../packages/pi-bridge/src/translate/stream.ts"
+import { cursorFinishUsage } from "../packages/pi-bridge/src/translate/cursor-usage.ts"
 
 class FakeAssistantMessageEventStream {
   events: unknown[] = []
@@ -109,6 +110,80 @@ describe("runV3StreamToPi", () => {
     })
     const done = piStream.events.at(-1) as { message: { content: unknown[] } }
     expect(done.message.content).toEqual([{ type: "thinking", thinking: "thinking..." }])
+  })
+
+  test("uses Cursor raw totals once and drops intermediate occupancy", async () => {
+    const intermediate = new FakeAssistantMessageEventStream()
+    await runV3StreamToPi({
+      model: MODEL,
+      v3Stream: v3Parts([{
+        type: "finish",
+        usage: {
+          inputTokens: { total: 35_271, noCache: 35_271, cacheRead: 0, cacheWrite: 0 },
+          outputTokens: { total: 1, text: 1, reasoning: 0 },
+        },
+        providerMetadata: { cursor: { occupancyOnly: true, context: { usedTokens: 35_272 } } },
+        finishReason: { unified: "tool-calls", raw: "tool_calls" },
+      }]) as never,
+      piStream: intermediate as never,
+      finishUsage: cursorFinishUsage,
+    })
+    expect((intermediate.events.at(-1) as { message: { usage: unknown } }).message.usage).toEqual(emptyUsage())
+
+    const terminal = new FakeAssistantMessageEventStream()
+    await runV3StreamToPi({
+      model: MODEL,
+      v3Stream: v3Parts([{
+        type: "finish",
+        usage: {
+          inputTokens: { total: 54_128, noCache: 54_128, cacheRead: 0, cacheWrite: 0 },
+          outputTokens: { total: 1, text: 1, reasoning: 0 },
+        },
+        providerMetadata: {
+          cursor: {
+            inputTokensRaw: 324_922,
+            outputTokensRaw: 3_581,
+            cacheReadRaw: 266_112,
+            cacheWriteRaw: 0,
+            reasoningTokensRaw: 2_355,
+          },
+        },
+        finishReason: { unified: "stop", raw: "stop" },
+      }]) as never,
+      piStream: terminal as never,
+      finishUsage: cursorFinishUsage,
+    })
+    const usage = (terminal.events.at(-1) as { message: { usage: Record<string, unknown> } }).message.usage
+    expect(usage).toMatchObject({
+      input: 58_810,
+      output: 3_581,
+      cacheRead: 266_112,
+      cacheWrite: 0,
+      reasoning: 2_355,
+      totalTokens: 328_503,
+    })
+  })
+
+  test("generic providers use V3 usage even when metadata contains a cursor key", async () => {
+    const piStream = new FakeAssistantMessageEventStream()
+    await runV3StreamToPi({
+      model: MODEL,
+      v3Stream: v3Parts([{
+        type: "finish",
+        usage: {
+          inputTokens: { total: 12, noCache: 12, cacheRead: 0, cacheWrite: 0 },
+          outputTokens: { total: 3, text: 3, reasoning: 0 },
+        },
+        providerMetadata: { cursor: { inputTokensRaw: 999 } },
+        finishReason: { unified: "stop" },
+      }]) as never,
+      piStream: piStream as never,
+    })
+    expect((piStream.events.at(-1) as { message: { usage: unknown } }).message.usage).toMatchObject({
+      input: 12,
+      output: 3,
+      totalTokens: 15,
+    })
   })
 
   test("a single-shot tool-call part (no preceding tool-input-start) opens+closes in one step", async () => {

@@ -55,6 +55,9 @@ export function opencodeProfile(options?: DraftOptions): HostProfile {
       scansDotOpencode: true,
       streamToolCallEnsure: true,
       bashDescriptionRequired: false,
+      clearSettledTodos: false,
+      clearSettledTodoMode: "empty",
+      collapseOccupancyUsage: false,
     },
     hooks: {
       core: CORE_HOOKS,
@@ -116,6 +119,9 @@ export function mimoProfile(options?: DraftOptions): HostProfile {
       // MiMo SessionProcessor creates tool parts only on tool-input-start (no ensureToolCall)
       streamToolCallEnsure: false,
       bashDescriptionRequired: true,
+      clearSettledTodos: true,
+      clearSettledTodoMode: "empty",
+      collapseOccupancyUsage: false,
     },
     // MiMo rotated both names: `actor` spawns subagents, and the freed `task`
     // name is its work-item tracker (there is no todowrite/todoread builtin).
@@ -182,6 +188,9 @@ export function kiloProfile(options?: DraftOptions): HostProfile {
       // Kilo SessionProcessor has ensureToolCall; bash.description is optional
       streamToolCallEnsure: true,
       bashDescriptionRequired: false,
+      clearSettledTodos: true,
+      clearSettledTodoMode: "completed-only",
+      collapseOccupancyUsage: true,
     },
     hooks: {
       core: CORE_HOOKS,
@@ -229,6 +238,9 @@ export function zcodeProfile(options?: DraftOptions): HostProfile {
       scansDotOpencode: false,
       streamToolCallEnsure: true,
       bashDescriptionRequired: false,
+      clearSettledTodos: false,
+      clearSettledTodoMode: "empty",
+      collapseOccupancyUsage: false,
       marketplacePlugins: true,
     },
     hooks: {
@@ -269,6 +281,9 @@ export function unknownProfile(options?: DraftOptions): HostProfile {
       scansDotOpencode: false,
       streamToolCallEnsure: true,
       bashDescriptionRequired: false,
+      clearSettledTodos: false,
+      clearSettledTodoMode: "empty",
+      collapseOccupancyUsage: false,
     },
     hooks: {
       core: [],

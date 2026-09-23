@@ -14,6 +14,7 @@
  *   streaming     ← its `createXxx()` AI-SDK factory
  */
 import { registerAiSdkProvider } from "./bridge.js"
+import { isCursorProviderPackage } from "./cursor-package.js"
 import { avoidProviderIdCollision, type PiHostProfile } from "./host/profile.js"
 import { loadPiRuntime } from "./host/runtime.js"
 import { loadModuleThroughHost } from "./host-module-loader.js"
@@ -182,11 +183,15 @@ export async function registerOpenCodePlugin(
   // The plugin reads its provider options under the id *it* declares, which is
   // not necessarily the host-facing name (that one may have been de-collided).
   const providerOptionsKey = authHook?.provider ?? hooks?.auth?.provider ?? providerName
+  const cursorUsage = isCursorProviderPackage(spec.package)
+    ? await import("./translate/cursor-usage.js")
+    : undefined
 
   const profile = await registerAiSdkProvider(pi, {
     name: providerName,
     api,
     baseUrl: spec.baseUrl ?? `opencode-plugin:${spec.package}`,
+    ...(cursorUsage ? { finishUsage: cursorUsage.cursorFinishUsage } : {}),
     ...(spec.apiKey ? { apiKey: spec.apiKey } : {}),
     ...(initialModels.length > 0 ? { models: initialModels } : {}),
     ...(fetchModels ? { fetchModels } : {}),

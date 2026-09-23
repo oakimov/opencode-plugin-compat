@@ -36,6 +36,8 @@ export type ShimMeta = {
   entry: string
   /** Export/local bindings wrapped in-place. */
   factories: ShimFactoryBinding[]
+  /** Package identity read from its manifest at setup time. */
+  packageName?: string
   /** Setup-time host hint; runtime still re-detects. */
   hostHint?: string
   /** Always instrumented-entry for direct file:// compatibility. */
@@ -107,6 +109,7 @@ export function renderProviderShimSource(
   source: string,
 ): string {
   const hostHint = JSON.stringify(meta.hostHint ?? "")
+  const packageName = JSON.stringify(meta.packageName ?? "")
   const stockSource = stripProviderShimSource(source)
   const instrumentedSource = makeFactoryConstsMutable(stockSource, meta.factories)
   const factoryEntries = meta.factories
@@ -128,6 +131,7 @@ export function renderProviderShimSource(
 
   const header = `${HEADER_START}
 import {
+  cursorUsageIntegrationForPackage,
   detectHostId,
   installPathBridge,
   policyForHostId,
@@ -137,6 +141,7 @@ import {
 
 const __host = detectHostId(process.env, process.argv, process.execPath, ${hostHint})
 installPathBridge(__host, process.env)
+const __usage = cursorUsageIntegrationForPackage(${packageName}, __host, process.env)
 const __policy = policyForHostId(__host)
 const __roles = toolRolesForHostId(__host)
 ${HEADER_END}`
@@ -144,7 +149,7 @@ ${HEADER_END}`
   const bindings = `${BINDINGS_START}
 const __ocpWrappedFactories = wrapProviderModule({
 ${factoryEntries}
-}, __policy, __roles)
+}, __policy, __roles, __usage)
 ${assignments}
 ${BINDINGS_END}`
 

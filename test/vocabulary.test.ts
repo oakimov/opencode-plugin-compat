@@ -318,9 +318,33 @@ describe("diffTodos", () => {
     ])
   })
 
-  test("dropped items already terminal are left alone", () => {
-    const done: HostTodo[] = [{ content: "First", status: "completed", hostId: "T1" }]
-    expect(diffTodos(done, [])).toEqual([])
+  test("dropped items already terminal stay while other work is open", () => {
+    const done: HostTodo[] = [
+      { content: "First", status: "pending", hostId: "T1" },
+      { content: "Second", status: "completed", hostId: "T2" },
+    ]
+    expect(diffTodos(done, [{ content: "First", status: "pending" }])).toEqual([])
+  })
+
+  test("a finished snapshot abandons completed rows so the sidebar clears", () => {
+    const known: HostTodo[] = [
+      { content: "First", status: "completed", hostId: "T1" },
+      { content: "Second", status: "in_progress", hostId: "T2" },
+    ]
+    expect(
+      diffTodos(known, [
+        { content: "First", status: "completed" },
+        { content: "Second", status: "completed" },
+      ]),
+    ).toEqual([
+      { action: "abandon", id: "T1", event_summary: "completed" },
+      { action: "abandon", id: "T2", event_summary: "completed" },
+    ])
+    expect(diffTodos(known, [])).toEqual([
+      { action: "abandon", id: "T1", event_summary: "completed" },
+      { action: "abandon", id: "T2", event_summary: "completed" },
+    ])
+    expect(diffTodos([{ content: "First", status: "cancelled", hostId: "T1" }], [])).toEqual([])
   })
 })
 
@@ -439,6 +463,46 @@ describe("translatePrompt", () => {
       type: "tool-result",
     })
     expect(out[1]?.content[0]?.output).toBe("Created T1\nCreated T2")
+  })
+
+  test("a finished-list abandon is shown to the model as done", () => {
+    const prompt = [
+      {
+        role: "assistant",
+        content: [
+          {
+            type: "tool-call",
+            toolCallId: "c1#0",
+            toolName: "task",
+            input: { operation: { action: "abandon", id: "T1", event_summary: "completed" } },
+          },
+          {
+            type: "tool-call",
+            toolCallId: "c1#1",
+            toolName: "task",
+            input: { operation: { action: "abandon", id: "T3" } },
+          },
+        ],
+      },
+      {
+        role: "tool",
+        content: [
+          { type: "tool-result", toolCallId: "c1#0", toolName: "task", output: "abandon → abandoned" },
+          { type: "tool-result", toolCallId: "c1#1", toolName: "task", output: "abandon → abandoned" },
+          {
+            type: "tool-result",
+            toolCallId: "list1",
+            toolName: "task",
+            output: "T1 abandoned — ocp-sv-a\nT3 abandoned — ocp-sv-c",
+          },
+        ],
+      },
+    ]
+    const out = translatePrompt(prompt, mimoVocab()) as Array<{ content: Array<{ output?: string }> }>
+    expect(out[1]?.content.map((part) => part.output)).toEqual([
+      "done → done\nabandon → abandoned",
+      "T1 done — ocp-sv-a\nT3 abandoned — ocp-sv-c",
+    ])
   })
 
   test("a subagent call is restated flat under its canonical name", () => {
@@ -623,6 +687,36 @@ describe("adoptStreamPart with a vocabulary", () => {
       ["tool-call", "c3#1"],
     ])
     expect(parts.every((part) => part.toolName === "task")).toBe(true)
+  })
+
+  test("a finished todowrite snapshot abandons known MiMo tasks", () => {
+    const parts = adoptStreamPart(
+      {
+        type: "tool-call",
+        toolCallId: "c4",
+        toolName: "todowrite",
+        input: {
+          todos: [
+            { content: "ocp-sv-a", status: "completed" },
+            { content: "ocp-sv-b", status: "completed" },
+          ],
+        },
+      },
+      policy,
+      new Set(),
+      new Map(),
+      {
+        vocab: mimoVocab(),
+        hostTodos: [
+          { content: "ocp-sv-a", status: "completed", hostId: "T1" },
+          { content: "ocp-sv-b", status: "in_progress", hostId: "T2" },
+        ],
+      },
+    )
+    expect(parts.filter((part) => part.type === "tool-call").map((part) => part.input)).toEqual([
+      { operation: { action: "abandon", id: "T1", event_summary: "completed" } },
+      { operation: { action: "abandon", id: "T2", event_summary: "completed" } },
+    ])
   })
 
   test("without a vocabulary the part is adopted exactly as before", () => {

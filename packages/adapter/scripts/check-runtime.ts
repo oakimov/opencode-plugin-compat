@@ -18,6 +18,7 @@ const runtime = await import(pathToFileURL(runtimePath).href) as Record<string, 
 
 for (const name of [
   "detectHostId",
+  "cursorUsageIntegrationForPackage",
   "installPathBridge",
   "policyForHostId",
   "toolRolesForHostId",

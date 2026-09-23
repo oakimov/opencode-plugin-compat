@@ -14,7 +14,7 @@
  * Host differences (package scope, dynamic-model calling convention, required
  * oauth fields) come from {@link PiHostProfile} — see `host/profile.ts`.
  */
-import type { LanguageModelV3, LanguageModelV3CallOptions } from "@ai-sdk/provider"
+import type { LanguageModelV3, LanguageModelV3CallOptions, LanguageModelV3StreamPart, LanguageModelV3Usage } from "@ai-sdk/provider"
 import { loadPiRuntime, type PiRuntime } from "./host/runtime.js"
 import { renderApiKeyRef, type PiHostProfile } from "./host/profile.js"
 import type { PiModelConfig, PiOAuthConfig } from "@opencode-compat/opencode-loader"
@@ -42,6 +42,8 @@ export interface AiSdkProviderSpec {
   }) => LanguageModelV3CallOptions | Promise<LanguageModelV3CallOptions>
   /** Host-global compatibility tools that must not enter this provider's catalog. */
   excludedToolNames?: readonly string[]
+  /** Optional provider integration selected by package identity at registration. */
+  finishUsage?: (part: LanguageModelV3StreamPart & { type: "finish" }) => LanguageModelV3Usage | null | undefined
   models?: readonly PiModelConfig[]
   /** Host-neutral dynamic model list; adapted to each host's calling convention below. */
   fetchModels?: (apiKey: string | undefined) => Promise<readonly PiModelConfig[]>
@@ -128,6 +130,7 @@ export function buildStreamSimple(spec: AiSdkProviderSpec, runtime: PiRuntime) {
           terminalResult,
           question,
           allowedProviderToolNames,
+          finishUsage: spec.finishUsage,
         })
       } catch (err) {
         const message = errorAssistantMessage(model, err)

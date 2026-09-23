@@ -11,7 +11,10 @@ import { existsSync, readFileSync } from "node:fs"
 import { homedir } from "node:os"
 import path from "node:path"
 import { registerOpenCodePlugin, type OpenCodePluginSpec } from "./register.js"
+import { isCursorProviderPackage } from "./cursor-package.js"
 import type { PiExtensionApi } from "./pi-provider-types.js"
+
+export { isCursorProviderPackage, stripTrailingNpmVersion } from "./cursor-package.js"
 
 export type PiBridgeConfig = {
   providers: OpenCodePluginSpec[]
@@ -20,24 +23,6 @@ export type PiBridgeConfig = {
 export type ProviderRegistrationOptions = {
   /** Cursor-only tools registered globally by the Pi-family host extension. */
   cursorHostToolNames?: readonly string[]
-}
-
-/** Drop a trailing npm version suffix without changing scoped names or paths. */
-export function stripTrailingNpmVersion(raw: string): string {
-  const at = raw.lastIndexOf("@")
-  if (at <= 0) return raw
-  const after = raw.slice(at + 1)
-  if (!after || after.includes("/")) return raw
-  return raw.slice(0, at)
-}
-
-/** True only for the Cursor provider package, never merely a provider id. */
-export function isCursorProviderPackage(raw: string): boolean {
-  const packageName = stripTrailingNpmVersion(raw.toLowerCase())
-  return packageName === "cursor-opencode-provider"
-    || packageName.startsWith("cursor-opencode-provider/")
-    || packageName.includes("/cursor-opencode-provider/")
-    || packageName.endsWith("/cursor-opencode-provider")
 }
 
 /**

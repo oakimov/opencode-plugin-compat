@@ -240,6 +240,7 @@ some OpenCode providers emit `filePath`.
 |------------|-------|--------------|
 | `streamToolCallEnsure` | `false` | Emit `tool-input-start` before bare `tool-call` |
 | `bashDescriptionRequired` | `true` | Fill missing `bash.description` only (never swap host tool catalogs) |
+| `clearSettledTodos` | `true` | A todo snapshot with no live row abandons known `task` rows |
 
 Argument spelling is **not** a MiMo-specific policy table. The shim reads the
 tools advertised on every LanguageModel call and maps only unique
@@ -378,8 +379,8 @@ ocp matrix --host mimo
 ocp matrix --host mimo --compat-scan
 ```
 
-Doctor should report `streamToolCallEnsure: false` and
-`bashDescriptionRequired: true`.
+Doctor should report `streamToolCallEnsure: false`,
+`bashDescriptionRequired: true`, and `clearSettledTodos: true`.
 
 **Live smoke (classic + Option B):**
 
@@ -416,7 +417,7 @@ using the same isolated OpenCode-style `packages/<name>@<version>/` layout as
 MiMo. Classic Hooks keys already match OpenCode 1.18.3 core, so T1 is primarily
 override + adapter dispatch to `@kilocode/plugin`.
 
-### 4.2 Option B — shims are identity on Kilo
+### 4.2 Option B — preamble is a pass-through on Kilo
 
 Kilo's `SessionProcessor` already has `ensureToolCall`, so bare AI SDK
 `tool-call` parts work without a preamble, and Kilo's `bash` `description` is
@@ -429,11 +430,17 @@ once OCP Layer A is installed.
 |------------|-------|--------------|
 | `streamToolCallEnsure` | `true` | Pass-through (no synthetic `tool-input-start`) |
 | `bashDescriptionRequired` | `false` | Pass-through (do not invent `description`) |
+| `clearSettledTodos` | `true` | A finished `todowrite` snapshot keeps `completed` rows and drops `cancelled` |
+| `clearSettledTodoMode` | `completed-only` | Named finish stays visible; sidebar hides once every remaining row is completed |
+| `collapseOccupancyUsage` | `true` | Intermediate occupancy-only step finishes store zero tokens; the terminal assistant message keeps context occupancy while OCP reconciles its persisted step record to Cursor's exact aggregate counters |
 
 `ocp setup --host kilo` still writes the same in-place entry shim layout as MiMo
 (classic plugins often load `file://…/dist/index.js` directly). At runtime the
-shim detects `kilo` and `wrapProviderModule` returns the original module
-unchanged. Use `--no-provider-shim` only when you intentionally skip Option B.
+shim detects `kilo`, leaves stream preamble and bash description alone, keeps
+the named completed `todowrite` snapshot, and, for an explicitly matched Cursor
+provider package, reconciles the host's separate context and aggregate-token
+stores through the neutral provider event bridge.
+Use `--no-provider-shim` only when you intentionally skip Option B.
 
 ### 4.3 Project dirs / `.opencode`
 
@@ -476,8 +483,8 @@ ocp matrix --host kilo
 ocp matrix --host kilo --compat-scan
 ```
 
-Doctor should report `streamToolCallEnsure: true` and
-`bashDescriptionRequired: false`.
+Doctor should report `streamToolCallEnsure: true`,
+`bashDescriptionRequired: false`, and `clearSettledTodos: true`.
 
 **Live smoke (classic + Option B):** after installing an unchanged OpenCode
 plugin + `ocp setup --host kilo`, confirm the install-tree shim files exist

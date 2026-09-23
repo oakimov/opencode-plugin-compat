@@ -27,15 +27,20 @@ import {
   mimoProfile,
   opencodeProfile,
 } from "../packages/profile/src/index.ts"
+import { cursorUsageIntegrationForPackage } from "../packages/adapter/src/cursor-usage-reconciliation.ts"
 
 describe("HostProfile stream / bash capabilities", () => {
   test("mimo requires adoption (no ensureToolCall; bash.description required)", () => {
     const p = mimoProfile({ home: "/tmp", env: {} })
     expect(p.capabilities.streamToolCallEnsure).toBe(false)
     expect(p.capabilities.bashDescriptionRequired).toBe(true)
+    expect(p.capabilities.clearSettledTodos).toBe(true)
     expect(policyFromProfile(p)).toEqual({
       streamToolCallEnsure: false,
       bashDescriptionRequired: true,
+      clearSettledTodos: true,
+      clearSettledTodoMode: "empty",
+      collapseOccupancyUsage: false,
     })
   })
 
@@ -44,15 +49,24 @@ describe("HostProfile stream / bash capabilities", () => {
     const oc = opencodeProfile({ home: "/tmp", env: {} })
     expect(kilo.capabilities.streamToolCallEnsure).toBe(true)
     expect(kilo.capabilities.bashDescriptionRequired).toBe(false)
+    expect(kilo.capabilities.clearSettledTodos).toBe(true)
+    expect(kilo.capabilities.clearSettledTodoMode).toBe("completed-only")
     expect(oc.capabilities.streamToolCallEnsure).toBe(true)
     expect(oc.capabilities.bashDescriptionRequired).toBe(false)
+    expect(oc.capabilities.clearSettledTodos).toBe(false)
     expect(policyForHostId("kilo")).toEqual({
       streamToolCallEnsure: true,
       bashDescriptionRequired: false,
+      clearSettledTodos: true,
+      clearSettledTodoMode: "completed-only",
+      collapseOccupancyUsage: true,
     })
     expect(policyForHostId("opencode")).toEqual({
       streamToolCallEnsure: true,
       bashDescriptionRequired: false,
+      clearSettledTodos: false,
+      clearSettledTodoMode: "empty",
+      collapseOccupancyUsage: false,
     })
   })
 })
@@ -60,6 +74,114 @@ describe("HostProfile stream / bash capabilities", () => {
 describe("adoptStreamPart — MiMo vs Kilo", () => {
   const mimo = policyForHostId("mimo")
   const kilo = policyForHostId("kilo")
+  const cursorUsage = cursorUsageIntegrationForPackage("cursor-opencode-provider", "opencode")
+
+  test("Kilo zeros intermediate occupancy and preserves the terminal context/raw finish", () => {
+    const occupancy = {
+      type: "finish",
+      usage: {
+        inputTokens: { total: 32000, noCache: 32000, cacheRead: 0, cacheWrite: 0 },
+        outputTokens: { total: 1, text: 1, reasoning: 0 },
+      },
+      providerMetadata: { cursor: { occupancyOnly: true } },
+    }
+    const terminal = {
+      type: "finish",
+      usage: {
+        inputTokens: { total: 54_128, noCache: 54_128, cacheRead: 0, cacheWrite: 0 },
+        outputTokens: { total: 1, text: 1, reasoning: 0 },
+      },
+      providerMetadata: {
+        cursor: {
+          inputTokensRaw: 324_922,
+          outputTokensRaw: 3_581,
+          context: { usedTokens: 54_129, maxTokens: 256_000 },
+        },
+      },
+    }
+    expect(adoptStreamPart(occupancy, kilo, new Set(), new Map(), undefined, cursorUsage)[0]?.usage).toEqual({
+      inputTokens: { total: 0, noCache: 0, cacheRead: 0, cacheWrite: 0 },
+      outputTokens: { total: 0, text: 0, reasoning: 0 },
+    })
+    expect(adoptStreamPart(terminal, kilo, new Set(), new Map(), undefined, cursorUsage)[0]).toEqual(terminal)
+    expect(adoptStreamPart(occupancy, policyForHostId("opencode"), new Set())[0]?.usage).toEqual(occupancy.usage)
+    expect(adoptStreamPart(occupancy, kilo, new Set())[0]?.usage).toEqual(occupancy.usage)
+  })
+
+  test("Kilo keeps completed rows when the todo snapshot is finished", () => {
+    const input = JSON.stringify({
+      todos: [
+        { content: "ocp-sv-a", status: "completed" },
+        { content: "ocp-sv-b", status: "cancelled" },
+      ],
+    })
+    const parts = adoptStreamPart(
+      { type: "tool-call", toolCallId: "c1", toolName: "todowrite", input },
+      kilo,
+      new Set(),
+    )
+    expect(parts).toEqual([
+      {
+        type: "tool-call",
+        toolCallId: "c1",
+        toolName: "todowrite",
+        input: JSON.stringify({
+          todos: [{ content: "ocp-sv-a", status: "completed" }],
+        }),
+      },
+    ])
+  })
+
+  test("MiMo stores an empty list when the todo snapshot is finished", () => {
+    const input = {
+      todos: [
+        { content: "ocp-sv-a", status: "completed" },
+        { content: "ocp-sv-b", status: "cancelled" },
+      ],
+    }
+    const parts = adoptStreamPart(
+      { type: "tool-call", toolCallId: "c1", toolName: "todowrite", input },
+      mimo,
+      new Set(),
+    )
+    // MiMo also gets tool-input-start before the call
+    expect(parts.at(-1)).toEqual({
+      type: "tool-call",
+      toolCallId: "c1",
+      toolName: "todowrite",
+      input: { todos: [] },
+    })
+  })
+
+  test("Kilo keeps completed rows while other work is open", () => {
+    const input = {
+      todos: [
+        { content: "ocp-sv-a", status: "completed" },
+        { content: "ocp-sv-b", status: "in_progress" },
+      ],
+    }
+    const parts = adoptStreamPart(
+      { type: "tool-call", toolCallId: "c1", toolName: "todowrite", input },
+      kilo,
+      new Set(),
+    )
+    expect(parts).toEqual([{ type: "tool-call", toolCallId: "c1", toolName: "todowrite", input }])
+  })
+
+  test("Kilo forwards an explicit empty todowrite so Cursor receives its result", () => {
+    const call = { type: "tool-call", toolCallId: "c2", toolName: "todowrite", input: { todos: [] } }
+    expect(adoptStreamPart(call, kilo, new Set())).toEqual([call])
+  })
+
+  test("OpenCode keeps a finished todo snapshot", () => {
+    const input = { todos: [{ content: "ocp-sv-a", status: "completed" }] }
+    const parts = adoptStreamPart(
+      { type: "tool-call", toolCallId: "c1", toolName: "todowrite", input },
+      policyForHostId("opencode"),
+      new Set(),
+    )
+    expect(parts).toEqual([{ type: "tool-call", toolCallId: "c1", toolName: "todowrite", input }])
+  })
 
   test("MiMo inserts tool-input-start before bare tool-call", () => {
     const seen = new Set<string>()
@@ -308,6 +430,38 @@ describe("schema-driven argument key adoption", () => {
 })
 
 describe("adaptLanguageModel / wrapProvider*", () => {
+  test("package-selected usage changes Cursor finishes but leaves generic providers unchanged", async () => {
+    const finish = {
+      type: "finish",
+      usage: {
+        inputTokens: { total: 100, noCache: 100, cacheRead: 0, cacheWrite: 0 },
+        outputTokens: { total: 1, text: 1, reasoning: 0 },
+      },
+      providerMetadata: { cursor: { occupancyOnly: true } },
+    }
+    const model = {
+      async doStream() {
+        return { stream: new ReadableStream({ start(controller) { controller.enqueue(finish); controller.close() } }) }
+      },
+    }
+    const readFinish = async (adapted: typeof model) => {
+      const result = await adapted.doStream()
+      const reader = result.stream.getReader()
+      return (await reader.read()).value as typeof finish
+    }
+    const generic = adaptLanguageModel(model, policyForHostId("kilo"))
+    expect((await readFinish(generic)).usage.inputTokens.total).toBe(100)
+
+    const cursor = adaptLanguageModel(
+      model,
+      policyForHostId("kilo"),
+      undefined,
+      undefined,
+      cursorUsageIntegrationForPackage("cursor-opencode-provider", "opencode"),
+    )
+    expect((await readFinish(cursor)).usage.inputTokens.total).toBe(0)
+  })
+
   test("pass-through hosts still wrap for schema adoption", async () => {
     const model = {
       async doStream(_options?: unknown) {
@@ -682,6 +836,13 @@ describe("provider shim source + install-tree setup", () => {
           "/usr/bin/node",
           "kilo",
         ),
+      ).toBe("kilo")
+      expect(
+        runtime.detectHostId(
+          { MIMOCODE: "1" },
+          ["node", "worker.js"],
+          "/usr/bin/node",
+        ),
       ).toBe("mimo")
       expect(
         runtime.detectHostId(
@@ -693,6 +854,9 @@ describe("provider shim source + install-tree setup", () => {
       ).toBe("mimo")
       expect(
         runtime.detectHostId({}, ["/usr/bin/opencode"], "/usr/bin/node", "mimo"),
+      ).toBe("mimo")
+      expect(
+        runtime.detectHostId({}, ["/usr/bin/opencode"], "/usr/bin/node"),
       ).toBe("opencode")
       expect(
         runtime.normalizeToolInputForSchema(
@@ -767,7 +931,7 @@ describe("provider shim source + install-tree setup", () => {
 
       const wrapped = runtime.wrapProviderModule(
         fakeModule,
-        { streamToolCallEnsure: false, bashDescriptionRequired: true },
+        { streamToolCallEnsure: false, bashDescriptionRequired: true, clearSettledTodos: true, clearSettledTodoMode: "empty", collapseOccupancyUsage: false },
         roles,
       )
       const sdk = (wrapped.createFoo as () => { languageModel: () => { doStream: (c: unknown) => Promise<unknown> } })()
@@ -817,6 +981,7 @@ export const VERSION = "1.0.0"
           },
         ],
         hostHint: "mimo",
+        packageName: "cursor-opencode-provider",
         strategy: "instrumented-entry",
       },
       stock,
@@ -837,7 +1002,8 @@ export const VERSION = "1.0.0"
     // tool vocabulary — the exact gap this generator previously had.
     expect(src).toContain("toolRolesForHostId")
     expect(src).toContain("const __roles = toolRolesForHostId(__host)")
-    expect(src).toContain("}, __policy, __roles)")
+    expect(src).toContain('cursorUsageIntegrationForPackage("cursor-opencode-provider", __host, process.env)')
+    expect(src).toContain("}, __policy, __roles, __usage)")
   })
 
   test("setupProviderShims writes in-place entry beside stock create* package", async () => {

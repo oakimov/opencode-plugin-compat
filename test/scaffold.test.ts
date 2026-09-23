@@ -30,6 +30,7 @@ describe("@opencode-compat/profile", () => {
     expect(p.capabilities.scansDotOpencode).toBe(true)
     expect(p.capabilities.streamToolCallEnsure).toBe(true)
     expect(p.capabilities.bashDescriptionRequired).toBe(false)
+    expect(p.capabilities.clearSettledTodos).toBe(false)
     expect(p.paths.projectDirs).toEqual([".opencode"])
     expect(p.hooks.missing).toEqual([])
   })
@@ -44,6 +45,7 @@ describe("@opencode-compat/profile", () => {
     // MiMo: no ensureToolCall; bash.description required → Option B adoption
     expect(p.capabilities.streamToolCallEnsure).toBe(false)
     expect(p.capabilities.bashDescriptionRequired).toBe(true)
+    expect(p.capabilities.clearSettledTodos).toBe(true)
     expect(p.paths.compatProjectDirs).toEqual([".opencode"])
     expect(p.hooks.missing).toContain("dispose")
     expect(p.hooks.extensions).toContain("actor.preStop")
@@ -70,6 +72,7 @@ describe("@opencode-compat/profile", () => {
     // Kilo: ensureToolCall present; bash.description optional → pass-through
     expect(p.capabilities.streamToolCallEnsure).toBe(true)
     expect(p.capabilities.bashDescriptionRequired).toBe(false)
+    expect(p.capabilities.clearSettledTodos).toBe(true)
   })
 
   test("zcode is T0 / ocp none", () => {

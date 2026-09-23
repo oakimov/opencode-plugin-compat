@@ -94,6 +94,8 @@ export async function runV3StreamToPi(options: {
   question?: PiQuestionVocabulary
   /** Fail closed if a provider emits a tool that was not in this call's catalog. */
   allowedProviderToolNames?: ReadonlySet<string>
+  /** Optional package-selected accounting projection; null means display only. */
+  finishUsage?: (part: LanguageModelV3StreamPart & { type: "finish" }) => LanguageModelV3Usage | null | undefined
 }): Promise<void> {
   const { model, piStream } = options
   const partial: AssistantMessage = {
@@ -238,7 +240,8 @@ export async function runV3StreamToPi(options: {
           break
         }
         case "finish": {
-          partial.usage = translateUsage(part.usage, model)
+          const projected = options.finishUsage?.(part)
+          partial.usage = projected === null ? emptyUsage() : translateUsage(projected ?? part.usage, model)
           const hasFinalText = partial.content.some(
             block => block.type === "text" && block.text.trim().length > 0,
           )

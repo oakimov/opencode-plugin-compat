@@ -128,6 +128,21 @@ describe("OCP architecture boundaries", () => {
     )).toEqual([])
   })
 
+  test("generic stream adapters receive usage callbacks without reading provider metadata", () => {
+    const generic = [
+      "packages/adapter/src/language-model.ts",
+      "packages/pi-bridge/src/translate/stream.ts",
+      "packages/dsh-bridge/src/translate/stream.ts",
+    ].map(file => path.join(ROOT, file))
+    expect(violations(
+      generic,
+      /providerMetadata\.cursor|metadata\.cursor|inputTokensRaw|cacheReadRaw|reasoningTokensRaw/,
+    )).toEqual([])
+    expect(text("packages/adapter/src/cursor-usage-reconciliation.ts")).toContain('packageName !== CURSOR_PROVIDER_PACKAGE')
+    expect(text("packages/pi-bridge/src/register.ts")).toContain('isCursorProviderPackage(spec.package)')
+    expect(text("packages/dsh-bridge/src/register.ts")).toContain('isCursorProviderPackage(spec.package)')
+  })
+
   test("dsh-bridge leaves native plan-mode policy and transitions to DSH", () => {
     const files = filesUnder("packages/dsh-bridge/src", [".ts"])
     expect(violations(

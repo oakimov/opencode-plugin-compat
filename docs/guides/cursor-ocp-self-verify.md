@@ -117,7 +117,7 @@ Default path: `/tmp/cursor-ocp-self-verify.log` (or whatever the operator named)
 Filtered extract (step 10 only):
 
 ```
-rg -n 'outbound Run:|hash requestContext|turn usage validation:|cache diagnosis:|extractTools:|EMITTED tool-call|debug: enabled file=|reinit=append|size-cap truncate' "$LOG"
+rg -n 'outbound Run:|hash requestContext|turn usage validation:|cache diagnosis:|extractTools:|EMITTED tool-call|debug: enabled file=|reinit=append|size-cap truncate|buildEnv:|binary write STAGED|BRIDGED create_plan|wrote create_plan answer' "$LOG"
 ```
 
 If that output is long, keep only lines needed for the table. Running that
@@ -194,8 +194,12 @@ filter in step 10 is required and allowed — it is not a rule violation.
    **5e drop `c`** — if `cancelled` is allowed, set `c` to `cancelled`; else
    omit `c` from the next full list. Pass: `c` not open work; `a`/`b` kept.
 
-   **5f finish** — complete what remains, or `{ "todos": [] }`. Pass: nothing
-   left open; same list tool for every update.
+   **5f finish** — mark every still-open `ocp-sv-*` item `completed` in a snapshot
+   that still names it. Do not send `{ "todos": [] }` while any of those
+   labels is still `pending` or `in_progress`. A later empty list does not
+   replace that snapshot. Pass: the last snapshot that still contains
+   `ocp-sv-a` / `ocp-sv-b` / `ocp-sv-c` has none of them `pending` or
+   `in_progress` (`cancelled` may be omitted). Same list tool for every update.
 
 6. **Helper agent** — If the session advertises a helper/subagent capability,
    have one helper read `hello.txt` and return the text. Prefer the spawn result
@@ -224,13 +228,15 @@ filter in step 10 is required and allowed — it is not a rule violation.
    or an execution follow-up.
 
 9. **Image** — If the selected Cursor model and session expose a normal image
-   generation workflow, generate one tiny scratch/artifact image and let that
-   workflow supply any opaque save identifier. Never invent an id or call a
-   hidden save bridge directly. Otherwise skip.
+   generation workflow, generate one tiny image and let that workflow choose
+   the path. Do not name the scratch dir, the git worktree, or the provider
+   checkout as the destination, and do not invent a save id or call a hidden
+   save bridge. The file belongs under the advertised `project_folder`, in
+   `assets/`. Otherwise skip.
 
 10. **Score** — Now run the step-10 log filter once. Fill the table. Do not
-    re-run the filter. Delete the scratch dir only if every write you made is
-    inside it.
+    re-run the filter. Delete only the scratch dir. Leave the image where the
+    host wrote it.
 
 ### Scoring
 
@@ -253,16 +259,16 @@ cite is fine. If the log has multiple headers / `reinit=append` /
 | T1 | Scratch file / search / shell work succeeded |
 | T2 | No schema rejection on the args you copied; if a working-directory field exists, step 3’s `pwd` used it and printed the scratch dir; dedicated search/list capabilities were used when advertised; exercise work used this session’s best available tools |
 | T3 | Ask-user step completed, or honestly skipped only when no ask tool existed |
-| T4a–T4f | Matching 5a–5f outcomes (all required when a full-list tool exists); lifecycle once |
+| T4a–T4f | Matching 5a–5f outcomes (all required when a full-list tool exists); lifecycle once. **Failed** if the last snapshot that still names `ocp-sv-a` / `ocp-sv-b` / `ocp-sv-c` leaves any of them `pending` or `in_progress`, even when a later call is `{ "todos": [] }` |
 | T5 | Helper agent ran, or honestly skipped |
 | T6 | Nothing required the provider to import `@opencode-compat/*` |
 | T7 | You did not mark pass/skip while the opposite is true (an advertised capability was skipped, todo lifecycle replayed, an unadvertised name was guessed, or a lower-quality substitute was used while the dedicated tool was available) |
 | P1 | Plan/mode outcome matches what the human did, or skipped if absent |
-| P2 | On omp, score the plan-review overlay against what the human did. The debug log never prints “overlay”, “approve”, “refine”, or “dismiss”. The overlay is a `bridge=stage` CreatePlan that stays open, then `continuation: wrote create_plan answer`. **Approved** (what you did in the overlay) is **passed** when that answer is success, not an error — do not skip this as “not the failure path”. **Refine or dismiss** is **passed** only when that answer is an error. **Failed** if the stage tool returned immediately, `plan_exit` was used as the review, or the answer contradicts the human. **Skipped** only when the host is not omp, or step 8 was skipped because no plan capability existed |
+| P2 | This row applies when the log shows `cursor_plan_stage` and a `bridge=stage` CreatePlan. That is omp even if `cwd` or `workspace_paths` contain `opencode-plugin-compat`, the cache path contains `opencode-providers`, or an MCP line says `requested=[opencode]`. Those strings are the workspace and an MCP server, not the host. The debug log never prints “overlay”, “approve”, “refine”, or “dismiss”. The overlay is that `bridge=stage` CreatePlan staying open, then `continuation: wrote create_plan answer`. **Approved** is **passed** when that answer is success — do not skip this as “not the failure path” or “host is opencode”. **Refine or dismiss** is **passed** only when that answer is an error. **Failed** if the stage tool returned immediately, `plan_exit` was used as the review, or the answer contradicts the human. **Skipped** only when `cursor_plan_stage` was never advertised, or step 8 was skipped because no plan capability existed |
 | P3 | Every emitted tool/interaction belonged to the selected Cursor model's advertised or native capability set; no Devin-specific tool contract was assumed |
 | H1 | Provider checkout not written |
 | H2 | No `.opencode/` under scratch from plan tools |
-| H3 | Only the scratch tree changed |
+| H3 | Scratch exercise files are only in the scratch dir. When step 9 ran, `binary write STAGED` has `requested` and `target` equal and both under the `project_folder` from `buildEnv:` plus `/assets/`. That cache path is the correct image location. Fail if the image is in the scratch dir, the git worktree, or the provider checkout, or if `requested` and `target` differ. A host plan file outside scratch is not an H3 failure |
 
 ```
 host:

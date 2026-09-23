@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test"
 import { translateGenerateOptionsToPrompt, translateTools } from "../packages/dsh-bridge/src/translate/context.ts"
 import { collectV3ToDsh } from "../packages/dsh-bridge/src/translate/stream.ts"
+import { cursorFinishUsage } from "../packages/dsh-bridge/src/translate/cursor-usage.ts"
 import { rewriteProviderToolCall } from "../packages/dsh-bridge/src/translate/tools.ts"
 
 function parts(streamParts: unknown[]): ReadableStream<never> {
@@ -476,21 +477,45 @@ describe("dsh-bridge stream translation", () => {
     })
   })
 
-  test("terminal stop finish keeps the billed aggregate usage", async () => {
+  test("terminal stop finish reads exact Cursor totals from metadata", async () => {
     const chunks = await collectV3ToDsh(parts([
       {
         type: "finish",
         finishReason: "stop",
         usage: {
-          inputTokens: { total: 107874, noCache: 18000, cacheRead: 89874, cacheWrite: 0 },
-          outputTokens: { total: 2163, text: 2000, reasoning: 163 },
+          inputTokens: { total: 54128, noCache: 54128, cacheRead: 0, cacheWrite: 0 },
+          outputTokens: { total: 1, text: 1, reasoning: 0 },
+        },
+        providerMetadata: {
+          cursor: {
+            inputTokensRaw: 324922,
+            outputTokensRaw: 3581,
+            cacheReadRaw: 266112,
+            reasoningTokensRaw: 2355,
+          },
         },
       } as never,
-    ]))
+    ]), undefined, { finishUsage: cursorFinishUsage })
     const usage = chunks.find(c => c.type === "usage")
     expect(usage).toMatchObject({
       type: "usage",
-      usage: { inputTokens: 107874, outputTokens: 2163, cacheReadTokens: 89874, reasoningTokens: 163 },
+      usage: { inputTokens: 324922, outputTokens: 3581, cacheReadTokens: 266112, reasoningTokens: 2355 },
+    })
+  })
+
+  test("generic providers do not reinterpret a cursor metadata key", async () => {
+    const chunks = await collectV3ToDsh(parts([{
+      type: "finish",
+      finishReason: "stop",
+      usage: {
+        inputTokens: { total: 12, noCache: 12, cacheRead: 0, cacheWrite: 0 },
+        outputTokens: { total: 3, text: 3, reasoning: 0 },
+      },
+      providerMetadata: { cursor: { inputTokensRaw: 999 } },
+    } as never]))
+    expect(chunks.find(chunk => chunk.type === "usage")).toMatchObject({
+      type: "usage",
+      usage: { inputTokens: 12, outputTokens: 3 },
     })
   })
 

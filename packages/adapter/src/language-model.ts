@@ -4,6 +4,14 @@
  * Policy comes from HostProfile capabilities:
  * - streamToolCallEnsure=false (MiMo): emit tool-input-start before bare tool-call
  * - bashDescriptionRequired=true (MiMo): fill missing bash.description only
+ * - clearSettledTodos=true (MiMo, Kilo): a todo snapshot with no live row
+ *   is cleared. MiMo stores `[]` (abandon fan-out). Kilo keeps `completed`
+ *   rows and drops `cancelled` so the sidebar can hide without erasing the
+ *   named finish snapshot.
+ * - collapseOccupancyUsage=true (Kilo): occupancy-only finish snapshots are
+ *   stored as zero tokens. The terminal assistant message keeps checkpoint
+ *   occupancy. A package-selected integration can reconcile its separate
+ *   persisted step record to exact aggregate counters.
  * - argument keys: universally align unique case/separator variants with the
  *   exact tool schema advertised by the active host
  *
@@ -30,6 +38,9 @@ import {
 export type StreamAdoptionPolicy = {
   streamToolCallEnsure: boolean
   bashDescriptionRequired: boolean
+  clearSettledTodos: boolean
+  clearSettledTodoMode: "empty" | "completed-only"
+  collapseOccupancyUsage: boolean
 }
 
 export type StreamPartLike = {
@@ -42,6 +53,12 @@ export type StreamPartLike = {
   [key: string]: unknown
 }
 
+/** Optional provider integration selected by the install-tree shim. */
+export type ProviderUsageIntegration = {
+  isOccupancyFinish(part: StreamPartLike): boolean
+  recordTerminalUsage(sessionID: string | undefined, part: StreamPartLike): void
+}
+
 type SchemaLike = Record<string, unknown>
 type ToolSchemaMap = ReadonlyMap<string, unknown>
 
@@ -49,23 +66,51 @@ export function policyFromProfile(profile: HostProfile): StreamAdoptionPolicy {
   return {
     streamToolCallEnsure: profile.capabilities.streamToolCallEnsure,
     bashDescriptionRequired: profile.capabilities.bashDescriptionRequired,
+    clearSettledTodos: profile.capabilities.clearSettledTodos,
+    clearSettledTodoMode: profile.capabilities.clearSettledTodoMode,
+    collapseOccupancyUsage: profile.capabilities.collapseOccupancyUsage,
   }
 }
 
 export function policyForHostId(id: HostId | string): StreamAdoptionPolicy {
   switch (id) {
     case "mimo":
-      return { streamToolCallEnsure: false, bashDescriptionRequired: true }
+      return {
+        streamToolCallEnsure: false,
+        bashDescriptionRequired: true,
+        clearSettledTodos: true,
+        clearSettledTodoMode: "empty",
+        collapseOccupancyUsage: false,
+      }
     case "kilo":
+      return {
+        streamToolCallEnsure: true,
+        bashDescriptionRequired: false,
+        clearSettledTodos: true,
+        clearSettledTodoMode: "completed-only",
+        collapseOccupancyUsage: true,
+      }
     case "opencode":
-      return { streamToolCallEnsure: true, bashDescriptionRequired: false }
+      return {
+        streamToolCallEnsure: true,
+        bashDescriptionRequired: false,
+        clearSettledTodos: false,
+        clearSettledTodoMode: "empty",
+        collapseOccupancyUsage: false,
+      }
     default:
       // Prefer pass-through when unknown — do not invent host tool requirements
-      return { streamToolCallEnsure: true, bashDescriptionRequired: false }
+      return {
+        streamToolCallEnsure: true,
+        bashDescriptionRequired: false,
+        clearSettledTodos: false,
+        clearSettledTodoMode: "empty",
+        collapseOccupancyUsage: false,
+      }
   }
 }
 
-/** Default bash description when the host schema requires one and Cursor omitted it. */
+/** Default bash description when the host schema requires one and the provider omitted it. */
 export function defaultBashDescription(command: unknown): string {
   const text = typeof command === "string" ? command.trim() : ""
   if (!text) return "Run shell command"
@@ -105,6 +150,70 @@ function parseToolInput(input: unknown): Record<string, unknown> | undefined {
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return !!value && typeof value === "object" && !Array.isArray(value)
+}
+
+/**
+ * Kilo's sidebar stays open while any stored row is not `completed`, so a
+ * finished snapshot that still names `cancelled` would linger. MiMo's rotated
+ * `task` fan-out needs an empty snapshot to abandon known rows.
+ *
+ * Clearing modes:
+ * - empty (MiMo): replace the finished snapshot with `[]`
+ * - completed-only (Kilo): keep `completed` rows, drop `cancelled`. The
+ *   sidebar hides once every remaining row is completed, and the named finish
+ *   stays in the transcript (emptying it made self-verify T4f fail and the
+ *   model report "5f returned an empty list").
+ *
+ * An explicit empty list is left alone. Suppressing a tool call would strand
+ * the provider's held-open exec waiting for a result that the host can never
+ * return.
+ */
+function collapseOccupancyFinish(
+  part: StreamPartLike,
+  policy: StreamAdoptionPolicy,
+  usageIntegration?: ProviderUsageIntegration,
+): StreamPartLike {
+  if (!policy.collapseOccupancyUsage) return part
+  if (!usageIntegration?.isOccupancyFinish(part)) return part
+  if (!isRecord(part.usage)) return part
+  const input = isRecord(part.usage.inputTokens) ? part.usage.inputTokens : {}
+  const output = isRecord(part.usage.outputTokens) ? part.usage.outputTokens : {}
+  return {
+    ...part,
+    usage: {
+      ...part.usage,
+      inputTokens: { ...input, total: 0, noCache: 0, cacheRead: 0, cacheWrite: 0 },
+      outputTokens: { ...output, total: 0, text: 0, reasoning: 0 },
+    },
+  }
+}
+
+function clearSettledTodoSnapshot(
+  part: StreamPartLike,
+  policy: StreamAdoptionPolicy,
+): StreamPartLike {
+  if (!policy.clearSettledTodos) return part
+  const name = toolNameOf(part)
+  if (name !== "todowrite") return part
+  const parsed = parseToolInput(part.input)
+  if (!parsed || !Array.isArray(parsed.todos)) return part
+
+  if (parsed.todos.length === 0) return part
+
+  const entries = parsed.todos.filter(isRecord) as Array<Record<string, unknown>>
+  const settled = entries.length > 0 && entries.every((entry) => {
+    return entry.status === "completed" || entry.status === "cancelled"
+  })
+  if (!settled) return part
+  const todos =
+    policy.clearSettledTodoMode === "completed-only"
+      ? entries.filter((entry) => entry.status === "completed")
+      : []
+  const next = { ...parsed, todos }
+  return {
+    ...part,
+    input: typeof part.input === "string" ? JSON.stringify(next) : next,
+  }
 }
 
 /** Compare identifier conventions without assuming one host's casing style. */
@@ -286,6 +395,7 @@ export function adoptStreamPart(
   seenStarts: Set<string>,
   toolSchemas: ToolSchemaMap = new Map(),
   context?: VocabularyContext,
+  usageIntegration?: ProviderUsageIntegration,
 ): StreamPartLike[] {
   if (!part || typeof part !== "object") return [part]
 
@@ -295,16 +405,19 @@ export function adoptStreamPart(
     return [part]
   }
 
+  if (part.type === "finish") return [collapseOccupancyFinish(part, policy, usageIntegration)]
+
   if (part.type !== "tool-call") return [part]
 
-  const translated = translateToolCallPart(part, context)
+  const settled = clearSettledTodoSnapshot(part, policy)
+  const translated = translateToolCallPart(settled, context)
   if (translated) {
     const out: StreamPartLike[] = []
     for (const call of translated) out.push(...finalizeToolCall(call, policy, seenStarts, toolSchemas))
     return out
   }
 
-  return finalizeToolCall(part, policy, seenStarts, toolSchemas)
+  return finalizeToolCall(settled, policy, seenStarts, toolSchemas)
 }
 
 export type VocabularyContext = {
@@ -376,12 +489,15 @@ function wrapReadableStream(
   policy: StreamAdoptionPolicy,
   toolSchemas: ToolSchemaMap,
   context: VocabularyContext | undefined,
+  sessionID: string | undefined,
+  usageIntegration: ProviderUsageIntegration | undefined,
 ): ReadableStream<StreamPartLike> {
   const seenStarts = new Set<string>()
   return stream.pipeThrough(
     new TransformStream<StreamPartLike, StreamPartLike>({
       transform(chunk, controller) {
-        for (const part of adoptStreamPart(chunk, policy, seenStarts, toolSchemas, context)) {
+        for (const part of adoptStreamPart(chunk, policy, seenStarts, toolSchemas, context, usageIntegration)) {
+          if (part.type === "finish") usageIntegration?.recordTerminalUsage(sessionID, part)
           controller.enqueue(part)
         }
       },
@@ -543,6 +659,7 @@ export function adaptLanguageModel<T>(
   policy: StreamAdoptionPolicy,
   roles?: Pick<HostProfile, "tools">,
   resolveCatalogOrder: ResolveCatalogOrder = createCatalogOrderResolver(),
+  usageIntegration?: ProviderUsageIntegration,
 ): T {
   if (!model || typeof model !== "object") return model
 
@@ -560,6 +677,7 @@ export function adaptLanguageModel<T>(
   if (typeof original.doStream === "function") {
     const inner = original.doStream.bind(original)
     adapted.doStream = (...args: unknown[]) => {
+      const sessionID = sessionAffinityFromCall(args[0])
       const prepared = prepareCall(args, roles, resolveCatalogOrder)
       const result = inner(...prepared.args)
       const finish = (resolved: unknown) => {
@@ -573,6 +691,8 @@ export function adaptLanguageModel<T>(
               policy,
               prepared.toolSchemas,
               prepared.context,
+              sessionID,
+              usageIntegration,
             ),
           }
         }
@@ -586,6 +706,7 @@ export function adaptLanguageModel<T>(
   if (typeof original.doGenerate === "function") {
     const inner = original.doGenerate.bind(original)
     adapted.doGenerate = (...args: unknown[]) => {
+      const sessionID = sessionAffinityFromCall(args[0])
       const prepared = prepareCall(args, roles, resolveCatalogOrder)
       const result = inner(...prepared.args)
       const finish = (resolved: unknown) => {
@@ -595,7 +716,10 @@ export function adaptLanguageModel<T>(
         const seenStarts = new Set<string>()
         const content: StreamPartLike[] = []
         for (const part of record.content as StreamPartLike[]) {
-          content.push(...adoptStreamPart(part, policy, seenStarts, prepared.toolSchemas, prepared.context))
+          for (const adopted of adoptStreamPart(part, policy, seenStarts, prepared.toolSchemas, prepared.context, usageIntegration)) {
+            if (adopted.type === "finish") usageIntegration?.recordTerminalUsage(sessionID, adopted)
+            content.push(adopted)
+          }
         }
         return { ...record, content }
       }
@@ -612,6 +736,7 @@ export function wrapProviderSdk<T>(
   sdk: T,
   policy: StreamAdoptionPolicy,
   roles?: Pick<HostProfile, "tools">,
+  usageIntegration?: ProviderUsageIntegration,
 ): T {
   if (!sdk || typeof sdk !== "object") return sdk
 
@@ -633,9 +758,9 @@ export function wrapProviderSdk<T>(
   adapted.languageModel = (...args: unknown[]) => {
     const model = inner(...args)
     if (isThenable(model)) {
-      return model.then((resolved) => adaptLanguageModel(resolved, policy, roles, resolveCatalogOrder))
+      return model.then((resolved) => adaptLanguageModel(resolved, policy, roles, resolveCatalogOrder, usageIntegration))
     }
-    return adaptLanguageModel(model, policy, roles, resolveCatalogOrder)
+    return adaptLanguageModel(model, policy, roles, resolveCatalogOrder, usageIntegration)
   }
   return adapted as T
 }
@@ -648,6 +773,7 @@ export function wrapProviderModule<T extends Record<string, unknown>>(
   mod: T,
   policy: StreamAdoptionPolicy,
   roles?: Pick<HostProfile, "tools">,
+  usageIntegration?: ProviderUsageIntegration,
 ): T {
   if (!mod || typeof mod !== "object") return mod
 
@@ -659,9 +785,9 @@ export function wrapProviderModule<T extends Record<string, unknown>>(
     out[key] = (...args: unknown[]) => {
       const sdk = factory(...args)
       if (isThenable(sdk)) {
-        return sdk.then((resolved) => wrapProviderSdk(resolved, policy, roles))
+        return sdk.then((resolved) => wrapProviderSdk(resolved, policy, roles, usageIntegration))
       }
-      return wrapProviderSdk(sdk, policy, roles)
+      return wrapProviderSdk(sdk, policy, roles, usageIntegration)
     }
   }
   if (typeof mod.default === "function" && !String(mod.default.name).startsWith("create")) {
@@ -672,9 +798,9 @@ export function wrapProviderModule<T extends Record<string, unknown>>(
     out.default = (...args: unknown[]) => {
       const sdk = factory(...args)
       if (isThenable(sdk)) {
-        return sdk.then((resolved) => wrapProviderSdk(resolved, policy, roles))
+        return sdk.then((resolved) => wrapProviderSdk(resolved, policy, roles, usageIntegration))
       }
-      return wrapProviderSdk(sdk, policy, roles)
+      return wrapProviderSdk(sdk, policy, roles, usageIntegration)
     }
   }
   return out as T
@@ -683,12 +809,13 @@ export function wrapProviderModule<T extends Record<string, unknown>>(
 export function adaptLanguageModelForProfile<T>(
   model: T,
   profile: HostProfile,
+  usageIntegration?: ProviderUsageIntegration,
 ): T {
-  return adaptLanguageModel(model, policyFromProfile(profile), profile)
+  return adaptLanguageModel(model, policyFromProfile(profile), profile, createCatalogOrderResolver(), usageIntegration)
 }
 
-export function wrapProviderSdkForProfile<T>(sdk: T, profile: HostProfile): T {
-  return wrapProviderSdk(sdk, policyFromProfile(profile), profile)
+export function wrapProviderSdkForProfile<T>(sdk: T, profile: HostProfile, usageIntegration?: ProviderUsageIntegration): T {
+  return wrapProviderSdk(sdk, policyFromProfile(profile), profile, usageIntegration)
 }
 
 export function wrapProviderModuleForProfile<T extends Record<string, unknown>>(

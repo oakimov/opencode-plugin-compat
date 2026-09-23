@@ -1,6 +1,33 @@
 # Lessons learned
 
-Corrections and durable takeaways for this repo. Per `~/.claude/CLAUDE.md`: capture lessons here after corrections. Hard rules that must auto-load still live in global memory `Rules`; this file keeps the correction story **and** the rule text for local reference.
+Corrections and durable takeaways for this repo.
+
+## 2026-09-21 — Kilo “5f returned empty” was OCP clearing the finish snapshot
+
+- Provider EMITTED a 3-item settled todowrite; the host DB stored `[]` 2ms later. `clearSettledTodos` had rewritten completed+cancelled → empty so the sidebar would hide, but that erased the named finish the model (and T4f) needs.
+- Kilo's sidebar already hides when every remaining row is `completed` (`todo.tsx`). Mode is now `completed-only`: keep completed, drop cancelled. MiMo still clears to `[]` for abandon fan-out.
+
+## 2026-09-21 — Kilo sums occupancy snapshots, so the usage sidebar is not the context size
+
+- Kilo's model-usage query sums every `step-finish` (`packages/opencode/src/kilocode/session/model-usage.ts`). The provider emits a full context snapshot on each tool boundary (`output=1`, `occupancyOnly`) because OpenCode replaces the footer instead of summing. On the kilo self-verify that sum was hundreds of thousands of input tokens and a cache-read total that is not one context.
+- OCP zeros intermediate occupancy-only finishes for Kilo and keeps the terminal checkpoint occupancy as the one stored sample. Exact cumulative TurnEnded counters remain in neutral provider metadata for diagnostics and compatibility layers that expose separate aggregate accounting. Do not patch Kilo itself: the provider/OCP boundary is absolute.
+- An explicit `{todos:[]}` must still reach the host. Dropping the streamed tool call strands Cursor's held-open exec because no host result can ever be returned.
+
+## 2026-09-21 — a finished MiMo list must leave the sidebar without telling the model the work was abandoned
+
+- MiMo hides `abandoned` and keeps a recent `done` tail. Clearing a finished snapshot with `abandon` hid T1/T2, and the next `task` list said `T1 abandoned — ocp-sv-a`. The model treated that as a failed checklist and went off the script.
+- Those abandons carry `event_summary: "completed"`. Prompt translation rewrites that result and those list lines to `done`. A real cancellation abandon is unchanged. Per `~/.claude/CLAUDE.md`: capture lessons here after corrections. Hard rules that must auto-load still live in global memory `Rules`; this file keeps the correction story **and** the rule text for local reference.
+
+## 2026-09-21 — finished todos stay on the MiMo and Kilo sidebars unless OCP clears them
+
+- MiMo's task sidebar keeps a recent `done` tail and hides `abandoned` (`packages/opencode/src/cli/cmd/tui/feature-plugins/sidebar/task.tsx`). Canonical `completed` was `done`, so T1/T2 stayed visible after the list was finished. An empty snapshot also skipped rows that were already completed.
+- Kilo stores the `todowrite` array and keeps the panel open while any row is not `completed`, so a `cancelled` row leaves completed siblings on screen (`packages/tui/src/feature-plugins/sidebar/todo.tsx`).
+- The compatibility fix is in OCP. A snapshot with no live row abandons MiMo tasks; for Kilo it preserves completed rows and drops cancelled rows, because an all-completed list already hides the sidebar without erasing the finish record.
+
+## 2026-09-21 — self-verify H3 must expect the image under `project_folder/assets`
+
+- Step 9 used to call `cursor_image_save` with a fake id and write nothing, so “only the scratch tree changed” passed. A real GenerateImage writes `<project_folder>/assets/<name>.png`. On omp that folder is the host cache project dir (`buildEnv:` / `binary write STAGED`), and `requested` equals `target` when Cursor already used the advertised folder.
+- H3 fails that write if the prompt treats every non-scratch path as a leak. The pass condition is the assets path. A scratch, worktree, or provider-checkout image is the failure.
 
 ## 2026-09-21 — omp plan review must block inside `cursor_plan_stage`
 

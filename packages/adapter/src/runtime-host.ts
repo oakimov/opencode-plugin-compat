@@ -46,17 +46,23 @@ export function detectHostId(
   const forced = env.OPENCODE_COMPAT_HOST
   if (typeof forced === "string" && forced.trim()) return forced.trim().toLowerCase()
 
+  // A shim is generated for one concrete install tree. That setup-time fact
+  // is stronger than inherited process flags: desktop launch environments can
+  // contain both MiMo and Kilo preference variables, and isolated workers can
+  // retain a generic `opencode` argv. Only the explicit operator override
+  // above may supersede the wrapper's own identity.
+  const fallback = typeof hostHint === "string" ? hostHint.trim().toLowerCase() : ""
+  if (fallback === "mimo" || fallback === "kilo" || fallback === "opencode") return fallback
+
   const tokens = binaryTokens(argv, execPath)
   if (tokens.some((token) => token === "mimo" || token === "mimocode" || token.startsWith("mimo-") || token.includes("mimocode"))) return "mimo"
   if (tokens.some((token) => token === "kilo" || token === "kilocode" || token.startsWith("kilo-") || token.includes("kilocode"))) return "kilo"
-  if (tokens.some((token) => token === "opencode" || token.startsWith("opencode-") || token.includes("opencode"))) return "opencode"
 
   if (hasEnvMarker(env, "MIMOCODE")) return "mimo"
   if (hasEnvMarker(env, "KILO")) return "kilo"
-  if (env.OPENCODE_CONFIG_DIR) return "opencode"
 
-  const fallback = typeof hostHint === "string" ? hostHint.trim().toLowerCase() : ""
-  if (fallback === "mimo" || fallback === "kilo" || fallback === "opencode") return fallback
+  if (tokens.some((token) => token === "opencode" || token.startsWith("opencode-") || token.includes("opencode"))) return "opencode"
+  if (env.OPENCODE_CONFIG_DIR) return "opencode"
   return "unknown"
 }
 
@@ -80,6 +86,15 @@ function xdgCache(env: Record<string, string | undefined>): string {
   return env.XDG_CACHE_HOME && env.XDG_CACHE_HOME.length > 0
     ? env.XDG_CACHE_HOME
     : path.join(env.HOME || env.USERPROFILE || homedir(), ".cache")
+}
+
+export function hostCacheDir(
+  id: string,
+  env: Record<string, string | undefined> = process.env,
+): string {
+  if (id === "mimo" && env.MIMOCODE_HOME) return path.resolve(env.MIMOCODE_HOME, "cache")
+  const app = id === "mimo" ? "mimocode" : id
+  return path.join(xdgCache(env), app)
 }
 
 function hostConfigRoot(id: string, env: Record<string, string | undefined>): string {
@@ -116,9 +131,7 @@ export function installPathBridge(id: string, env: Record<string, string | undef
   const dataRoot = id === "mimo" && env.MIMOCODE_HOME
     ? path.resolve(env.MIMOCODE_HOME)
     : path.join(xdgData(env), app)
-  const cacheRoot = id === "mimo" && env.MIMOCODE_HOME
-    ? path.resolve(env.MIMOCODE_HOME, "cache")
-    : path.join(xdgCache(env), app)
+  const cacheRoot = hostCacheDir(id, env)
   const fallbackCwd = process.cwd()
   const bridge = {
     globalDataDir() {

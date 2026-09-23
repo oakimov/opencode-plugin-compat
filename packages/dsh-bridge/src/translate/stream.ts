@@ -5,7 +5,7 @@
  * — `usage` before `finish`, tool args raw JSON strings, nothing after `finish`.
  * Validated against `packages/llm/llm/src/types.ts:364` + `assembler.ts:38`.
  */
-import type { LanguageModelV3StreamPart } from "@ai-sdk/provider"
+import type { LanguageModelV3StreamPart, LanguageModelV3Usage } from "@ai-sdk/provider"
 import { dshToolInputs } from "../host/profile.js"
 import {
   hostToolCallArgumentsJson,
@@ -45,6 +45,8 @@ export async function* v3StreamToDshChunks(
   toolInputs: DshToolInputVocabulary = dshToolInputs(),
   options: {
     allowedProviderToolNames?: ReadonlySet<string>
+    /** Optional package-selected accounting projection; null means display only. */
+    finishUsage?: (part: LanguageModelV3StreamPart & { type: "finish" }) => LanguageModelV3Usage | null | undefined
   } = {},
 ): AsyncGenerator<StreamChunk> {
   const reader = stream.getReader()
@@ -227,7 +229,10 @@ export async function* v3StreamToDshChunks(
         }
 
         case "finish": {
-          const usage = part.usage as any
+          const projected = options.finishUsage?.(part)
+          const usage = (projected === null
+            ? { inputTokens: { total: 0 }, outputTokens: { total: 0 } }
+            : projected ?? part.usage) as any
           if (usage) {
             const mapped: any = {}
             if (typeof usage.inputTokens === "object" && usage.inputTokens) {
@@ -240,19 +245,13 @@ export async function* v3StreamToDshChunks(
               if (usage.outputTokens.reasoning !== undefined) mapped.reasoningTokens = usage.outputTokens.reasoning
             } else if (typeof usage.outputTokens === "number") mapped.outputTokens = usage.outputTokens
             else mapped.outputTokens = 0
-            // DSH token-meter SUMS per-step usage across a turn, but one held
-            // provider Run serves many steps with a single billed aggregate
-            // (Cursor TurnEnded). Intermediate tool-calls finishes carry
-            // full-context occupancy snapshots, so forwarding them would add
-            // the whole prefix N times and collapse the displayed cache-hit
-            // ratio. Zero them: every step still carries a valid (zero) sample
-            // so turn disclosure stays available, and the terminal stop finish
-            // contributes the billed aggregate once.
+            // DSH sums every step. A tool-call boundary or a projection marked
+            // display-only must not add another occupancy sample.
             const fr = (part as any).finishReason
             const unified = typeof fr === "string"
               ? fr
               : (fr && typeof fr === "object" && "unified" in fr ? String((fr as { unified?: unknown }).unified ?? "") : "")
-            if (unified === "tool-calls") {
+            if (unified === "tool-calls" || projected === null) {
               mapped.inputTokens = 0
               mapped.outputTokens = 0
               if (mapped.cacheReadTokens !== undefined) mapped.cacheReadTokens = 0
@@ -318,7 +317,10 @@ export async function* v3StreamToDshChunks(
 export async function collectV3ToDsh(
   stream: ReadableStream<LanguageModelV3StreamPart>,
   toolInputs?: DshToolInputVocabulary,
-  options?: { allowedProviderToolNames?: ReadonlySet<string> },
+  options?: {
+    allowedProviderToolNames?: ReadonlySet<string>
+    finishUsage?: (part: LanguageModelV3StreamPart & { type: "finish" }) => LanguageModelV3Usage | null | undefined
+  },
 ): Promise<StreamChunk[]> {
   const out: StreamChunk[] = []
   for await (const chunk of v3StreamToDshChunks(stream, toolInputs ?? dshToolInputs(), options)) out.push(chunk)

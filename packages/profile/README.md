@@ -2,7 +2,7 @@
 
 HostProfile types, draft profiles (`opencode` / `mimo` / `kilo` / `zcode`), `detect()`, and facade override helpers for `ocp setup`.
 
-Capability flags include Option B adoption inputs (`streamToolCallEnsure`, `bashDescriptionRequired`) — see [OCP 0.1 §5–§6.5](../../docs/ocp/0.1.md).
+Capability flags include Option B adoption inputs (`streamToolCallEnsure`, `bashDescriptionRequired`, `clearSettledTodos`) — see [OCP 0.1 §5–§6.5](../../docs/ocp/0.1.md).
 
 **License:** MPL-2.0
 

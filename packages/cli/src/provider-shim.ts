@@ -380,6 +380,7 @@ function shimOnePackage(
   const meta: ShimMeta = {
     entry: entryRel,
     factories,
+    packageName,
     hostHint: options.hostHint,
     strategy: "instrumented-entry",
   }

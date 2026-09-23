@@ -40,6 +40,7 @@ export {
   wrapProviderSdkForProfile,
   type StreamAdoptionPolicy,
   type StreamPartLike,
+  type ProviderUsageIntegration,
 } from "./language-model"
 
 export {
@@ -92,6 +93,7 @@ import {
   wrapProviderSdkForProfile,
 } from "./language-model"
 import { installPathBridge } from "./runtime-host"
+import { cursorUsageIntegrationForPackage } from "./cursor-usage-reconciliation"
 
 /** Resolve the active host profile (throws if OCP load is not supported). */
 export function requireHost(options?: DetectOptions): HostProfile {
@@ -107,8 +109,8 @@ export function requireHost(options?: DetectOptions): HostProfile {
  * Call `host.register(plugin)` then `host.resolveProvider(input)` at
  * provider-resolve time (sidecar / operator helper — no host source edits).
  *
- * Returned `language` / `sdk` are host-adapted (MiMo stream preamble / bash
- * description when required; Kilo/OpenCode pass-through).
+ * Returned `language` / `sdk` are host-adapted (MiMo stream preamble and bash
+ * description when required; MiMo and Kilo clear a finished todo snapshot).
  *
  * Also installs the path bridge so unchanged OpenCode plugins resolve
  * project/global config dirs for the detected host (CreatePlan, skills, …).
@@ -132,15 +134,20 @@ export function wirePromiseV2(
     plugins: () => host.plugins(),
     async resolveProvider(input) {
       const result = await host.resolveProvider(input)
+      const usage = cursorUsageIntegrationForPackage(
+        input.package ?? "",
+        profile.id,
+        options?.env as Record<string, string | undefined> | undefined,
+      )
       return {
         ...result,
         language:
           result.language != null
-            ? adaptLanguageModelForProfile(result.language, profile)
+            ? adaptLanguageModelForProfile(result.language, profile, usage)
             : result.language,
         sdk:
           result.sdk != null
-            ? wrapProviderSdkForProfile(result.sdk, profile)
+            ? wrapProviderSdkForProfile(result.sdk, profile, usage)
             : result.sdk,
       }
     },

@@ -75,6 +75,9 @@ export async function registerDshPlugin(
   spec: OpenCodePluginSpec,
 ): Promise<RegisterResult> {
   const cursorIntegration = isCursorProviderPackage(spec.package)
+  const cursorUsage = cursorIntegration
+    ? await import("./translate/cursor-usage.js")
+    : undefined
   const loadSpec = {
     packageSpecifier: spec.package,
     label: "dsh-bridge",
@@ -191,6 +194,7 @@ export async function registerDshPlugin(
   const adapter = new DshLlmAdapter({
     providerName,
     skipGenerateReason: cursorIntegration ? cursorSilentChildNoticeReason : undefined,
+    ...(cursorUsage ? { finishUsage: cursorUsage.cursorFinishUsage } : {}),
     credentialRef,
     providerOptionsKey,
     resolveCredential: credentialRef ? (ref) => resolveCredential!(ref as string) : undefined,
