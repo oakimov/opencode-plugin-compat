@@ -1,6 +1,6 @@
 {
   "name": "@opencode-compat/dsh-bridge",
-  "version": "0.4.0",
+  "version": "0.4.1",
   "description": "Run unmodified OpenCode AI SDK provider plugins as DeepSeek Harness LLM adapters (Cordis LlmAdapter)",
   "type": "module",
   "license": "MPL-2.0",
@@ -44,7 +44,7 @@
   },
   "dependencies": {
     "@ai-sdk/provider": "^3.0.14",
-    "@opencode-compat/opencode-loader": "0.4.0"
+    "@opencode-compat/opencode-loader": "workspace:*"
   },
   "peerDependencies": {
     "@deepseek-ai/cordis": ">=1.0.0",

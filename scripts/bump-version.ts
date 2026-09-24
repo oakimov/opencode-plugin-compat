@@ -36,9 +36,27 @@ for (const dir of PACKAGES) {
   const pkg = JSON.parse(readFileSync(pkgPath, "utf8")) as {
     name: string
     version: string
+    dependencies?: Record<string, string>
+    optionalDependencies?: Record<string, string>
+    peerDependencies?: Record<string, string>
+    devDependencies?: Record<string, string>
   }
   const prev = pkg.version
   pkg.version = next
+  // Exact train pins (not workspace:*) must move with the bump so pack/typecheck
+  // do not keep resolving a prior published sibling.
+  for (const field of ["dependencies", "optionalDependencies", "peerDependencies", "devDependencies"] as const) {
+    const deps = pkg[field]
+    if (!deps) continue
+    for (const [name, range] of Object.entries(deps)) {
+      if (!name.startsWith("@opencode-compat/")) continue
+      if (range === "workspace:*") continue
+      if (/^\d+\.\d+\.\d+([-.][0-9A-Za-z.-]+)?$/.test(range)) {
+        deps[name] = next
+        console.log(`  ${pkg.name} ${field}.${name}: ${range} → ${next}`)
+      }
+    }
+  }
   writeFileSync(pkgPath, `${JSON.stringify(pkg, null, 2)}\n`)
   console.log(`${pkg.name}: ${prev} → ${next}`)
 

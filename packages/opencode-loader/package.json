@@ -1,6 +1,6 @@
 {
   "name": "@opencode-compat/opencode-loader",
-  "version": "0.4.0",
+  "version": "0.4.1",
   "description": "Shared OpenCode plugin loader for OCP bridges (host-neutral)",
   "type": "module",
   "license": "MPL-2.0",
