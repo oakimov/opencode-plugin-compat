@@ -69,14 +69,27 @@ function resolveModuleEntry(pi: PiExtensionApi, specifier: string, cwd: string):
   throw new Error(`pi-bridge: provider package is not installed: ${specifier}`)
 }
 
+/** The exact root entry chosen for a configured provider installation. */
+export function resolveProviderRootEntry(
+  pi: PiExtensionApi,
+  providerSpecifier: string,
+  cwd = process.cwd(),
+): string | undefined {
+  try {
+    return realpathSync(resolveModuleEntry(pi, providerSpecifier, cwd))
+  } catch {
+    return undefined
+  }
+}
+
 function relativeImport(fromDir: string, target: string): string {
   const specifier = relative(fromDir, target).split(sep).join("/")
   return specifier.startsWith(".") ? specifier : `./${specifier}`
 }
 
-async function loadStaticSpecifierThroughHost(
+async function loadStaticSpecifiersThroughHost(
   pi: PiExtensionApi,
-  literalSpecifier: string | ((trampolineDir: string) => string),
+  literalSpecifiers: Record<string, string | ((trampolineDir: string) => string)>,
   cwd = process.cwd(),
 ): Promise<Record<string, unknown> | undefined> {
   const loadExtensions = pi.pi?.loadExtensions
@@ -87,13 +100,16 @@ async function loadStaticSpecifierThroughHost(
   // /private/var), otherwise the generated import points one level too high.
   const dir = realpathSync(mkdtempSync(join(tmpdir(), "ocp-pi-provider-")))
   const trampoline = join(dir, "load.mjs")
-  const importSpecifier = typeof literalSpecifier === "function" ? literalSpecifier(dir) : literalSpecifier
+  const imports = Object.entries(literalSpecifiers).map(([name, specifier], index) => {
+    const value = typeof specifier === "function" ? specifier(dir) : specifier
+    return { name, binding: `module${index}`, value }
+  })
   const requestId = `${process.pid}:${Date.now()}:${Math.random().toString(36).slice(2)}`
   const store = moduleStore()
   writeFileSync(
     trampoline,
-    `import * as moduleExports from ${JSON.stringify(importSpecifier)};\n` +
-      `globalThis[Symbol.for(${JSON.stringify(Symbol.keyFor(MODULE_STORE)!)})].set(${JSON.stringify(requestId)}, moduleExports);\n` +
+    imports.map(item => `import * as ${item.binding} from ${JSON.stringify(item.value)};\n`).join("") +
+      `globalThis[Symbol.for(${JSON.stringify(Symbol.keyFor(MODULE_STORE)!)})].set(${JSON.stringify(requestId)}, {${imports.map(item => `${JSON.stringify(item.name)}: ${item.binding}`).join(", ")}});\n` +
       "export default function () {}\n",
   )
 
@@ -108,6 +124,15 @@ async function loadStaticSpecifierThroughHost(
     store.delete(requestId)
     rmSync(dir, { recursive: true, force: true })
   }
+}
+
+async function loadStaticSpecifierThroughHost(
+  pi: PiExtensionApi,
+  literalSpecifier: string | ((trampolineDir: string) => string),
+  cwd = process.cwd(),
+): Promise<Record<string, unknown> | undefined> {
+  const modules = await loadStaticSpecifiersThroughHost(pi, { root: literalSpecifier }, cwd)
+  return modules?.root as Record<string, unknown> | undefined
 }
 
 /**
@@ -130,6 +155,59 @@ export function loadModuleThroughHost(
     return Promise.resolve(undefined)
   }
   return loadStaticSpecifierThroughHost(pi, dir => relativeImport(dir, entry), cwd)
+}
+
+/** Resolve a sibling export from the exact provider installation used for its root entry. */
+export function resolveProviderSubpathEntry(
+  pi: PiExtensionApi,
+  providerSpecifier: string,
+  subpath: string,
+  cwd = process.cwd(),
+): string | undefined {
+  const entry = resolveProviderRootEntry(pi, providerSpecifier, cwd)
+  if (!entry) return undefined
+  let directory = resolve(entry, "..")
+  while (true) {
+    const manifestPath = join(directory, "package.json")
+    if (existsSync(manifestPath)) {
+      const manifest = JSON.parse(readFileSync(manifestPath, "utf8")) as {
+        exports?: Record<string, string | { import?: string; default?: string }>
+      }
+      const exported = manifest.exports?.[subpath]
+      const target = typeof exported === "string" ? exported : exported?.import ?? exported?.default
+      if (!target?.startsWith("./")) return undefined
+      const resolved = resolve(directory, target)
+      return relative(directory, resolved).startsWith("..") || !existsSync(resolved)
+        ? undefined
+        : resolved
+    }
+    const parent = resolve(directory, "..")
+    if (parent === directory) return undefined
+    directory = parent
+  }
+}
+
+/** Import root and sibling export in one host graph so shared module state stays shared. */
+export async function loadProviderWithSubpathThroughHost(
+  pi: PiExtensionApi,
+  providerSpecifier: string,
+  subpath: string,
+  cwd = process.cwd(),
+): Promise<{ root: Record<string, unknown>; subpath: Record<string, unknown> } | undefined> {
+  if (!pi.pi?.loadExtensions) return undefined
+  const subpathEntry = resolveProviderSubpathEntry(pi, providerSpecifier, subpath, cwd)
+  if (!subpathEntry) return undefined
+  const rootEntry = resolveProviderRootEntry(pi, providerSpecifier, cwd)
+  if (!rootEntry) return undefined
+  const modules = await loadStaticSpecifiersThroughHost(pi, {
+    root: dir => relativeImport(dir, rootEntry),
+    subpath: dir => relativeImport(dir, subpathEntry),
+  }, cwd)
+  if (!modules?.root || !modules.subpath) return undefined
+  return {
+    root: modules.root as Record<string, unknown>,
+    subpath: modules.subpath as Record<string, unknown>,
+  }
 }
 
 /** Load an injected host package while keeping the optional import lazy. */

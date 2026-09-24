@@ -96,6 +96,10 @@ export async function runV3StreamToPi(options: {
   allowedProviderToolNames?: ReadonlySet<string>
   /** Optional package-selected accounting projection; null means display only. */
   finishUsage?: (part: LanguageModelV3StreamPart & { type: "finish" }) => LanguageModelV3Usage | null | undefined
+  /** Optional occupied context, independent of billable input/output. */
+  finishContextTokens?: (part: LanguageModelV3StreamPart & { type: "finish" }) => number | undefined
+  /** Optional package-selected projection after billable usage and context are known. */
+  finishPiUsage?: (part: LanguageModelV3StreamPart & { type: "finish" }, usage: PiUsage) => PiUsage
 }): Promise<void> {
   const { model, piStream } = options
   const partial: AssistantMessage = {
@@ -242,6 +246,9 @@ export async function runV3StreamToPi(options: {
         case "finish": {
           const projected = options.finishUsage?.(part)
           partial.usage = projected === null ? emptyUsage() : translateUsage(projected ?? part.usage, model)
+          const contextTokens = options.finishContextTokens?.(part)
+          if (contextTokens !== undefined) partial.usage.contextTokens = contextTokens
+          if (options.finishPiUsage) partial.usage = options.finishPiUsage(part, partial.usage)
           const hasFinalText = partial.content.some(
             block => block.type === "text" && block.text.trim().length > 0,
           )

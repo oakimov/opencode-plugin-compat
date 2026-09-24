@@ -13,6 +13,7 @@ import path from "node:path"
 import { registerOpenCodePlugin, type OpenCodePluginSpec } from "./register.js"
 import { isCursorProviderPackage } from "./cursor-package.js"
 import type { PiExtensionApi } from "./pi-provider-types.js"
+import type { PiBinarySaveExecute } from "./pi-provider-types.js"
 
 export { isCursorProviderPackage, stripTrailingNpmVersion } from "./cursor-package.js"
 
@@ -85,16 +86,21 @@ export async function registerProvidersFromConfig(
   pi: PiExtensionApi,
   config: PiBridgeConfig,
   options: ProviderRegistrationOptions = {},
-): Promise<void> {
+): Promise<PiBinarySaveExecute | undefined> {
+  let cursorImageSave: PiBinarySaveExecute | undefined
   for (const spec of config.providers) {
     try {
       const excludedToolNames = isCursorProviderPackage(spec.package)
         ? undefined
         : options.cursorHostToolNames
-      await registerOpenCodePlugin(pi, spec, { excludedToolNames })
+      const registered = await registerOpenCodePlugin(pi, spec, { excludedToolNames })
+      if (isCursorProviderPackage(spec.package) && registered.cursorImageSave) {
+        cursorImageSave ??= registered.cursorImageSave
+      }
     } catch (err) {
       const label = spec.providerName ?? spec.package
       console.error(`pi-bridge: failed to register provider "${label}" — ${err instanceof Error ? err.message : String(err)}`)
     }
   }
+  return cursorImageSave
 }

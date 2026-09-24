@@ -44,9 +44,28 @@ export type PiUsage = {
   cacheRead: number
   cacheWrite: number
   totalTokens: number
+  /** Authoritative occupied context, separate from cumulative billable tokens. */
+  contextTokens?: number
+  /** Billable provider-side work that is absent from the replayed prompt. */
+  orchestration?: { input?: number; output?: number; cacheRead?: number }
   reasoning?: number
   cost: { input: number; output: number; cacheRead: number; cacheWrite: number; total: number }
 }
+
+/** Opaque-id file commit contract used by optional provider-owned host tools. */
+export type PiBinarySaveExecute = (
+  args: Record<string, unknown>,
+  ctx: {
+    worktree: string
+    directory: string
+    ask: (input: {
+      permission: string
+      patterns: string[]
+      always: string[]
+      metadata: Record<string, unknown>
+    }) => Promise<void>
+  },
+) => Promise<string | { title: string; output: string }>
 
 export type PiStopReason = "stop" | "length" | "toolUse" | "error" | "aborted" | "deferred"
 

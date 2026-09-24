@@ -156,8 +156,20 @@ choice let the model call `plan_exit` and continue with no review. `plan_exit`
 leaves plan mode; it is not the submit.
 
 Plain **pi** has no plan mode, so SwitchMode stays refused there. Image save
-works on both hosts when the Cursor provider is loaded in-process. Force
-registration in tests with `PI_BRIDGE_CURSOR_HOST_TOOLS=1`.
+works on both hosts when the Cursor provider is loaded in-process. OCP loads
+the save export from the same configured provider installation as the model;
+its staged image ids are valid only in that module instance. Force registration
+in tests with `PI_BRIDGE_CURSOR_HOST_TOOLS=1`.
+
+Cursor's billed input can include several tool steps from one held Run. The
+bridge preserves those raw totals for cost, and separately forwards Cursor's
+checkpoint `usedTokens` as Pi's `contextTokens`. OMP uses `contextTokens` for
+compaction timing and its history cut point. The billable input beyond the
+occupied prompt is recorded as Pi `orchestration` usage; otherwise OMP's
+overflow check mistakes a successful held Run for a prompt larger than the
+model window. With `snapcompact`, OMP may turn
+text history into image frames even when the user supplied no images; those
+frames can cause one image-save call per frame on the next Cursor Run.
 
 These tools are registered in the host's global tool registry, but OCP exposes
 them only to the Cursor provider call. For every other configured provider,

@@ -22,7 +22,7 @@ import { translateContextToPrompt, translateToolChoice, translateTools } from ".
 import { emptyUsage, runV3StreamToPi } from "./translate/stream.js"
 import { buildPiSubagentVocabulary, buildPiTerminalResultVocabulary, buildPiToolInputVocabulary } from "./translate/subagent.js"
 import { buildPiQuestionVocabulary } from "./translate/question.js"
-import type { PiContextLike, PiExtensionApi, PiModelLike, PiSimpleStreamOptions } from "./pi-provider-types.js"
+import type { PiContextLike, PiExtensionApi, PiModelLike, PiSimpleStreamOptions, PiUsage } from "./pi-provider-types.js"
 
 export interface AiSdkProviderSpec {
   /** Provider id passed to `pi.registerProvider` (also `model.provider`). */
@@ -44,6 +44,8 @@ export interface AiSdkProviderSpec {
   excludedToolNames?: readonly string[]
   /** Optional provider integration selected by package identity at registration. */
   finishUsage?: (part: LanguageModelV3StreamPart & { type: "finish" }) => LanguageModelV3Usage | null | undefined
+  finishContextTokens?: (part: LanguageModelV3StreamPart & { type: "finish" }) => number | undefined
+  finishPiUsage?: (part: LanguageModelV3StreamPart & { type: "finish" }, usage: PiUsage) => PiUsage
   models?: readonly PiModelConfig[]
   /** Host-neutral dynamic model list; adapted to each host's calling convention below. */
   fetchModels?: (apiKey: string | undefined) => Promise<readonly PiModelConfig[]>
@@ -131,6 +133,8 @@ export function buildStreamSimple(spec: AiSdkProviderSpec, runtime: PiRuntime) {
           question,
           allowedProviderToolNames,
           finishUsage: spec.finishUsage,
+          finishContextTokens: spec.finishContextTokens,
+          finishPiUsage: spec.finishPiUsage,
         })
       } catch (err) {
         const message = errorAssistantMessage(model, err)

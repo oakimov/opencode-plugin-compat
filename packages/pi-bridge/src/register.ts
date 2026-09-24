@@ -15,9 +15,11 @@
  */
 import { registerAiSdkProvider } from "./bridge.js"
 import { isCursorProviderPackage } from "./cursor-package.js"
+import { takeCursorHistoryRewrite } from "./cursor-history-rewrite.js"
 import { avoidProviderIdCollision, type PiHostProfile } from "./host/profile.js"
 import { loadPiRuntime } from "./host/runtime.js"
 import { loadModuleThroughHost } from "./host-module-loader.js"
+import type { PiBinarySaveExecute } from "./pi-provider-types.js"
 import {
   buildPiOAuth,
   createLoaderRunner,
@@ -76,6 +78,7 @@ export type RegisterResult = {
   api: string
   modelCount: number
   hasOAuth: boolean
+  cursorImageSave?: PiBinarySaveExecute
 }
 
 export type RegisterOpenCodePluginOptions = {
@@ -94,10 +97,17 @@ export async function registerOpenCodePlugin(
     ...(spec.factoryExport ? { factoryExport: spec.factoryExport } : {}),
     ...(spec.pluginExport ? { pluginExport: spec.pluginExport } : {}),
   }
-  const hostLoaded = await loadModuleThroughHost(pi, spec.package, spec.directory ?? process.cwd())
+  const cursorIntegration = isCursorProviderPackage(spec.package)
+    ? await import("./cursor-provider-integration.js")
+    : undefined
+  const cursorModules = cursorIntegration
+    ? await cursorIntegration.loadCursorProviderModules(pi, spec.package, spec.directory ?? process.cwd())
+    : undefined
+  const hostLoaded = cursorModules?.root ?? await loadModuleThroughHost(pi, spec.package, spec.directory ?? process.cwd())
   const loaded = hostLoaded
     ? inspectOpenCodePluginModule(hostLoaded, loadSpec)
     : await loadOpenCodePluginModule(loadSpec)
+  const cursorImageSave = cursorModules?.imageSave
 
   const stub = createPluginInputStub({ directory: spec.directory ?? process.cwd() })
 
@@ -183,15 +193,15 @@ export async function registerOpenCodePlugin(
   // The plugin reads its provider options under the id *it* declares, which is
   // not necessarily the host-facing name (that one may have been de-collided).
   const providerOptionsKey = authHook?.provider ?? hooks?.auth?.provider ?? providerName
-  const cursorUsage = isCursorProviderPackage(spec.package)
-    ? await import("./translate/cursor-usage.js")
-    : undefined
+  const cursorUsage = cursorIntegration
 
   const profile = await registerAiSdkProvider(pi, {
     name: providerName,
     api,
     baseUrl: spec.baseUrl ?? `opencode-plugin:${spec.package}`,
     ...(cursorUsage ? { finishUsage: cursorUsage.cursorFinishUsage } : {}),
+    ...(cursorUsage ? { finishContextTokens: cursorUsage.cursorFinishContextTokens } : {}),
+    ...(cursorUsage ? { finishPiUsage: cursorUsage.cursorFinishPiUsage } : {}),
     ...(spec.apiKey ? { apiKey: spec.apiKey } : {}),
     ...(initialModels.length > 0 ? { models: initialModels } : {}),
     ...(fetchModels ? { fetchModels } : {}),
@@ -209,10 +219,17 @@ export async function registerOpenCodePlugin(
     },
     buildCallOptions: ({ model, options, base }) => {
       const call = callData.get(model.id)
-      if (!call) return base
       // Entry options first (e.g. a long-context entry's wire model id), then
       // the selected variant's own options object, verbatim.
-      const merged = { ...call.entryOptions, ...optionsForLevel(call.variant, options?.reasoning) }
+      const merged = call
+        ? { ...call.entryOptions, ...optionsForLevel(call.variant, options?.reasoning) }
+        : {} as Record<string, unknown>
+      if (cursorIntegration && takeCursorHistoryRewrite(
+        options?.sessionId,
+        (base.tools?.length ?? 0) > 0 && base.toolChoice?.type !== "none",
+      )) {
+        merged.opencodeHistoryRewrite = true
+      }
       if (Object.keys(merged).length === 0) return base
       return {
         ...base,
@@ -227,5 +244,6 @@ export async function registerOpenCodePlugin(
     api,
     modelCount: initialModels.length,
     hasOAuth: Boolean(oauth),
+    ...(cursorImageSave ? { cursorImageSave } : {}),
   }
 }

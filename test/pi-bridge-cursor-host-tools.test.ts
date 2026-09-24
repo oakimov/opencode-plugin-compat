@@ -19,7 +19,9 @@ import {
 } from "../packages/pi-bridge/src/plan-mode-host.ts"
 import { maybeRegisterCursorHostTools, stripTrailingNpmVersion } from "../packages/pi-bridge/src/extension.ts"
 import { mapPlanModeError, PlanNotApprovedError } from "../packages/pi-bridge/src/cursor-host-tools.ts"
-import type { PiExtensionApi, PiRegisterToolDefinition } from "../packages/pi-bridge/src/pi-provider-types.ts"
+import type { PiBinarySaveExecute, PiExtensionApi, PiRegisterToolDefinition } from "../packages/pi-bridge/src/pi-provider-types.ts"
+import { loadProviderWithSubpathThroughHost } from "../packages/pi-bridge/src/host-module-loader.ts"
+import { loadCursorProviderModules } from "../packages/pi-bridge/src/cursor-provider-integration.ts"
 
 describe("stripTrailingNpmVersion", () => {
   test("strips version suffixes without regex", () => {
@@ -314,6 +316,71 @@ describe("Cursor host tool registration", () => {
     expect(result.content[0]?.text).toBe("Wrote saved.png")
   })
 
+  test("cursor_image_save uses the configured provider installation's staging module", async () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "ocp-cursor-provider-"))
+    try {
+      const dist = path.join(root, "dist")
+      fs.mkdirSync(dist)
+      fs.writeFileSync(path.join(root, "package.json"), JSON.stringify({
+        name: "cursor-opencode-provider",
+        type: "module",
+        exports: {
+          ".": { import: "./dist/index.js" },
+          "./image-save": { import: "./dist/image-save.js" },
+        },
+      }))
+      fs.writeFileSync(path.join(dist, "state.js"),
+        "const pending = new Map(); export const stage = (id, value) => pending.set(id, value); export const take = id => { const value = pending.get(id); pending.delete(id); return value; };\n")
+      fs.writeFileSync(path.join(dist, "index.js"), "export { stage } from './state.js';\n")
+      fs.writeFileSync(path.join(dist, "image-save.js"),
+        "import { take } from './state.js'; export async function executeCursorImageSave({ image_id }) { const value = take(image_id); return value ? { title: 'saved', output: value } : 'No pending Cursor image'; }\n")
+
+      const pi = fakePi()
+      let graphLoads = 0
+      pi.pi = {
+        async loadExtensions(paths) {
+          graphLoads++
+          expect(paths).toHaveLength(1)
+          const trampoline = fs.readFileSync(paths[0]!, "utf8")
+          expect(trampoline.match(/import \* as /g)).toHaveLength(2)
+          for (const entry of paths) {
+            const extension = await import(`${entry}?test=${Date.now()}`)
+            await extension.default({})
+          }
+          return { errors: [] }
+        },
+      }
+      const pair = await loadProviderWithSubpathThroughHost(pi, path.join(dist, "index.js"), "./image-save")
+      expect(graphLoads).toBe(1)
+      expect(typeof pair?.root.stage).toBe("function")
+      expect(typeof pair?.subpath.executeCursorImageSave).toBe("function")
+      ;(pair!.root.stage as (id: string, value: string) => void)("one-use-id", "saved from configured provider")
+      registerCursorHostTools(pi, {
+        hostId: "pi",
+        executeImageSave: pair!.subpath.executeCursorImageSave as never,
+      })
+      const tool = pi.registered.find(entry => entry.name === CURSOR_IMAGE_SAVE_TOOL)!
+      const result = await tool.execute("call", { image_id: "one-use-id" }, undefined, undefined, {}) as {
+        content: Array<{ text: string }>
+      }
+      expect(result.content[0]?.text).toBe("saved from configured provider")
+      const replay = await tool.execute("call2", { image_id: "one-use-id" }, undefined, undefined, {}) as {
+        content: Array<{ text: string }>
+      }
+      expect(replay.content[0]?.text).toBe("No pending Cursor image")
+
+      const nativePi = await loadCursorProviderModules(fakePi(), path.join(dist, "index.js"), root)
+      expect(typeof nativePi.root?.stage).toBe("function")
+      ;(nativePi.root!.stage as (id: string, value: string) => void)("pi-id", "saved from Pi")
+      expect(await nativePi.imageSave!({ image_id: "pi-id" }, {} as never)).toEqual({
+        title: "saved",
+        output: "saved from Pi",
+      })
+    } finally {
+      fs.rmSync(root, { recursive: true, force: true })
+    }
+  })
+
   test("cursor_image_save reports missing id without inventing a write", async () => {
     const pi = fakePi()
     registerCursorHostTools(pi, {
@@ -398,5 +465,19 @@ describe("Cursor host tool registration", () => {
     expect(names).toContain(CURSOR_IMAGE_SAVE_TOOL)
     expect(names).toContain(PLAN_ENTER_TOOL)
     expect(names).toContain(PLAN_EXIT_TOOL)
+  })
+
+  test("registered image tool picks up the configured provider executor after registration", async () => {
+    const pi = fakePi()
+    const imageSaveRef: { execute?: PiBinarySaveExecute } = {}
+    await maybeRegisterCursorHostTools(pi, "pi", {
+      providers: [{ package: "cursor-opencode-provider" }],
+    }, imageSaveRef)
+    imageSaveRef.execute = async args => `saved ${args.image_id}`
+    const tool = pi.registered.find(entry => entry.name === CURSOR_IMAGE_SAVE_TOOL)!
+    const result = await tool.execute("call", { image_id: "from-live-provider" }, undefined, undefined, {}) as {
+      content: Array<{ text: string }>
+    }
+    expect(result.content[0]?.text).toBe("saved from-live-provider")
   })
 })

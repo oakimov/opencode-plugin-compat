@@ -17,6 +17,7 @@ import type { HostEditTool } from "./hashline-tool.js"
 import { resetHashlineCoalesce } from "./hashline-coalesce.js"
 import { resetHashlineOverlapClaims } from "./hashline-overlap.js"
 import type { PiExtensionApi } from "./pi-provider-types.js"
+import type { PiBinarySaveExecute } from "./pi-provider-types.js"
 
 /**
  * Pi registers all built-in tools in its tool registry but starts with only
@@ -67,17 +68,27 @@ export { stripTrailingNpmVersion } from "./config.js"
 export async function maybeRegisterCursorHostTools(
   pi: PiExtensionApi,
   hostId: PiHostId,
-  config: { providers?: Array<{ package?: string; providerName?: string }> } | null | undefined,
+  config: { providers?: Array<{ package?: string; providerName?: string; directory?: string }> } | null | undefined,
+  imageSaveRef?: { execute?: PiBinarySaveExecute },
 ): Promise<string[]> {
-  const mentionsCursor = (config?.providers ?? []).some(entry => {
-    return isCursorProviderPackage(entry.package ?? "")
-  })
+  const cursorProvider = (config?.providers ?? []).find(entry => isCursorProviderPackage(entry.package ?? ""))
   // Staging lives in-process with the bridged provider — only advertise when
   // Cursor is configured (or tests force registration via env). The Cursor host
   // tool module stays a dynamic import so generic Pi loads never parse it.
-  if (!mentionsCursor && process.env.PI_BRIDGE_CURSOR_HOST_TOOLS !== "1") return []
+  if (!cursorProvider && process.env.PI_BRIDGE_CURSOR_HOST_TOOLS !== "1") return []
   const { activateCursorHostTools, registerCursorHostTools } = await import("./cursor-host-tools.js")
-  const names = registerCursorHostTools(pi, { hostId, hostPi: pi.pi })
+  const names = registerCursorHostTools(pi, {
+    hostId,
+    hostPi: pi.pi,
+    ...(imageSaveRef ? {
+      executeImageSave: async (args, ctx) => {
+        const execute = imageSaveRef.execute
+        return execute
+          ? execute(args, ctx)
+          : "The configured Cursor provider did not load its image-save export."
+      },
+    } : {}),
+  })
   activateCursorHostTools(pi, names)
   return names
 }
@@ -137,8 +148,13 @@ export default async function piBridgeExtension(pi: PiExtensionApi): Promise<voi
       pi.on?.("session_start", installReplaceEdit)
     }
     if (resolvedHost) {
-      const cursorHostToolNames = await maybeRegisterCursorHostTools(pi, resolvedHost, config)
-      await registerProvidersFromConfig(pi, config, { cursorHostToolNames })
+      if ((config.providers ?? []).some(entry => isCursorProviderPackage(entry.package ?? ""))) {
+        const { registerCursorHistoryRewriteListener } = await import("./cursor-history-rewrite.js")
+        if (pi.on) registerCursorHistoryRewriteListener(pi.on.bind(pi))
+      }
+      const imageSaveRef: { execute?: PiBinarySaveExecute } = {}
+      const cursorHostToolNames = await maybeRegisterCursorHostTools(pi, resolvedHost, config, imageSaveRef)
+      imageSaveRef.execute = await registerProvidersFromConfig(pi, config, { cursorHostToolNames })
     } else {
       await registerProvidersFromConfig(pi, config)
     }

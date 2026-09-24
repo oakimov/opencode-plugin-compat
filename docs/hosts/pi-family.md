@@ -264,7 +264,19 @@ Refine or dismiss is an error, so the model stays in plan mode. Returning
 before the overlay let the model call `plan_exit` and skip the review.
 
 Plain **pi** has no plan mode, so SwitchMode stays refused there. Image save
-works on both hosts when the Cursor provider is loaded in-process.
+works on both hosts when the Cursor provider is loaded in-process. The save
+export and the model come from the same configured provider installation, so
+staged image ids resolve in the same module instance. Cursor's billed totals
+remain available for cost while its checkpoint occupancy reaches OMP as
+`contextTokens` for compaction. Input billed beyond that occupied prompt is
+recorded as `orchestration`, keeping OMP's overflow check from compacting a
+successful held Run. OMP's `snapcompact` can produce image frames
+from text-only history, causing image-save calls after a real compaction.
+When a Pi-family host compacts locally without calling the provider, the
+bridge marks that session's next tool-enabled Cursor request as a history
+rewrite. The provider then starts a fresh Cursor conversation from the
+compacted host transcript instead of resuming its old checkpoint. Title and
+other no-tool lifecycle requests leave this one-time reset pending.
 
 ---
 

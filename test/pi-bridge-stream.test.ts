@@ -7,7 +7,7 @@
  */
 import { describe, expect, test } from "bun:test"
 import { emptyUsage, runV3StreamToPi } from "../packages/pi-bridge/src/translate/stream.ts"
-import { cursorFinishUsage } from "../packages/pi-bridge/src/translate/cursor-usage.ts"
+import { cursorFinishContextTokens, cursorFinishPiUsage, cursorFinishUsage } from "../packages/pi-bridge/src/translate/cursor-usage.ts"
 
 class FakeAssistantMessageEventStream {
   events: unknown[] = []
@@ -112,7 +112,7 @@ describe("runV3StreamToPi", () => {
     expect(done.message.content).toEqual([{ type: "thinking", thinking: "thinking..." }])
   })
 
-  test("uses Cursor raw totals once and drops intermediate occupancy", async () => {
+  test("keeps Cursor billed totals once and drops intermediate occupancy billing", async () => {
     const intermediate = new FakeAssistantMessageEventStream()
     await runV3StreamToPi({
       model: MODEL,
@@ -127,8 +127,13 @@ describe("runV3StreamToPi", () => {
       }]) as never,
       piStream: intermediate as never,
       finishUsage: cursorFinishUsage,
+      finishContextTokens: cursorFinishContextTokens,
+      finishPiUsage: cursorFinishPiUsage,
     })
-    expect((intermediate.events.at(-1) as { message: { usage: unknown } }).message.usage).toEqual(emptyUsage())
+    expect((intermediate.events.at(-1) as { message: { usage: unknown } }).message.usage).toEqual({
+      ...emptyUsage(),
+      contextTokens: 35_272,
+    })
 
     const terminal = new FakeAssistantMessageEventStream()
     await runV3StreamToPi({
@@ -146,22 +151,61 @@ describe("runV3StreamToPi", () => {
             cacheReadRaw: 266_112,
             cacheWriteRaw: 0,
             reasoningTokensRaw: 2_355,
+            context: { usedTokens: 54_129, maxTokens: 256_000 },
           },
         },
         finishReason: { unified: "stop", raw: "stop" },
       }]) as never,
       piStream: terminal as never,
       finishUsage: cursorFinishUsage,
+      finishContextTokens: cursorFinishContextTokens,
+      finishPiUsage: cursorFinishPiUsage,
     })
     const usage = (terminal.events.at(-1) as { message: { usage: Record<string, unknown> } }).message.usage
     expect(usage).toMatchObject({
-      input: 58_810,
+      input: 54_128,
       output: 3_581,
-      cacheRead: 266_112,
+      cacheRead: 0,
       cacheWrite: 0,
       reasoning: 2_355,
       totalTokens: 328_503,
+      contextTokens: 54_129,
+      orchestration: { input: 4_682, cacheRead: 266_112 },
     })
+    // OMP's success-path overflow check reads the ordinary input components,
+    // not contextTokens. Both paths must stay below the actual window.
+    expect((usage.input as number) + (usage.cacheRead as number) + (usage.cacheWrite as number)).toBeLessThan(256_000)
+    expect((usage.input as number) + (usage.cacheRead as number) +
+      ((usage.orchestration as { input: number; cacheRead: number }).input) +
+      ((usage.orchestration as { input: number; cacheRead: number }).cacheRead)).toBe(324_922)
+  })
+
+  test("a successful held Run above the model window does not look like context overflow", () => {
+    const billed = {
+      input: 77_533,
+      output: 4_328,
+      cacheRead: 505_344,
+      cacheWrite: 0,
+      totalTokens: 587_205,
+      contextTokens: 80_007,
+      cost: { input: 1, output: 2, cacheRead: 3, cacheWrite: 0, total: 6 },
+    }
+    const finish = {
+      type: "finish",
+      usage: { inputTokens: { total: 80_006 }, outputTokens: {} },
+      providerMetadata: { cursor: { context: { usedTokens: 80_007, maxTokens: 256_000 } } },
+      finishReason: { unified: "stop" },
+    } as never
+    const projected = cursorFinishPiUsage(finish, billed)
+    expect(billed.input + billed.cacheRead).toBeGreaterThan(256_000)
+    expect(projected.input + projected.cacheRead + projected.cacheWrite).toBe(80_006)
+    expect(projected.orchestration).toEqual({ cacheRead: 502_871 })
+    expect(projected.input + projected.cacheRead + projected.cacheWrite +
+      (projected.orchestration?.input ?? 0) + (projected.orchestration?.cacheRead ?? 0)).toBe(582_877)
+    expect(projected.contextTokens).toBe(80_007)
+    expect(projected.totalTokens).toBe(587_205)
+    expect(projected.cost).toEqual(billed.cost)
+    expect(cursorFinishPiUsage({ ...finish, finishReason: { unified: "error" } } as never, billed)).toBe(billed)
   })
 
   test("generic providers use V3 usage even when metadata contains a cursor key", async () => {

@@ -20,6 +20,7 @@ import { tmpdir } from "node:os"
 import path from "node:path"
 import type { PiHostId } from "./host/profile.js"
 import type { PiExtensionApi, PiRegisterToolDefinition } from "./pi-provider-types.js"
+import type { PiBinarySaveExecute } from "./pi-provider-types.js"
 
 export const PLAN_ENTER_TOOL = "plan_enter"
 export const PLAN_EXIT_TOOL = "plan_exit"
@@ -62,23 +63,7 @@ type TextToolResult = {
   details?: Record<string, unknown>
 }
 
-type ImageSaveAsk = (input: {
-  permission: string
-  patterns: string[]
-  always: string[]
-  metadata: Record<string, unknown>
-}) => Promise<void>
-
-type ImageSaveContext = {
-  worktree: string
-  directory: string
-  ask: ImageSaveAsk
-}
-
-type ImageSaveExecute = (
-  args: { image_id?: unknown },
-  ctx: ImageSaveContext,
-) => Promise<string | { title: string; output: string }>
+export type ImageSaveExecute = PiBinarySaveExecute
 
 function textResult(text: string, details?: Record<string, unknown>): TextToolResult {
   return { content: [{ type: "text", text }], details }
@@ -145,20 +130,6 @@ export type RegisterCursorHostToolsOptions = {
    * plan-review overlay and does not return until the user chooses.
    */
   reviewPlan?: (input: { content: string; title: string; planUri: string }) => Promise<string | undefined>
-}
-
-async function loadExecuteCursorImageSave(): Promise<ImageSaveExecute | undefined> {
-  try {
-    // Runtime specifier so tsc does not require the optional peer at compile time.
-    const spec: string = "cursor-opencode-provider/image-save"
-    const mod = (await import(spec)) as {
-      executeCursorImageSave?: ImageSaveExecute
-    }
-    if (typeof mod.executeCursorImageSave === "function") return mod.executeCursorImageSave
-  } catch {
-    // Dedicated subpath missing — fall through.
-  }
-  return undefined
 }
 
 function cwdFromContext(ctx: Record<string, unknown> | undefined): string {
@@ -443,7 +414,7 @@ export function registerCursorHostTools(
     loadMode: "essential",
     approval: "write",
     async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
-      const execute = options.executeImageSave ?? (await loadExecuteCursorImageSave())
+      const execute = options.executeImageSave
       if (!execute) {
         return textResult(
           "cursor_image_save is registered but cursor-opencode-provider/image-save " +
