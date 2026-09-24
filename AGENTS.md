@@ -96,6 +96,7 @@ Canonical human guide: `docs/guides/npm-publish.md`. This section is the agent e
 - **Never** republish an existing version. If `npm view @opencode-compat/ocp@X.Y.Z version` already returns that version, stop and ask.
 - **Never** bump by hand-editing only `package.json`. Always use `bun scripts/bump-version.ts <ver>` so **`bun.lock` workspace versions** stay in sync.
 - Bun `pm pack` rewrites `workspace:*` from **`bun.lock`**, not `package.json`. A stale lock publishes wrong transitive pins (this is how `0.1.1` broke). `pack:check` must pass before commit/tag.
+- **`pi-bridge` / `dsh-bridge` `@opencode-compat/*` deps must be exact train pins, never `workspace:*`.** Those packages are installed into foreign package managers via `file:` (`dsh plugin add file:…`, `pi install <checkout>`). Profile pnpm cannot see this Bun workspace — `workspace:*` fails with `ERR_PNPM_WORKSPACE_PKG_NOT_FOUND` (0.4.1 regression). `bump-version.ts` rewrites the exact pins and refuses workspace protocol on those packages; `pack:check` / publish assert the same.
 - Do **not** use local `bun run publish:npm` for later releases — Trusted Publishers + OIDC on tag `v*` is the path.
 - Tag format is **`v` + train version** (example: packages `0.1.2` → tag `v0.1.2`). Tag must match package versions.
 - Root `package.json` version is monorepo metadata and may lag; do **not** require it to match the train.
@@ -120,6 +121,14 @@ This order is `PACKAGES` in `scripts/publish.ts` — keep the two in sync when a
    ```
    This updates each package `package.json`, `VERSION` / profile `OCP_VERSION` (`packages/profile/src/version.ts`), and **`bun.lock`**, then runs `bun install`.
 
+   **Do not** convert `pi-bridge` / `dsh-bridge` `@opencode-compat/*` deps to `workspace:*` before or after the bump. Those packages must keep **exact train pins**; the script rewrites them (`0.4.1` → `X.Y.Z`) and exits non-zero if it finds `workspace:*` on them — **before any files are written**. Expect:
+   ```
+     @opencode-compat/pi-bridge dependencies.@opencode-compat/opencode-loader: … → X.Y.Z
+     @opencode-compat/dsh-bridge dependencies.@opencode-compat/opencode-loader: … → X.Y.Z
+   foreign-file-pins-ok: pi-bridge, dsh-bridge @opencode-compat/* → X.Y.Z
+   ```
+   Spot-check: `rg '"@opencode-compat/opencode-loader"' packages/pi-bridge/package.json packages/dsh-bridge/package.json` must show `"X.Y.Z"`, never `workspace:*`.
+
 3. **Docs / defaults sync**
    - CLI setup default is `OCP_VERSION` from `@opencode-compat/profile` — no hardcoded train pin needed in `setup.ts`.
    - Update user-facing train mentions in `docs/hosts/opencode-clones.md` §2.4 (example `--version` / “today **X.Y.Z**”) when they still name an older train.
@@ -131,6 +140,7 @@ This order is `PACKAGES` in `scripts/publish.ts` — keep the two in sync when a
    ```
    Must show:
     - `publish-ready: 11 public packages @ X.Y.Z`
+    - `foreign-file-pins-ok: pi-bridge, dsh-bridge @opencode-compat/* → X.Y.Z`
     - eleven packs at `X.Y.Z`
     - `packed-deps-ok: 11 tarballs pin @opencode-compat/* @ X.Y.Z`
    Spot-check tarballs under `.tmp/npm-pack/` if anything looks off: every `@opencode-compat/*` dependency must be the **exact** train version.
@@ -170,6 +180,7 @@ This order is `PACKAGES` in `scripts/publish.ts` — keep the two in sync when a
 ### If something fails
 
 - **`pack:check` / packed-deps gate:** fix lock/train drift (`bun scripts/bump-version.ts X.Y.Z` or repair `bun.lock`); do not tag.
+- **`foreign-file-pins-ok` / `Foreign file-install pin gate failed`:** someone put `workspace:*` on `pi-bridge` or `dsh-bridge`. Restore exact train pins (`"@opencode-compat/opencode-loader": "X.Y.Z"`), re-run `bun scripts/bump-version.ts X.Y.Z`, then `pack:check`. `bump-version` refuses **before writing** when it sees workspace protocol on those packages. Do not “fix” it by converting other packages the other way.
 - **Publish workflow OIDC / ENEEDAUTH:** check Trusted Publisher settings (repo `oakimov/opencode-plugin-compat`, workflow filename exactly `publish.yml`) and `repository.url` in each package; do not fall back to a long-lived `NPM_TOKEN` unless the user explicitly asks.
 - **Partial train on npm (should not happen via OIDC, but if recovering a local publish):** `bun scripts/publish.ts --publish --skip-existing` — only with user intent.
 - **Bad version already on registry:** you cannot fix-in-place. Deprecate if needed (`npm deprecate pkg@ver "reason"`), bump to the **next** patch, and ship a good train. Do not rely on `npm unpublish` for patched mistakes.

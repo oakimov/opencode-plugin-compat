@@ -39,6 +39,16 @@ export const PACKAGES = [
   "dsh-bridge",
 ] as const
 
+/**
+ * Packages installed into a *foreign* package manager via `file:` / host
+ * plugin installers (DSH profile pnpm, pi/omp installers). Their
+ * `@opencode-compat/*` dependencies must be **exact train pins**, never
+ * `workspace:*` — foreign installers cannot see this Bun workspace, so
+ * `workspace:*` fails with `ERR_PNPM_WORKSPACE_PKG_NOT_FOUND` (0.4.1
+ * regression). `bump-version.ts` rewrites those exact pins with the train.
+ */
+export const FOREIGN_FILE_INSTALL_PACKAGES = ["pi-bridge", "dsh-bridge"] as const
+
 type PkgJson = {
   name: string
   version: string
@@ -104,6 +114,44 @@ function readBunLock(): {
       `Failed to parse bun.lock: ${err instanceof Error ? err.message : err}`,
     )
   }
+}
+
+/**
+ * Source package.json gate for bridges that leave the monorepo via `file:`.
+ * Bun pack rewrites `workspace:*` for npm, but `dsh plugin add file:` and
+ * `pi install <checkout>` read the *source* manifest with foreign pnpm/npm.
+ */
+export function assertForeignFileInstallExactPins(version?: string): void {
+  const train = version ?? trainVersion()
+  const errors: string[] = []
+  for (const dir of FOREIGN_FILE_INSTALL_PACKAGES) {
+    const pkg = readPkg(dir)
+    for (const [dep, spec] of Object.entries(pkg.dependencies ?? {})) {
+      if (!dep.startsWith("@opencode-compat/")) continue
+      if (spec === "workspace:*" || spec.startsWith("workspace:")) {
+        errors.push(
+          `${pkg.name}: ${dep} is ${spec}; foreign file: installs need an exact train pin (${train})`,
+        )
+      } else if (spec !== train) {
+        errors.push(
+          `${pkg.name}: ${dep}@${spec} must equal train ${train} (bump-version rewrites exact pins)`,
+        )
+      }
+    }
+  }
+  if (errors.length) {
+    throw new Error(
+      [
+        `Foreign file-install pin gate failed:`,
+        ...errors.map((line) => `  - ${line}`),
+        `Keep pi-bridge / dsh-bridge on exact @opencode-compat/* train pins — never workspace:*.`,
+        `Fix: restore the pin, then bun scripts/bump-version.ts ${train}`,
+      ].join("\n"),
+    )
+  }
+  console.log(
+    `foreign-file-pins-ok: ${FOREIGN_FILE_INSTALL_PACKAGES.join(", ")} @opencode-compat/* → ${train}`,
+  )
 }
 
 /**
@@ -237,6 +285,7 @@ function assertPublishReady(): string {
   const version = trainVersion()
   assertTagMatches(version)
   assertLockfileTrainVersions(version)
+  assertForeignFileInstallExactPins(version)
 
   for (const dir of PACKAGES) {
     const pkg = readPkg(dir)

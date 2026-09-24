@@ -7,29 +7,71 @@
  *
  * Updates:
  *   1. packages/<name>/package.json version
- *   2. export const VERSION in src/index.ts (profile: src/version.ts + OCP_VERSION)
- *   3. bun.lock workspaces["packages/<name>"].version
+ *   2. Exact @opencode-compat/* train pins in dependencies (not workspace:*)
+ *   3. export const VERSION in src/index.ts (profile: src/version.ts + OCP_VERSION)
+ *   4. bun.lock workspaces["packages/<name>"].version
  *
  * Bun's `pm pack` rewrites workspace:* from the **lockfile**, not package.json.
  * Plain `bun install` does **not** refresh those workspace version fields when
  * only package.json changed — so this script rewrites them explicitly, then
  * runs `bun install` to keep the lock consistent.
  *
+ * pi-bridge / dsh-bridge must keep **exact** @opencode-compat/* pins (never
+ * workspace:*): foreign `file:` installers (DSH profile pnpm, pi/omp) cannot
+ * see this Bun workspace. This script refuses workspace protocol on those
+ * packages and rewrites their exact pins with the train.
+ *
  * Does not bump migrate-zcode EMITTER_VERSION (marketplace emitter, separate).
  */
 import { spawnSync } from "node:child_process"
 import { readFileSync, writeFileSync } from "node:fs"
 import { join, resolve } from "node:path"
-import { PACKAGES } from "./publish.ts"
+import { assertForeignFileInstallExactPins, FOREIGN_FILE_INSTALL_PACKAGES, PACKAGES } from "./publish.ts"
 
 const ROOT = resolve(import.meta.dir, "..")
 const next = process.argv[2]
+const FOREIGN_FILE_INSTALL = new Set<string>(FOREIGN_FILE_INSTALL_PACKAGES)
 
 if (!next || !/^\d+\.\d+\.\d+([-.][0-9A-Za-z.-]+)?$/.test(next)) {
   console.error("Usage: bun scripts/bump-version.ts <semver>")
   console.error("Example: bun scripts/bump-version.ts 0.1.2")
   process.exit(1)
 }
+
+/** Refuse before any writes so a bad pin cannot leave a half-bumped tree. */
+function preflightForeignFileInstallNoWorkspace(): void {
+  const errors: string[] = []
+  for (const dir of FOREIGN_FILE_INSTALL_PACKAGES) {
+    const pkgPath = join(ROOT, "packages", dir, "package.json")
+    const pkg = JSON.parse(readFileSync(pkgPath, "utf8")) as {
+      name: string
+      dependencies?: Record<string, string>
+      optionalDependencies?: Record<string, string>
+      peerDependencies?: Record<string, string>
+      devDependencies?: Record<string, string>
+    }
+    for (const field of ["dependencies", "optionalDependencies", "peerDependencies", "devDependencies"] as const) {
+      const deps = pkg[field]
+      if (!deps) continue
+      for (const [name, range] of Object.entries(deps)) {
+        if (!name.startsWith("@opencode-compat/")) continue
+        if (range === "workspace:*" || range.startsWith("workspace:")) {
+          errors.push(`${pkg.name} ${field}.${name}=${range}`)
+        }
+      }
+    }
+  }
+  if (errors.length === 0) return
+  console.error("Foreign file-install pin gate failed (refusing to bump — no files written):")
+  for (const line of errors) console.error(`  - ${line}`)
+  console.error(
+    `Keep pi-bridge / dsh-bridge on exact @opencode-compat/* train pins — never workspace:*.`,
+  )
+  console.error(`Fix: restore exact pins, then re-run bun scripts/bump-version.ts ${next}`)
+  process.exit(1)
+}
+
+preflightForeignFileInstallNoWorkspace()
 
 for (const dir of PACKAGES) {
   const pkgPath = join(ROOT, "packages", dir, "package.json")
@@ -45,12 +87,26 @@ for (const dir of PACKAGES) {
   pkg.version = next
   // Exact train pins (not workspace:*) must move with the bump so pack/typecheck
   // do not keep resolving a prior published sibling.
+  //
+  // pi-bridge / dsh-bridge are installed into foreign package managers via
+  // `file:` (DSH profile pnpm, pi/omp installers). Those hosts cannot resolve
+  // Bun `workspace:*`, so those packages must keep exact pins — never convert
+  // them to workspace:*. See docs/guides/npm-publish.md (§ foreign file:).
   for (const field of ["dependencies", "optionalDependencies", "peerDependencies", "devDependencies"] as const) {
     const deps = pkg[field]
     if (!deps) continue
     for (const [name, range] of Object.entries(deps)) {
       if (!name.startsWith("@opencode-compat/")) continue
-      if (range === "workspace:*") continue
+      if (range === "workspace:*" || range.startsWith("workspace:")) {
+        if (FOREIGN_FILE_INSTALL.has(dir)) {
+          console.error(
+            `${pkg.name}: refusing workspace protocol on ${field}.${name}=${range}. ` +
+              `Foreign file: installs need an exact train pin; bump-version will rewrite it.`,
+          )
+          process.exit(1)
+        }
+        continue
+      }
       if (/^\d+\.\d+\.\d+([-.][0-9A-Za-z.-]+)?$/.test(range)) {
         deps[name] = next
         console.log(`  ${pkg.name} ${field}.${name}: ${range} → ${next}`)
@@ -109,6 +165,15 @@ const install = spawnSync("bun", ["install"], {
 if (install.status !== 0) {
   console.error("bun install failed after lock rewrite — inspect bun.lock")
   process.exit(install.status ?? 1)
+}
+
+// Fail closed: pi-bridge / dsh-bridge must still be on exact train pins after the bump
+// (assertForeignFileInstallExactPins prints foreign-file-pins-ok on success).
+try {
+  assertForeignFileInstallExactPins(next)
+} catch (err) {
+  console.error(err instanceof Error ? err.message : err)
+  process.exit(1)
 }
 
 console.log(`\nTrain version is now ${next} (package.json + bun.lock).`)

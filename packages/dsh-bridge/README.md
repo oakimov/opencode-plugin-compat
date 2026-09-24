@@ -63,6 +63,11 @@ A later `tsc` that emits *new* dist files does not update that copy — live DSH
 keeps loading the profile tree, not the checkout `dist`. `ocp-dev.sh run dsh`
 rebuilds and syncs that profile copy.
 
+`@opencode-compat/opencode-loader` in this package's `package.json` must stay an
+**exact train pin** (never `workspace:*`). DSH profile pnpm installs via `file:`
+and cannot see the OCP Bun workspace — `workspace:*` fails with
+`ERR_PNPM_WORKSPACE_PKG_NOT_FOUND` (0.4.1). `bump-version.ts` rewrites the pin.
+
 Do not run `ocp setup` against DSH.
 
 ## Tool names

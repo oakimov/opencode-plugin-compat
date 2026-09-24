@@ -1,9 +1,18 @@
-import { copyFileSync, existsSync, mkdirSync, readdirSync, statSync } from "node:fs"
+import {
+  copyFileSync,
+  existsSync,
+  mkdirSync,
+  readFileSync,
+  readdirSync,
+  rmSync,
+  statSync,
+  writeFileSync,
+} from "node:fs"
 import { join, resolve } from "node:path"
 import { runDshTsdown } from "./dsh-tsdown.ts"
 import { configDir, dshBuiltCli, dshHarnessRoot, type HostId, type WireMode } from "./hosts.ts"
 import { defaultDevinProviderPath, defaultProviderPath, pluginName, repoRoot } from "./paths.ts"
-import { hostStateDir, writeAtomic } from "./paths.ts"
+import { assertManaged, hostStateDir, writeAtomic } from "./paths.ts"
 
 export type DshHost = Extract<HostId, "dsh">
 
@@ -14,6 +23,63 @@ function run(cwd: string | undefined, cmd: string[]): void {
 
 function dshBridgePath(): string {
   return join(repoRoot(), "packages/dsh-bridge")
+}
+
+function opencodeLoaderPath(): string {
+  return join(repoRoot(), "packages/opencode-loader")
+}
+
+/**
+ * Stage dsh-bridge for `dsh plugin add file:` under a DSH profile's pnpm
+ * workspace. Rewrites `@opencode-compat/*` deps to absolute `file:` paths so
+ * an unpublished train pin (or a mistaken `workspace:*`) still resolves —
+ * profile pnpm cannot see the OCP Bun workspace.
+ */
+export function stageDshBridgeForForeignFileInstall(
+  bridgeSrc = dshBridgePath(),
+  loaderSrc = opencodeLoaderPath(),
+  stageDir = join(hostStateDir("dsh"), "bridge-file"),
+): string {
+  assertManaged(stageDir)
+  if (!existsSync(join(bridgeSrc, "package.json"))) {
+    throw new Error(`dsh-bridge package.json missing: ${bridgeSrc}`)
+  }
+  if (!existsSync(join(loaderSrc, "package.json"))) {
+    throw new Error(`opencode-loader package.json missing: ${loaderSrc}`)
+  }
+  rmSync(stageDir, { recursive: true, force: true })
+  mkdirSync(stageDir, { recursive: true })
+
+  const pkg = JSON.parse(readFileSync(join(bridgeSrc, "package.json"), "utf8")) as {
+    dependencies?: Record<string, string>
+    [key: string]: unknown
+  }
+  const deps = { ...(pkg.dependencies ?? {}) }
+  for (const [name, range] of Object.entries(deps)) {
+    if (name === "@opencode-compat/opencode-loader") {
+      deps[name] = `file:${resolve(loaderSrc)}`
+      continue
+    }
+    if (name.startsWith("@opencode-compat/") && (range === "workspace:*" || range.startsWith("workspace:"))) {
+      throw new Error(
+        `dsh-bridge stage: ${name} is ${range}; only opencode-loader is remapped. ` +
+          `Keep foreign file-install packages on exact train pins.`,
+      )
+    }
+  }
+  pkg.dependencies = deps
+  writeFileSync(join(stageDir, "package.json"), `${JSON.stringify(pkg, null, 2)}\n`)
+
+  for (const name of ["cordis.patch.yml", "LICENSE", "README.md"] as const) {
+    const from = join(bridgeSrc, name)
+    if (existsSync(from)) copyFileSync(from, join(stageDir, name))
+  }
+  const dist = join(bridgeSrc, "dist")
+  if (!existsSync(dist)) throw new Error(`dsh-bridge dist missing: ${dist}`)
+  // pnpm `file:` copies the stage into the profile tree and does not preserve
+  // symlinks as usable package contents — copy dist for real.
+  syncDistTree(dist, join(stageDir, "dist"))
+  return stageDir
 }
 
 function syncDistTree(src: string, dest: string): void {
@@ -164,23 +230,40 @@ export async function runDsh(host: DshHost, mode: WireMode): Promise<void> {
     buildLocal(providers)
     // Persistent install via `dsh plugin add file:` — the profile's bundle name is `@opencode-compat/dsh-bridge`
     // (its cordis.patch.yml inserts the bridge row). This avoids absolute `name:` in --patch which breaks client modules.
+    // Stage rewrites opencode-loader to file: so profile pnpm resolves an unpublished train pin.
+    const stagedBridge = stageDshBridgeForForeignFileInstall()
     const dshBin = Bun.which("dsh") ?? (harness ? join(harness, "node_modules/.bin/dsh") : undefined)
-    const pluginAdd = (pkg: string) => {
-      // Prefer `pnpm dsh plugin` from harness repo (works without global dsh)
-      if (harness) {
-        try { run(harness, ["pnpm", "dsh", "plugin", "--profile", "web", "add", `file:${pkg}`]); return } catch {}
+    const pluginCmd = (...args: string[]) => {
+      const built = harness ? dshBuiltCli(harness) : undefined
+      if (built && existsSync(built)) {
+        run(undefined, ["node", built, "plugin", "--profile", "web", ...args])
+        return
       }
-      if (dshBin) run(undefined, [dshBin, "plugin", "--profile", "web", "add", `file:${pkg}`])
+      if (harness) {
+        run(harness, ["pnpm", "dsh", "plugin", "--profile", "web", ...args])
+        return
+      }
+      if (dshBin) run(undefined, [dshBin, "plugin", "--profile", "web", ...args])
       else throw new Error("dsh CLI not found and no harness repo")
     }
+    const pluginAdd = (pkg: string) => pluginCmd("add", `file:${pkg}`)
+    // Evict a prior file: path (source checkout vs stage) so pnpm does not keep
+    // resolving the old manifest's unpublished train pin.
     try {
-      // opencode-loader as plain dep (no bundle) must be first so dsh-bridge's file dep resolves
-      const loaderPath = join(repoRoot(), "packages/opencode-loader")
-      try { pluginAdd(loaderPath) } catch (e) { console.log(`ocp-dev: opencode-loader add note: ${e instanceof Error ? e.message : e}`) }
-      pluginAdd(dshBridgePath())
+      pluginCmd("remove", "@opencode-compat/dsh-bridge")
     } catch (e) {
-      console.log(`ocp-dev: dsh plugin add failed (${e instanceof Error ? e.message : e}) — falling back to --patch overlay`)
+      console.log(`ocp-dev: dsh-bridge remove note: ${e instanceof Error ? e.message : e}`)
     }
+    // opencode-loader as plain dep (no bundle) first; staged bridge pins file: to the same checkout.
+    const loaderPath = opencodeLoaderPath()
+    try {
+      pluginAdd(loaderPath)
+    } catch (e) {
+      console.log(`ocp-dev: opencode-loader add note: ${e instanceof Error ? e.message : e}`)
+    }
+    pluginAdd(stagedBridge)
+    // Re-sync after pnpm copy so in-place rebuilds and any missed dist files land.
+    syncLocalBridgeIntoProfile()
     // Write persistent profile patch (primary) and ad-hoc --patch overlay
     const rows = localDshProviderRows()
     const persistent = persistentPatchPath()

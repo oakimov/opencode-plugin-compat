@@ -2,6 +2,13 @@
 
 Corrections and durable takeaways for this repo.
 
+## 2026-09-24 — 0.4.1 `workspace:*` on dsh/pi bridges broke foreign `file:` installs
+
+- **Symptom:** `dsh plugin --profile web add file:…/packages/dsh-bridge` failed with `ERR_PNPM_WORKSPACE_PKG_NOT_FOUND` for `@opencode-compat/opencode-loader@workspace:*`. Local ocp-dev silently fell back; re-add on an already-wired profile also failed.
+- **Cause:** Release 0.4.1 switched pi-bridge / dsh-bridge from exact train pins (`"0.4.0"`) to `workspace:*` while teaching `bump-version.ts` to rewrite exact pins. The rewrite was correct; the `workspace:*` switch was not. Profile pnpm / pi installers read the *source* manifest and cannot see OCP’s Bun workspace. Bun `pm pack` rewrites `workspace:*` for npm only.
+- **Fix:** Restore exact train pins on pi-bridge / dsh-bridge. `bump-version.ts` refuses workspace protocol on those packages and rewrites exact pins. `pack:check` / publish assert `assertForeignFileInstallExactPins`. ocp-dev stages dsh-bridge with a `file:` loader pin for unpublished trains.
+- **Rule:** Never convert pi-bridge / dsh-bridge `@opencode-compat/*` deps to `workspace:*`. Exact pins + bump-version rewrite only. Documented in `AGENTS.md`, `docs/guides/npm-publish.md`, `docs/hosts/dsh-family.md`.
+
 ## 2026-09-21 — Kilo “5f returned empty” was OCP clearing the finish snapshot
 
 - Provider EMITTED a 3-item settled todowrite; the host DB stored `[]` 2ms later. `clearSettledTodos` had rewritten completed+cancelled → empty so the sidebar would hide, but that erased the named finish the model (and T4f) needs.

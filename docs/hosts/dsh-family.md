@@ -64,7 +64,9 @@ Local/npm switch is via `scripts/ocp-dev.sh` (DSH family, local checkout + npm m
 ./scripts/ocp-dev.sh run dsh --mode npm
 ```
 
-`local` runs `pnpm install` and the harness documented build (`build:native-system`, host/client lib, `build:web`; tsdown only for directories with `package.json`), builds local `opencode-loader` + `dsh-bridge` and the provider, adds the bridge via `dsh plugin add`, syncs those packages' `dist` into the profile `node_modules` copy (pnpm `file:` does not pick up newly emitted files), and points the patch entry at the provider's absolute `dist/index.js`. `npm` switches back to bare npm names. Mirrors `docs/hosts/pi-family.md:87` for `pi/omp`.
+`local` runs `pnpm install` and the harness documented build (`build:native-system`, host/client lib, `build:web`; tsdown only for directories with `package.json`), builds local `opencode-loader` + `dsh-bridge` and the provider, stages dsh-bridge with a `file:` pin to the local loader (profile pnpm cannot resolve Bun `workspace:*` or an unpublished train pin), adds that stage via `dsh plugin add`, syncs those packages' `dist` into the profile `node_modules` copy (pnpm `file:` does not pick up newly emitted files), and points the patch entry at the provider's absolute `dist/index.js`. `npm` switches back to bare npm names. Mirrors `docs/hosts/pi-family.md:87` for `pi/omp`.
+
+**Train pin rule:** `packages/dsh-bridge/package.json` must keep `@opencode-compat/opencode-loader` as an **exact train pin**, never `workspace:*`. Profile pnpm reads the source manifest on `dsh plugin add file:…` and fails with `ERR_PNPM_WORKSPACE_PKG_NOT_FOUND` otherwise (0.4.1 regression). `bun scripts/bump-version.ts` rewrites the pin and refuses workspace protocol on dsh-bridge / pi-bridge — see [`docs/guides/npm-publish.md`](../guides/npm-publish.md).
 
 ## Verify
 

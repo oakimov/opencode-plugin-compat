@@ -180,11 +180,18 @@ git push origin v0.1.2
 
 `bump-version.ts` rewrites **`bun.lock` workspace package versions** to match the train (plain `bun install` alone will not), then runs `bun install` to validate. Bun’s `pm pack` rewrites `workspace:*` **from the lockfile**, not from `package.json` — a stale lock publishes wrong transitive pins (what happened on `0.1.1`).
 
+### Foreign `file:` installs — exact pins only (pi-bridge / dsh-bridge)
+
+`pi-bridge` and `dsh-bridge` are also installed **outside** this Bun workspace via host `file:` flows (`dsh plugin --profile web add file:…/packages/dsh-bridge`, `pi install <checkout>`). Those foreign package managers never see OCP’s Bun workspace, so a source-manifest `workspace:*` on `@opencode-compat/opencode-loader` fails with `ERR_PNPM_WORKSPACE_PKG_NOT_FOUND` (the 0.4.1 regression).
+
+Keep those two packages on **exact train pins** for every `@opencode-compat/*` dependency. `bump-version.ts` rewrites those pins with the train and **refuses** `workspace:*` on them. Do not “simplify” them to `workspace:*` during a bump — Bun pack already rewrites `workspace:*` for the npm tarball; the *source* manifest is what `file:` installers read.
+
 `pack:check` / publish always:
 
 1. Assert all package.json versions are equal (the train)  
 2. Assert `bun.lock` workspace versions equal that train  
-3. Pack tarballs and assert every packed `@opencode-compat/*` dependency is an **exact** train pin  
+3. Assert `pi-bridge` / `dsh-bridge` source manifests use exact train pins for `@opencode-compat/*` (never `workspace:*`)  
+4. Pack tarballs and assert every packed `@opencode-compat/*` dependency is an **exact** train pin  
 
 GitHub Actions workflow **Publish** then:
 
@@ -205,7 +212,7 @@ No `NPM_TOKEN` secret. Publisher identity will look like `GitHub Actions <npm-oi
 | `bun run publish:npm` | Local/first-time publish (public) |
 | `bun scripts/publish.ts --publish --oidc` | CI Trusted Publishing |
 | `bun scripts/publish.ts --publish --skip-existing` | Resume after partial publish |
-| `bun scripts/bump-version.ts <ver>` | Sync train version across packages **and refresh bun.lock** |
+| `bun scripts/bump-version.ts <ver>` | Sync train version across packages **and refresh bun.lock**; rewrites exact `@opencode-compat/*` pins on pi-bridge/dsh-bridge; refuses `workspace:*` on those packages; prints `foreign-file-pins-ok` |
 
 ---
 
@@ -216,5 +223,6 @@ No `NPM_TOKEN` secret. Publisher identity will look like `GitHub Actions <npm-oi
 - Re-run `ocp setup` after host plugin install/upgrade.
 - Keep all eleven package versions equal for a train release (`scripts/publish.ts` `PACKAGES`: profile → opencode-loader → … → pi-bridge → dsh-bridge).
 - Always commit the refreshed **`bun.lock`** with a version bump. Publish CI will fail if lockfile or packed deps disagree with the train.
+- **Never** convert `pi-bridge` / `dsh-bridge` `@opencode-compat/*` deps to `workspace:*` during a bump. Exact train pins only (`bump-version.ts` rewrites them). Foreign `file:` installers read the source manifest.
 - `prepack` runs `tsc` per package; root scripts still build the project-references graph first.
 - Bun shebang CLIs (`ocp`, `compat`, `opencode-compat`) require Bun on `PATH` after global install.

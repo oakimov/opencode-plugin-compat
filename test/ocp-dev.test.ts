@@ -7,10 +7,18 @@ import { cleanPluginInstalls } from "../scripts/ocp-dev/clone.ts"
 import { parseJsonc, toValue } from "../scripts/ocp-dev/jsonc.ts"
 import { removePiProvider, upsertPiProvider } from "../scripts/ocp-dev/pi-config.ts"
 import { dshBuiltCli, dshHarnessRoot, isDshHarnessCheckout } from "../scripts/ocp-dev/hosts.ts"
-import { formatDshBridgePatch, syncInstalledFilePackageDist } from "../scripts/ocp-dev/dsh-family.ts"
+import {
+  formatDshBridgePatch,
+  stageDshBridgeForForeignFileInstall,
+  syncInstalledFilePackageDist,
+} from "../scripts/ocp-dev/dsh-family.ts"
 import { avoidProviderIdCollision, dshProfile } from "../packages/dsh-bridge/src/host/profile.ts"
 import { defaultDevinProviderPath } from "../scripts/ocp-dev/paths.ts"
 import { dshWorkspacePackageCwdFilter } from "../scripts/ocp-dev/dsh-tsdown.ts"
+import {
+  assertForeignFileInstallExactPins,
+  FOREIGN_FILE_INSTALL_PACKAGES,
+} from "../scripts/publish.ts"
 
 describe("clone cache cleanup", () => {
   test("removes every cached plugin version without touching other packages", () => {
@@ -217,6 +225,42 @@ describe("dsh discovery", () => {
       writeFileSync(join(root, "package.json"), "{}\n")
       expect(isDshHarnessCheckout(root)).toBe(false)
     } finally {
+      rmSync(root, { recursive: true, force: true })
+    }
+  })
+
+  test("pi-bridge and dsh-bridge keep exact train pins for foreign file: installs", () => {
+    expect([...FOREIGN_FILE_INSTALL_PACKAGES]).toEqual(["pi-bridge", "dsh-bridge"])
+    expect(() => assertForeignFileInstallExactPins()).not.toThrow()
+    for (const dir of FOREIGN_FILE_INSTALL_PACKAGES) {
+      const pkg = JSON.parse(
+        readFileSync(resolve(import.meta.dir, `../packages/${dir}/package.json`), "utf8"),
+      ) as { dependencies?: Record<string, string> }
+      for (const [name, range] of Object.entries(pkg.dependencies ?? {})) {
+        if (!name.startsWith("@opencode-compat/")) continue
+        expect(range).not.toMatch(/^workspace:/)
+        expect(range).toMatch(/^\d+\.\d+\.\d+/)
+      }
+    }
+  })
+
+  test("stages dsh-bridge with file: opencode-loader for profile pnpm", () => {
+    const previous = process.env.OCP_DEV_STATE_DIR
+    const root = mkdtempSync(join(tmpdir(), "ocp-dsh-stage-"))
+    try {
+      process.env.OCP_DEV_STATE_DIR = root
+      const bridge = resolve(import.meta.dir, "../packages/dsh-bridge")
+      const loader = resolve(import.meta.dir, "../packages/opencode-loader")
+      const staged = stageDshBridgeForForeignFileInstall(bridge, loader, join(root, "dsh", "bridge-file"))
+      const pkg = JSON.parse(readFileSync(join(staged, "package.json"), "utf8")) as {
+        dependencies: Record<string, string>
+      }
+      expect(pkg.dependencies["@opencode-compat/opencode-loader"]).toBe(`file:${loader}`)
+      expect(existsSync(join(staged, "dist"))).toBe(true)
+      expect(existsSync(join(staged, "cordis.patch.yml"))).toBe(true)
+    } finally {
+      if (previous === undefined) delete process.env.OCP_DEV_STATE_DIR
+      else process.env.OCP_DEV_STATE_DIR = previous
       rmSync(root, { recursive: true, force: true })
     }
   })
