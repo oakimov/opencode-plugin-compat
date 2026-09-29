@@ -2,6 +2,17 @@
 
 Corrections and durable takeaways for this repo.
 
+## 2026-09-30 — MiMo todowrite create must `start` in_progress rows in the same fan-out
+
+- Self-verify T4a/T4b failed: provider EMITTED `todowrite` with `ocp-sv-a`
+  `in_progress`, OCP fanned out three MiMo `task` creates, and todoread showed
+  all three `open`. MiMo `create` always lands as `open`; `diffTodos` returned
+  early after create and never emitted `start` for the new row (host id unknown
+  until the create result).
+- Fix: after creates, append `start`/`done`/`abandon` using provisional top-level
+  ids (`T{max+1}`…) matching MiMo's sequential assignment. Existing rows still
+  without a known host id stay skipped until the next snapshot.
+
 ## 2026-09-27 — dsh-bridge `@deepseek-ai/dsh-llm` peer `>=1.0.0` blocked `ocp-dev run dsh`
 
 - **Symptom:** `./scripts/ocp-dev.sh run dsh` failed at `dsh plugin add file:…/bridge-file` with “Plugin @opencode-compat/dsh-bridge@0.4.2 is incompatible with dsh 0.1.7-rc.2: peerDependencies {"@deepseek-ai/dsh-llm":">=1.0.0"}”.

@@ -47,6 +47,13 @@ describe("Cursor plan contracts on DSH", () => {
     const existing = []
     for await (const chunk of reviewCompletedCursorPlan(alreadyCalled(), () => true)) existing.push(chunk)
     expect(existing.filter(chunk => chunk.type === "block-end" && chunk.block.type === "tool-call")).toHaveLength(1)
+    async function* repeatedFinish() {
+      for (const chunk of input) yield chunk as any
+      yield { type: "finish", reason: { kind: "stop" } } as any
+    }
+    const repeated = []
+    for await (const chunk of reviewCompletedCursorPlan(repeatedFinish(), () => true)) repeated.push(chunk)
+    expect(repeated.filter(chunk => chunk.type === "block-end" && chunk.block.type === "tool-call")).toHaveLength(1)
   })
 
   test("entry invokes the calling agent's native plan command and never exits it", async () => {
@@ -199,5 +206,33 @@ describe("Cursor plan contracts on DSH", () => {
       ],
     })) { /* drain */ }
     expect(advertised).toEqual(["exit_plan_mode"])
+  })
+
+  test("a second provider drops synthetic calls and their results from replayed history", async () => {
+    let received: any
+    const adapter = new DshLlmAdapter({
+      providerName: "other",
+      excludeToolNames: new Set(["plan_enter", "cursor_image_save"]),
+      getLanguageModel: () => ({ doStream: async (options: any) => {
+        received = options
+        return { stream: new ReadableStream({ start(controller) {
+          controller.enqueue({ type: "finish", finishReason: "stop" })
+          controller.close()
+        } }) }
+      } } as never),
+    })
+    for await (const _chunk of adapter.stream({
+      provider: "other", model: "default", messages: [
+        { role: "assistant", source: { kind: "model" }, content: [
+          { type: "tool-call", id: "entry-1", name: "plan_enter", arguments: "{}" },
+          { type: "tool-call", id: "read-1", name: "read", arguments: "{}" },
+        ] },
+        { role: "tool", source: { kind: "tool", callId: "entry-1" }, toolCallId: "entry-1", content: [{ type: "text", text: "selected" }] },
+        { role: "tool", source: { kind: "tool", callId: "read-1" }, toolCallId: "read-1", content: [{ type: "text", text: "ok" }] },
+      ],
+    } as never)) { /* drain */ }
+    const names = received.prompt.flatMap((message: any) =>
+      Array.isArray(message.content) ? message.content.map((part: any) => part.toolName).filter(Boolean) : [])
+    expect(names).toEqual(["read", "read"])
   })
 })

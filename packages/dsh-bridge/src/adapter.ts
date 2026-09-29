@@ -124,7 +124,7 @@ export class DshLlmAdapter extends LlmAdapter {
       // Translate DSH GenerateOptions → V3 call options
       const prepared = self.opts.prepareOptions?.(options) ?? options
       const toolInputs = self.opts.toolInputsForCall?.(prepared) ?? self.opts.toolInputs
-      const prompt = translateGenerateOptionsToPrompt(prepared, toolInputs)
+      const prompt = translateGenerateOptionsToPrompt(prepared, toolInputs, self.opts.excludeToolNames)
       const visibleTools = self.opts.excludeToolNames
         ? prepared.tools?.filter(tool => !self.opts.excludeToolNames!.has(tool.name))
         : prepared.tools

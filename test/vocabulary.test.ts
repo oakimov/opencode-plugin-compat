@@ -296,6 +296,36 @@ describe("diffTodos", () => {
     expect(ops[1]).toEqual({ action: "done", id: "T1" })
   })
 
+  test("a create that starts in_progress also emits start with the provisional host id", () => {
+    expect(
+      diffTodos([], [
+        { content: "ocp-sv-a", status: "in_progress" },
+        { content: "ocp-sv-b", status: "pending" },
+        { content: "ocp-sv-c", status: "pending" },
+      ]),
+    ).toEqual([
+      { action: "create", summary: "ocp-sv-a" },
+      { action: "create", summary: "ocp-sv-b" },
+      { action: "create", summary: "ocp-sv-c" },
+      { action: "start", id: "T1" },
+    ])
+  })
+
+  test("provisional create transitions continue after the highest known top-level id", () => {
+    expect(
+      diffTodos(
+        [{ content: "Old", status: "pending", hostId: "T3" }],
+        [
+          { content: "Old", status: "pending" },
+          { content: "New", status: "in_progress" },
+        ],
+      ),
+    ).toEqual([
+      { action: "create", summary: "New" },
+      { action: "start", id: "T4" },
+    ])
+  })
+
   test("a transition on an item with no host id yet is skipped, not guessed", () => {
     const pending: HostTodo[] = [{ content: "First", status: "pending" }]
     expect(diffTodos(pending, [{ content: "First", status: "completed" }])).toEqual([])

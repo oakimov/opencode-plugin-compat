@@ -32,6 +32,7 @@ export async function* reviewCompletedCursorPlan(
       ? completedPlanMarkdown(text)
       : undefined
     if (markdown) {
+      calledTool = true
       const id = `host_plan_stage_${crypto.randomUUID()}`
       const index = nextIndex
       const args = JSON.stringify({ plan: markdown })

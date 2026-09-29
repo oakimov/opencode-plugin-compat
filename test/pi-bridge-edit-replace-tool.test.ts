@@ -177,6 +177,29 @@ describe("omp OpenCode edit overlay", () => {
     rmSync(dir, { recursive: true, force: true })
   })
 
+  test("pins the write tool before reading, so a later session switch cannot redirect the commit", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "ocp-edit-"))
+    const target = join(dir, "a.ts")
+    writeFileSync(target, "before\n")
+    const pi = fakePi()
+    registerOpenCodeEditTool(pi, {
+      resolveWrite: async () => {
+        // Resolution must precede the read: a file change here is part of the
+        // source oldString is matched against, not a concurrent modification.
+        writeFileSync(target, "before, resolved\n")
+        return { execute: async (_id, params) => {
+          const { path, content } = params as { path: string; content: string }
+          writeFileSync(path, content)
+          return {}
+        } }
+      },
+    })
+    const tool = pi.registered.find(entry => entry.name === OPENCODE_EDIT_TOOL)!
+    await tool.execute("c1", { path: target, old_string: "resolved", new_string: "pinned" }, undefined, undefined, {})
+    expect(readFileSync(target, "utf8")).toBe("before, pinned\n")
+    rmSync(dir, { recursive: true, force: true })
+  })
+
   test("keeps edit active after session_start", async () => {
     const pi = fakePi()
     activateOpenCodeEditTool(pi, registerOpenCodeEditTool(pi))

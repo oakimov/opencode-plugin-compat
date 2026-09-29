@@ -49,6 +49,11 @@ async function replaceThroughWrite(
     throw new Error("edit is unavailable: omp did not expose the active workspace directory")
   }
   const target = resolve(cwd ?? "/", requestedPath)
+  // Pin the write tool to the session that issued this edit before reading
+  // oldString's source; a later session switch must not commit through another
+  // session's write tool.
+  const write = await resolveWrite?.(ctx)
+  if (!write) throw new Error("edit is unavailable: omp did not expose an active write tool")
   const before = await stat(target, { bigint: true })
   if (!before.isFile() || before.size > BigInt(MAX_EDIT_SOURCE_BYTES)) {
     throw new Error(`edit requires a regular file no larger than 50 MB: ${target}`)
@@ -71,8 +76,6 @@ async function replaceThroughWrite(
   const content = args.replace_all === true
     ? source.split(oldString).join(newString)
     : source.slice(0, first) + newString + source.slice(first + oldString.length)
-  const write = await resolveWrite?.(ctx)
-  if (!write) throw new Error("edit is unavailable: omp did not expose an active write tool")
   const now = await stat(target, { bigint: true })
   if (before.dev !== now.dev || before.ino !== now.ino || before.size !== now.size || before.mtimeNs !== now.mtimeNs) {
     throw new Error(`edit target changed while preparing replacement: ${target}`)

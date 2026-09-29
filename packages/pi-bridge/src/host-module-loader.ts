@@ -2,6 +2,7 @@ import { existsSync, mkdtempSync, readFileSync, realpathSync, rmSync, statSync, 
 import { homedir, tmpdir } from "node:os"
 import { isAbsolute, join, relative, resolve, sep } from "node:path"
 import { fileURLToPath } from "node:url"
+import { resolvePackageSubpathEntry } from "@opencode-compat/opencode-loader"
 import type { PiExtensionApi } from "./pi-provider-types.js"
 
 const MODULE_STORE = Symbol.for("opencode.compat.pi-bridge.module-store")
@@ -200,26 +201,7 @@ export function resolveProviderSubpathEntry(
   cwd = process.cwd(),
 ): string | undefined {
   const entry = resolveProviderRootEntry(pi, providerSpecifier, cwd)
-  if (!entry) return undefined
-  let directory = resolve(entry, "..")
-  while (true) {
-    const manifestPath = join(directory, "package.json")
-    if (existsSync(manifestPath)) {
-      const manifest = JSON.parse(readFileSync(manifestPath, "utf8")) as {
-        exports?: Record<string, string | { import?: string; default?: string }>
-      }
-      const exported = manifest.exports?.[subpath]
-      const target = typeof exported === "string" ? exported : exported?.import ?? exported?.default
-      if (!target?.startsWith("./")) return undefined
-      const resolved = resolve(directory, target)
-      return relative(directory, resolved).startsWith("..") || !existsSync(resolved)
-        ? undefined
-        : resolved
-    }
-    const parent = resolve(directory, "..")
-    if (parent === directory) return undefined
-    directory = parent
-  }
+  return entry ? resolvePackageSubpathEntry(entry, subpath) : undefined
 }
 
 /** Import root and sibling export in one host graph so shared module state stays shared. */

@@ -524,9 +524,14 @@ function readTodos(input: Record<string, unknown>): TodoItem[] {
  *
  * Upstream todos are a positional list with no ids, so items are joined by
  * position and matched on content. Creates come first so that a later
- * transition in the same batch refers to something that exists; a transition
- * for an item whose host id is not yet known is skipped, not guessed, and is
- * re-derived from the next snapshot once the create result has landed.
+ * transition in the same batch refers to something that exists. A brand-new
+ * row whose snapshot status is already live (e.g. `in_progress`) needs a
+ * follow-up `start`/`done`/`abandon` in the same fan-out: MiMo `create` always
+ * lands as `open`, and the host assigns `T{n}` sequentially — provisional ids
+ * are the next unused top-level ids after known host ids. A transition for an
+ * *existing* item whose host id is not yet known is still skipped, not
+ * guessed, and is re-derived from the next snapshot once the create result
+ * has landed.
  */
 export function diffTodos(previous: readonly HostTodo[], next: readonly TodoItem[]): Array<Record<string, unknown>> {
   if (next.every((todo) => !isLiveStatus(todo.status))) {
@@ -536,18 +541,28 @@ export function diffTodos(previous: readonly HostTodo[], next: readonly TodoItem
   const creates: Array<Record<string, unknown>> = []
   const renames: Array<Record<string, unknown>> = []
   const transitions: Array<Record<string, unknown>> = []
+  /** Index into `creates` → host action to apply once the provisional id is known. */
+  const createTransitions: Array<{ createIndex: number; action: "start" | "done" | "abandon" }> = []
 
   next.forEach((todo, index) => {
     const prior = previous[index]
 
     if (!prior) {
+      const createIndex = creates.length
       creates.push({ action: "create", summary: todo.content })
+      const action = actionForStatus(todo.status)
+      if (action) createTransitions.push({ createIndex, action })
       return
     }
 
     if (prior.content !== todo.content) {
       if (prior.hostId) renames.push({ action: "rename", id: prior.hostId, summary: todo.content })
-      else creates.push({ action: "create", summary: todo.content })
+      else {
+        const createIndex = creates.length
+        creates.push({ action: "create", summary: todo.content })
+        const action = actionForStatus(todo.status)
+        if (action) createTransitions.push({ createIndex, action })
+      }
     }
 
     if (prior.status === todo.status) return
@@ -565,7 +580,32 @@ export function diffTodos(previous: readonly HostTodo[], next: readonly TodoItem
     transitions.push({ action: "abandon", id: prior.hostId })
   }
 
+  if (createTransitions.length > 0) {
+    const provisionalIds = allocateProvisionalHostIds(previous, creates.length)
+    for (const { createIndex, action } of createTransitions) {
+      const id = provisionalIds[createIndex]
+      if (id) transitions.push({ action, id })
+    }
+  }
+
   return [...creates, ...renames, ...transitions]
+}
+
+/**
+ * Next unused top-level MiMo task ids (`T1`, `T2`, …) after any already-known
+ * host ids. Nested ids (`T1.1`) do not consume the top-level counter.
+ */
+export function allocateProvisionalHostIds(
+  previous: readonly HostTodo[],
+  createCount: number,
+): string[] {
+  let max = 0
+  for (const todo of previous) {
+    if (!todo.hostId) continue
+    const match = /^T(\d+)$/.exec(todo.hostId)
+    if (match) max = Math.max(max, Number(match[1]))
+  }
+  return Array.from({ length: Math.max(0, createCount) }, (_, index) => `T${max + index + 1}`)
 }
 
 /**

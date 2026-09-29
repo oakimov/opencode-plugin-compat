@@ -1,5 +1,5 @@
 import { existsSync, lstatSync, mkdirSync, readFileSync, realpathSync, readdirSync, rmSync, symlinkSync } from "node:fs"
-import { dirname, join } from "node:path"
+import { dirname, join, sep } from "node:path"
 import { configFile, resolveCli, type HostId, type WireMode } from "./hosts.ts"
 import { defaultProviderPath, pluginName, repoRoot } from "./paths.ts"
 import { removePiProvider, upsertPiProvider } from "./pi-config.ts"
@@ -21,13 +21,41 @@ function bridgePath(): string {
   return join(repoRoot(), "packages/pi-bridge")
 }
 
+function opencodeLoaderPath(): string {
+  return join(repoRoot(), "packages/opencode-loader")
+}
+
+/**
+ * Local Pi/OMP installs link the pi-bridge checkout, so its exact train pin on
+ * opencode-loader must resolve to the workspace checkout — never a registry
+ * copy that may predate unreleased loader exports.
+ */
+export function assertLocalLoaderLink(bridge = bridgePath(), loader = opencodeLoaderPath()): void {
+  let resolved: string
+  try {
+    resolved = realpathSync(Bun.resolveSync("@opencode-compat/opencode-loader", bridge))
+  } catch {
+    throw new Error(`pi-bridge cannot resolve @opencode-compat/opencode-loader from ${bridge}`)
+  }
+  const expected = realpathSync(loader)
+  if (!resolved.startsWith(`${expected}${sep}`)) {
+    throw new Error(`pi-bridge resolves opencode-loader to ${resolved}, not the local checkout ${expected}`)
+  }
+}
+
 function prepareLocal(provider: string): void {
   const root = repoRoot()
   const bridge = bridgePath()
+  const loader = opencodeLoaderPath()
   if (!existsSync(join(bridge, "package.json"))) throw new Error(`pi-bridge package.json missing: ${bridge}`)
   if (!existsSync(join(provider, "package.json"))) throw new Error(`provider package.json missing: ${provider}`)
   console.log("ocp-dev: installing locked OCP workspace dependencies")
   run(root, ["bun", "install", "--frozen-lockfile"])
+  assertLocalLoaderLink(bridge, loader)
+  // `tsc -p` does not build project references; pi-bridge links this dist.
+  console.log("ocp-dev: building local opencode-loader")
+  run(loader, ["bun", "run", "build"])
+  if (!existsSync(join(loader, "dist", "index.js"))) throw new Error("opencode-loader entry missing after build")
   console.log("ocp-dev: building local pi-bridge")
   run(bridge, ["bun", "run", "build"])
   console.log("ocp-dev: installing local provider dependencies")

@@ -12,6 +12,9 @@
  * Neither is plugin-specific, so nothing here knows about any particular
  * provider.
  */
+import { existsSync, readFileSync, realpathSync, statSync } from "node:fs"
+import { join, relative, resolve } from "node:path"
+import { fileURLToPath } from "node:url"
 import type { LanguageModelV3 } from "@ai-sdk/provider"
 import type { OpenCodeHooks, OpenCodePluginFactory } from "./types.js"
 
@@ -132,6 +135,47 @@ export async function loadOpenCodePluginModule(spec: {
 }): Promise<LoadedOpenCodePlugin> {
   const moduleExports = (await import(spec.packageSpecifier)) as Record<string, unknown>
   return inspectOpenCodePluginModule(moduleExports, spec)
+}
+
+/**
+ * The file `loadOpenCodePluginModule` imports for a specifier. Resolved from
+ * this module, like its `import()`, so both name the same installation.
+ */
+export function resolveOpenCodePluginEntry(packageSpecifier: string): string | undefined {
+  try {
+    const url = import.meta.resolve(packageSpecifier)
+    if (!url.startsWith("file:")) return undefined
+    const entry = realpathSync(fileURLToPath(url))
+    return statSync(entry).isFile() ? entry : undefined
+  } catch {
+    return undefined
+  }
+}
+
+/**
+ * A sibling `exports` subpath from the package that owns `entry` (the nearest
+ * `package.json` above it). Never falls through to another installation.
+ */
+export function resolvePackageSubpathEntry(entry: string, subpath: string): string | undefined {
+  let directory = resolve(entry, "..")
+  while (true) {
+    const manifestPath = join(directory, "package.json")
+    if (existsSync(manifestPath)) {
+      const manifest = JSON.parse(readFileSync(manifestPath, "utf8")) as {
+        exports?: Record<string, string | { import?: string; default?: string }>
+      }
+      const exported = manifest.exports?.[subpath]
+      const target = typeof exported === "string" ? exported : exported?.import ?? exported?.default
+      if (!target?.startsWith("./")) return undefined
+      const resolved = resolve(directory, target)
+      return relative(directory, resolved).startsWith("..") || !existsSync(resolved)
+        ? undefined
+        : resolved
+    }
+    const parent = resolve(directory, "..")
+    if (parent === directory) return undefined
+    directory = parent
+  }
 }
 
 /** Invoke a plugin factory and sanity-check that it produced a hooks-shaped object. */

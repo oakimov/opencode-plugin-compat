@@ -136,14 +136,17 @@ export function translateGenerateOptionsToPrompt(
     if (msg.role === "tool") {
       const id = typeof msg.toolCallId === "string" ? msg.toolCallId
         : typeof msg.source?.callId === "string" ? msg.source.callId : ""
-      if (!id || excludedToolCallIds.has(id)) continue
+      // A result without its tool call (compacted/evicted history) cannot be
+      // correlated by the provider; drop it rather than invent a tool name.
+      const toolName = toolNames.get(id)
+      if (!id || excludedToolCallIds.has(id) || !toolName) continue
       const value = flattenBlockText(msg.content)
       prompt.push({
         role: "tool",
         content: [{
           type: "tool-result",
           toolCallId: id,
-          toolName: toolNames.get(id) ?? "unknown",
+          toolName,
           output: { type: msg.isError ? "error-text" : "text", value: value || "(no output)" },
         }],
       })
@@ -168,7 +171,8 @@ export function translateGenerateOptionsToPrompt(
       const toolCallId = typeof result.toolCallId === "string" ? result.toolCallId : ""
       const sourceCallId = msg.source?.kind === "tool" && typeof msg.source.callId === "string" ? msg.source.callId : ""
       const id = sourceCallId || toolCallId
-      if (excludedToolCallIds.has(id)) continue
+      const toolName = toolNames.get(id)
+      if (excludedToolCallIds.has(id) || !toolName) continue
       const output = toolResultOutput(result)
       const prompts = questionPrompts.get(id)
       if (prompts && prompts.length > 0 && output.type === "text") {
@@ -180,7 +184,7 @@ export function translateGenerateOptionsToPrompt(
         content: [{
           type: "tool-result",
           toolCallId: id,
-          toolName: toolNames.get(id) ?? "unknown",
+          toolName,
           output,
         }],
       })

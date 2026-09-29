@@ -1,7 +1,6 @@
 /** Cursor's binary image commit, exposed through DSH's native tool registry. */
-import { statSync } from "node:fs"
-import path from "node:path"
-import { fileURLToPath, pathToFileURL } from "node:url"
+import { pathToFileURL } from "node:url"
+import { resolveOpenCodePluginEntry, resolvePackageSubpathEntry } from "@opencode-compat/opencode-loader"
 
 type ImageSave = (args: { image_id?: unknown }, ctx: {
   worktree: string
@@ -17,17 +16,17 @@ export type CursorImageToolContext = {
   }) => Promise<string> }
 }
 
-/** The provider subpath must come from the same installed package as its root. */
+/**
+ * The provider subpath must come from the same installed package as its root:
+ * resolve the root exactly as the plugin loader imports it, then follow that
+ * package's own `./image-save` export.
+ */
 export async function loadCursorImageSave(packageSpecifier: string): Promise<ImageSave | undefined> {
   try {
-    const local = packageSpecifier.startsWith("file:")
-      ? fileURLToPath(packageSpecifier)
-      : path.isAbsolute(packageSpecifier) ? packageSpecifier : undefined
-    const isDirectory = local ? statSync(local).isDirectory() : false
-    const specifier = local
-      ? pathToFileURL(path.join(isDirectory ? local : path.dirname(local), isDirectory ? "dist/image-save.js" : "image-save.js")).href
-      : `${packageSpecifier}/image-save`
-    const module = await import(specifier) as { executeCursorImageSave?: ImageSave }
+    const root = resolveOpenCodePluginEntry(packageSpecifier)
+    const entry = root ? resolvePackageSubpathEntry(root, "./image-save") : undefined
+    if (!entry) return undefined
+    const module = await import(pathToFileURL(entry).href) as { executeCursorImageSave?: ImageSave }
     return typeof module.executeCursorImageSave === "function" ? module.executeCursorImageSave : undefined
   } catch {
     return undefined

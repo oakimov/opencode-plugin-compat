@@ -65,27 +65,50 @@ describe("dsh-bridge message translation", () => {
     const prompt = translateGenerateOptionsToPrompt({
       provider: "cursor-opencode",
       model: "composer-2",
-      messages: [{
-        role: "user",
-        content: [
-          { type: "text", text: "note" },
-          { type: "tool-result", toolCallId: "c1", content: [{ type: "text", text: "done" }], isError: true },
-        ],
-        source: { kind: "user" },
-      }],
+      messages: [
+        { role: "assistant", content: [{ type: "tool-call", id: "c1", name: "bash", arguments: "{}" }] },
+        {
+          role: "user",
+          content: [
+            { type: "text", text: "note" },
+            { type: "tool-result", toolCallId: "c1", content: [{ type: "text", text: "done" }], isError: true },
+          ],
+          source: { kind: "user" },
+        },
+      ],
     })
     expect(prompt).toEqual([
+      { role: "assistant", content: [{ type: "tool-call", toolCallId: "c1", toolName: "bash", input: {} }] },
       { role: "user", content: [{ type: "text", text: "note" }] },
       {
         role: "tool",
         content: [{
           type: "tool-result",
           toolCallId: "c1",
-          toolName: "unknown",
+          toolName: "bash",
           output: { type: "error-text", value: "done" },
         }],
       },
     ])
+  })
+
+  test("tool results without a matching tool call are dropped, not named unknown", () => {
+    const prompt = translateGenerateOptionsToPrompt({
+      provider: "cursor-opencode",
+      model: "composer-2",
+      messages: [
+        {
+          role: "user",
+          content: [
+            { type: "text", text: "note" },
+            { type: "tool-result", toolCallId: "gone", content: [{ type: "text", text: "done" }] },
+          ],
+          source: { kind: "user" },
+        },
+        { role: "tool", toolCallId: "gone-too", content: [{ type: "text", text: "x" }] },
+      ],
+    } as never)
+    expect(prompt).toEqual([{ role: "user", content: [{ type: "text", text: "note" }] }])
   })
 
   test("image blocks become text placeholders, not empty files", () => {

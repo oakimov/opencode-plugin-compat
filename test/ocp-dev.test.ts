@@ -6,6 +6,7 @@ import { applyCloneSlot, revertCloneSlot } from "../scripts/ocp-dev/config-slot.
 import { cleanPluginInstalls } from "../scripts/ocp-dev/clone.ts"
 import { parseJsonc, toValue } from "../scripts/ocp-dev/jsonc.ts"
 import { removePiProvider, upsertPiProvider } from "../scripts/ocp-dev/pi-config.ts"
+import { assertLocalLoaderLink } from "../scripts/ocp-dev/pi-family.ts"
 import { dshBuiltCli, dshHarnessRoot, isDshHarnessCheckout } from "../scripts/ocp-dev/hosts.ts"
 import {
   formatDshBridgePatch,
@@ -261,6 +262,25 @@ describe("dsh discovery", () => {
     } finally {
       if (previous === undefined) delete process.env.OCP_DEV_STATE_DIR
       else process.env.OCP_DEV_STATE_DIR = previous
+      rmSync(root, { recursive: true, force: true })
+    }
+  })
+
+  test("local pi-bridge resolves opencode-loader from the checkout, never a registry copy", () => {
+    const bridge = resolve(import.meta.dir, "../packages/pi-bridge")
+    const loader = resolve(import.meta.dir, "../packages/opencode-loader")
+    expect(() => assertLocalLoaderLink(bridge, loader)).not.toThrow()
+    const root = mkdtempSync(join(tmpdir(), "ocp-pi-loader-"))
+    try {
+      const fakeBridge = join(root, "pi-bridge")
+      const registryCopy = join(fakeBridge, "node_modules", "@opencode-compat", "opencode-loader")
+      mkdirSync(join(registryCopy, "dist"), { recursive: true })
+      writeFileSync(join(registryCopy, "package.json"), JSON.stringify({
+        name: "@opencode-compat/opencode-loader", version: "0.4.2", exports: { ".": "./dist/index.js" },
+      }))
+      writeFileSync(join(registryCopy, "dist", "index.js"), "export {}\n")
+      expect(() => assertLocalLoaderLink(fakeBridge, loader)).toThrow("not the local checkout")
+    } finally {
       rmSync(root, { recursive: true, force: true })
     }
   })
