@@ -364,10 +364,8 @@ describe("Cursor host tool registration", () => {
         content: Array<{ text: string }>
       }
       expect(result.content[0]?.text).toBe("saved from configured provider")
-      const replay = await tool.execute("call2", { image_id: "one-use-id" }, undefined, undefined, {}) as {
-        content: Array<{ text: string }>
-      }
-      expect(replay.content[0]?.text).toBe("No pending Cursor image")
+      await expect(tool.execute("call2", { image_id: "one-use-id" }, undefined, undefined, {}))
+        .rejects.toThrow("No pending Cursor image")
 
       const nativePi = await loadCursorProviderModules(fakePi(), path.join(dist, "index.js"), root)
       expect(typeof nativePi.root?.stage).toBe("function")
@@ -389,10 +387,8 @@ describe("Cursor host tool registration", () => {
         "No pending Cursor image matches that id. It may have already been saved or expired.",
     })
     const tool = pi.registered.find(entry => entry.name === CURSOR_IMAGE_SAVE_TOOL)!
-    const result = (await tool.execute("img1", { image_id: "missing" }, undefined, undefined, {})) as {
-      content: Array<{ text: string }>
-    }
-    expect(result.content[0]?.text).toContain("No pending Cursor image")
+    await expect(tool.execute("img1", { image_id: "missing" }, undefined, undefined, {}))
+      .rejects.toThrow("No pending Cursor image")
   })
 
   test("plan tool denial maps to Mode switch rejected by user", async () => {
@@ -473,7 +469,10 @@ describe("Cursor host tool registration", () => {
     await maybeRegisterCursorHostTools(pi, "pi", {
       providers: [{ package: "cursor-opencode-provider" }],
     }, imageSaveRef)
-    imageSaveRef.execute = async args => `saved ${args.image_id}`
+    imageSaveRef.execute = async args => ({
+      title: "saved image",
+      output: `saved ${args.image_id}`,
+    })
     const tool = pi.registered.find(entry => entry.name === CURSOR_IMAGE_SAVE_TOOL)!
     const result = await tool.execute("call", { image_id: "from-live-provider" }, undefined, undefined, {}) as {
       content: Array<{ text: string }>

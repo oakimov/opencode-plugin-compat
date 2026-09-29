@@ -311,10 +311,21 @@ describe("Pi-family subagent vocabulary", () => {
     expect(bashSchema?.properties?.workdir).toBeDefined()
     expect(bashSchema?.properties?.cwd).toBeUndefined()
     expect(bashSchema?.properties?.pty).toBeDefined()
+    expect((bashSchema?.properties?.timeout as { description: string }).description).toContain("milliseconds")
     expect(translateHostToolCallInput("bash", { command: "pwd", cwd: "/tmp/x" }, toolInputs)).toEqual({
       command: "pwd",
       workdir: "/tmp/x",
     })
+    for (const workdir of [undefined, "/tmp/x"]) {
+      const canonical = { command: "pwd", timeout: 30_000, ...(workdir ? { workdir } : {}) }
+      const host = { command: "pwd", timeout: 30, ...(workdir ? { cwd: workdir } : {}) }
+      expect(translateCanonicalToolCall("bash", canonical, undefined, toolInputs)).toEqual({
+        toolName: "bash", input: host,
+      })
+      expect(translateHostToolCallInput("bash", host, toolInputs)).toEqual(canonical)
+    }
+    expect(translateCanonicalToolCall("bash", { command: "pwd", timeout: 0 }, undefined, toolInputs))
+      .toEqual({ toolName: "bash", input: { command: "pwd", timeout: 0 } })
     // Absent tools stay unmapped so a disabled write cannot steal aliases.
     expect(buildPiToolInputVocabulary([{ name: "hub" }] as never, ompProfile())?.write).toBeUndefined()
   })

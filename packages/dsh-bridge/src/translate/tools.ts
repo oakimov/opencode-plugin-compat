@@ -70,6 +70,7 @@ export function translateProviderToolCallInput(
 ): Record<string, unknown> {
   const hostName = hostToolName(toolName, toolInputs)
   const profile = toolInputs[hostName]
+  if (profile?.toHostInput) return profile.toHostInput(input)
   const rewritten = profile ? rewriteKeys(input, profile.inputAliases) : input
   if (hostName === "bash") return withBashDescription(rewritten)
   if (profile?.providerName === "question") return translateToHostQuestionInput(rewritten)
@@ -124,6 +125,7 @@ export function translateHostToolCallInput(
 ): Record<string, unknown> {
   const profile = toolInputs[toolName]
   if (!profile) return input
+  if (profile.toProviderInput) return profile.toProviderInput(input)
   const rewritten = rewriteKeys(input, profile.providerKeys)
   if (profile.providerName === "question") return translateToProviderQuestionInput(rewritten)
   return rewritten
@@ -159,6 +161,7 @@ export function providerToolSchema(
 ): Record<string, unknown> {
   const profile = toolInputs[toolName]
   if (!profile) return parameters
+  if (profile.providerSchema) return profile.providerSchema
   const properties = parameters.properties
   const hasProps = properties !== undefined && typeof properties === "object" && !Array.isArray(properties)
   const nextProperties: Record<string, unknown> = {}

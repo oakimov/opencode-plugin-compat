@@ -16,11 +16,11 @@ import {
   type OpenCodeHooks,
 } from "@opencode-compat/opencode-loader"
 import { avoidProviderIdCollision, dshProfile } from "./host/profile.js"
-import { DshLlmAdapter } from "./adapter.js"
+import { DshLlmAdapter, type DshLlmAdapterOptions } from "./adapter.js"
 import type { OpenCodePluginSpec } from "./config.js"
 import { isCursorProviderPackage } from "./config.js"
 import { DSH_BRIDGE_SETTINGS_NS, settingsPathFor } from "./settings.js"
-import { cursorSilentChildNoticeReason } from "./translate/cursor-continuation.js"
+import { cursorChildNoticeContinuation, removeVisibleReplyEchoes } from "./translate/cursor-continuation.js"
 
 // Minimal DSH Cordis types — structural
 type DshContext = {
@@ -73,11 +73,15 @@ export type RegisterResult = {
 export async function registerDshPlugin(
   ctx: DshContext,
   spec: OpenCodePluginSpec,
+  hasCursorPlanEntry = false,
+  isPlanActive?: (sessionId: string) => boolean,
 ): Promise<RegisterResult> {
   const cursorIntegration = isCursorProviderPackage(spec.package)
   const cursorUsage = cursorIntegration
     ? await import("./translate/cursor-usage.js")
     : undefined
+  const planTools = cursorIntegration ? await import("./cursor-plan-tools.js") : undefined
+  const metadataWrite = cursorIntegration ? await import("./cursor-metadata-write.js") : undefined
   const loadSpec = {
     packageSpecifier: spec.package,
     label: "dsh-bridge",
@@ -193,7 +197,21 @@ export async function registerDshPlugin(
 
   const adapter = new DshLlmAdapter({
     providerName,
-    skipGenerateReason: cursorIntegration ? cursorSilentChildNoticeReason : undefined,
+    ...(planTools && metadataWrite ? {
+      toolInputs: planTools.cursorPlanToolInputs,
+      toolInputsForCall: options => metadataWrite.cursorMetadataWriteToolInputs(options, planTools.cursorPlanToolInputs),
+      prepareOptions: options => planTools.prepareCursorPlanOptions({
+        ...options,
+        messages: removeVisibleReplyEchoes(options.messages),
+      }),
+      reviewCompletedPlan: (chunks, options) => !options.purpose && options.sessionId
+        && options.tools?.some(tool => tool.name === "exit_plan_mode")
+        && isPlanActive?.(options.sessionId)
+        ? planTools.reviewCompletedCursorPlan(chunks, () => isPlanActive(options.sessionId!))
+        : chunks,
+    } satisfies Pick<DshLlmAdapterOptions, "toolInputs" | "toolInputsForCall" | "prepareOptions" | "reviewCompletedPlan"> : {}),
+    ...(!cursorIntegration && hasCursorPlanEntry ? { excludeToolNames: new Set(["plan_enter", "cursor_image_save"]) } : {}),
+    skipGenerate: cursorIntegration ? cursorChildNoticeContinuation : undefined,
     ...(cursorUsage ? { finishUsage: cursorUsage.cursorFinishUsage } : {}),
     credentialRef,
     providerOptionsKey,

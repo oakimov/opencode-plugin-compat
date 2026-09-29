@@ -416,7 +416,7 @@ export function registerCursorHostTools(
     async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
       const execute = options.executeImageSave
       if (!execute) {
-        return textResult(
+        throw new Error(
           "cursor_image_save is registered but cursor-opencode-provider/image-save " +
             "could not be imported in this process. Install the Cursor provider alongside pi-bridge.",
         )
@@ -435,7 +435,7 @@ export function registerCursorHostTools(
         },
       )
 
-      if (typeof result === "string") return textResult(result)
+      if (typeof result === "string") throw new Error(result)
       return textResult(result.output, { title: result.title })
     },
   }

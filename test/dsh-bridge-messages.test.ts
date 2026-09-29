@@ -229,6 +229,7 @@ describe("dsh-bridge message translation", () => {
     expect(tools?.map(t => t.name)).toEqual(["question", "todowrite", "write"])
     const question = tools?.find(t => t.name === "question")
     expect(question?.description).toContain("named question")
+    expect(question?.description).toContain("visible waiting-for-answer prompt")
     expect(question?.inputSchema).toEqual({
       type: "object",
       properties: {

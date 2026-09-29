@@ -91,16 +91,45 @@ vocabulary (same rule as pi-bridge `providerName`):
 | `todo_write` | `todowrite` | strip `id`/`priority`/`merge`; omit `cancelled` |
 | `ask_user_question` | `question` | synthesize missing `id`; `multiple` ↔ `multi_select`; JSON `{answers}` → OpenCode `"<prompt>"="<answer>"` prose |
 
-`exit_plan_mode` stays host-named: DSH requires `{plan}` markdown starting with
-`#`. It remains advertised in both active and inactive plan state, exactly as
-the DSH plan-mode package specifies. The deployment's `plan:policy` guidance,
-`/plan` command, review UI, tool result, and step-boundary state transition are
-all host-owned. OCP does not synthesize `plan_enter` / `plan_exit`, parse a
-particular approval question, force `plan/mode`, or inject an “execute the
-plan” prompt. Models decide when the advertised tool satisfies the user's
-planning intent, and DSH enforces whether the current session is actually in
-plan mode. See the upstream
+The canonical `question` tool is the visible, host-native way to collect a
+choice, confirmation, or missing detail during a turn. A request that needs a
+new user turn stays a standalone final reply, which DSH displays outside its
+collapsed activity.
+
+Cursor's optional OCP integration supplies `plan_enter` through the public
+DSH `/plan` command, which reaches the calling agent's plan service even when
+the service is isolated inside an agent preset. The host commits that selection at
+its next step boundary. Cursor sees native `exit_plan_mode` as
+`cursor_plan_stage`: the complete markdown `content` becomes DSH's `{plan}`,
+starting with `#`. DSH executes its original tool, displays the native review,
+and owns approval, feedback, cancellation, and exit. The transcript retains
+the submitted plan; no extra filesystem plan artifact is required.
+When Cursor ends in titled markdown plan prose without a tool call, OCP
+submits that plan through the same native review while the calling agent's
+logged plan state is active. The host transcript records a
+`host_plan_stage_` call id for this fallback.
+Other providers retain the native name/schema. The catalog stays stable
+across mode changes. OCP rewrites the tool reference in system guidance but
+does not append mode events or inject execution follow-ups. `/plan` remains
+available to the user. See the upstream
 [plan-mode README](https://github.com/deepseek-ai/deepseek-harness/blob/master/packages/plan/plan-mode/README.md).
+
+For Cursor-generated images, the bridge advertises `cursor_image_save` only to
+Cursor. The tool accepts a single-use staged image ID and commits the provider's
+bytes at the requested path. DSH's current sandbox policy decides whether an
+approval prompt is needed; a save outside a workspace-write sandbox asks for
+approval before writing. Other providers do not see this tool.
+
+If DSH wakes Cursor again solely for a late subagent notice after a text-only
+reply, the bridge repeats that reply in the new final step without another
+model call. DSH keeps it visible outside collapsed activity. The display copy
+is excluded from later model prompts. This applies to any reply text, including
+requests for user input.
+
+When Cursor spills a large discovered-tool catalog to its `agent-tools/`
+metadata directory under the host cache, OCP supplies DSH's normal file-write
+escalation fields. The native write asks for approval because this cache is
+outside the workspace. OCP does not widen other file writes.
 
 ## Path bridge
 

@@ -1,26 +1,31 @@
 # Cursor + OCP self-verify prompt
 
-Live check that Cursor models work on a stock host through OCP. The usual
+Live check that Cursor models work on a stock host (native OpenCode, or
+another harness through OCP). The usual
 user message is along the lines of `execute tests in
 docs/guides/cursor-ocp-self-verify.md`. The agent should follow only the
 **Agent prompt** checklist below (ignore Operator setup while executing).
 
-Same exercises and scoring on every host (`opencode`, `mimo`, `kilo`, `pi`,
-`omp`, `dsh`). Unit tests are not evidence.
+Same capability-based exercises on OpenCode 1.x / 2.0, MiMo, Kilo, Pi, OMP,
+and DSH. Harness-specific rows apply only when their stated capability is
+present. Unit tests are not evidence.
 
 ## Operator setup
 
 Do this before the agent runs. Not part of the agent checklist.
 
-1. Wire the host from this repo:
+1. Wire non-OpenCode hosts from this repo:
 
    ```bash
    ./scripts/ocp-dev.sh run <host>          # local OCP + local provider
    ```
 
-   Hosts: `opencode`, `mimo`, `kilo`, `pi`, `omp`, `dsh`. Confirm the slot with
+   Hosts: `mimo`, `kilo`, `pi`, `omp`, `dsh`. Confirm the slot with
    `.claude/skills/ocp-dev/SKILL.md` and
    `.claude/skills/ocp-dev/references/hosts.md` before starting the session.
+   OpenCode 1.x / 2.0 loads the provider natively: configure the appropriate
+   provider entrypoint from its install guide. Do not run OpenCode through
+   `ocp-dev`.
 
 2. Start the **stock** host with debug logging. Use a throwaway workspace, not
    this repo and not the provider checkout. Export the env on the **same
@@ -51,7 +56,7 @@ Do this before the agent runs. Not part of the agent checklist.
    : > /tmp/cursor-ocp-self-verify.log
    ```
 
-   Do **not** rebuild/relink the provider, restart omp, or clear the log while
+   Do **not** rebuild/relink the provider, restart the host, or clear the log while
    the agent is mid-run. Provider re-init appends (`reinit=append`); a mid-run
    restart still breaks warm-cache checks (L3). The log size-caps at 10 MiB
    (`size-cap truncate`).
@@ -73,8 +78,10 @@ Log field meanings:
 ## Agent prompt
 
 When asked to run / execute this guide, do **only** the checklist below. Skip
-Operator setup. Read this file at most once at the start; do not re-open it
-mid-run to “find where you left off.”
+Operator setup. Read the complete Agent prompt at the start. If a read is
+truncated, finish the missing ranges or use its full-output artifact before
+starting. Completing a truncated read is allowed. Keep the checklist and
+scoring rules in context; do not re-read completed sections mid-run.
 
 ---
 
@@ -116,12 +123,26 @@ Default path: `/tmp/cursor-ocp-self-verify.log` (or whatever the operator named)
 
 Filtered extract (step 10 only):
 
-```
-rg -n 'outbound Run:|hash requestContext|turn usage validation:|cache diagnosis:|extractTools:|EMITTED tool-call|debug: enabled file=|reinit=append|size-cap truncate|buildEnv:|binary write STAGED|BRIDGED create_plan|wrote create_plan answer' "$LOG"
+```bash
+# LOG is the announced log path; SCRATCH is the directory from step 1.
+rg -n \
+  -e 'outbound Run:|hash requestContext|turn usage validation:|cache diagnosis:' \
+  -e 'extractTools:|EMITTED tool-call|debug: enabled file=|reinit=append' \
+  -e 'size-cap truncate|buildEnv:|binary write STAGED|image save: wrote' \
+  -e 'BRIDGED create_plan|wrote create_plan answer|continuation: wrote exec result' \
+  "$LOG" > "$SCRATCH/step10-log-extract.txt"
 ```
 
-If that output is long, keep only lines needed for the table. Running that
-filter in step 10 is required and allowed — it is not a rule violation.
+Save that filter's output to a file under the scratch directory. Inspect the
+saved extract as needed, including selecting individual fields from long
+lines, without searching the live log again. Running that filter in step 10
+is required and allowed — it is not a rule violation.
+Do not dump the entire extract into one tool result. Select the relevant
+events and fields, or wrap long lines, so the host does not truncate evidence.
+The extract records routing; the matching tool result in this session's
+transcript records the review outcome. Missing labels from another routing
+path are expected; apply the P2 decision procedure below without retrying the
+workflow or speculating about asynchronous timing.
 
 ### Steps
 
@@ -206,33 +227,57 @@ filter in step 10 is required and allowed — it is not a rule violation.
    or auto-delivered output. Use a status/wait capability only if the helper is
    clearly stuck with no result. Skip if no helper capability exists.
 
-7. **Short follow-up** — If an interactive question capability is advertised,
-   use it for one single-choice question with two short options, one of them
-   `continue`, then end the turn with no further tools. If none exists, ask in
-   chat for a short `continue` message and stop. When `continue` arrives, send
-   one short acknowledgment with **no tools in that first reply**, then
-   **immediately continue steps 8–10 in the same turn** (tools are allowed
-   after the acknowledgment). Do not restart completed steps or end the turn
-   after the acknowledgment.
+7. **Short follow-up** — End this assistant turn by asking in chat:
+   `Reply continue to run steps 8–10.` Stop and wait for a new user message.
+   Step 4 already exercises the interactive question tool; its answer is a
+   tool result and does not create the user-turn boundary needed for this
+   cache check. When the new `continue` message arrives, acknowledge it briefly
+   and continue steps 8–10. Do not restart completed steps.
 
 8. **Plan / mode** — If this Cursor model and session expose a genuine plan,
    review, or mode-switch capability (including a Cursor-native interaction),
-   design a tiny one-file scratch change and use the normal Cursor workflow so
-   the host review UI appears, then wait for the human. Do not call a hidden
-   host bridge target or an unadvertised name directly. Skip if the capability
-   is unavailable. On omp, CreatePlan's host stage tool waits on the plan-review
-   overlay; approve, refine, or dismiss there before continuing. Do not treat
-   `plan_exit` as that review. On DSH,
-   follow the active `plan:policy` guidance and the advertised native
-   `exit_plan_mode` schema; OCP does not synthesize entry, approval wording,
-   or an execution follow-up.
+   use the workflow available in this session. For plan review, design a tiny
+   one-file scratch change, present it through that workflow, and wait for
+   the human. For a mode-only capability, exercise the mode transition and
+   any confirmation it requires; do not invent a stage tool or plan URI.
+   Skip if neither capability exists. Never call a hidden bridge target or
+   an unadvertised name directly.
+
+   Record the actual tool/interaction, its call id if exposed (privately),
+   the human choice, and the returned outcome/status in the host's own format.
+   Use these same facts for P1/P2. Creating a plan or entering plan mode is
+   not execution approval. After explicit execution approval, apply and read
+   back the tiny change once. Refine/dismiss must leave it unapplied. Record
+   the exercised outcome as step 8 complete; do not test every possible choice.
+   A later queued approval follow-up must not repeat completed work or
+   recreate cleaned-up scratch.
+
+   Harness-specific routing:
+
+   - **OMP stage review:** an advertised `cursor_plan_stage` can be called
+     directly using its schema and the URI returned by plan entry, or reached
+     through native CreatePlan. It waits on the review overlay. OMP's
+     `plan_exit` does not substitute for this stage review. Apply P2 below.
+   - **Other harnesses:** use their advertised/native review or mode workflow
+     and score P1. A `question` approval, a genuine native `plan_exit` review,
+     or a primary-agent switch need not emit stage logs or OMP result fields.
+     P2 is skipped when the stage capability is absent.
+   - **DSH with Cursor:** use advertised `plan_enter` or the native SwitchMode
+     interaction to enter the host's plan state. Submit through advertised
+     `cursor_plan_stage` or native CreatePlan. OCP maps that to DSH's
+     `exit_plan_mode` review; the host transcript uses that native name and
+     retains the complete plan. P2 applies when the canonical stage capability
+     is advertised. Follow the schemas visible to you; do not guess an alias.
 
 9. **Image** — If the selected Cursor model and session expose a normal image
    generation workflow, generate one tiny image and let that workflow choose
    the path. Do not name the scratch dir, the git worktree, or the provider
    checkout as the destination, and do not invent a save id or call a hidden
    save bridge. The file belongs under the advertised `project_folder`, in
-   `assets/`. Otherwise skip.
+   `assets/`. Verify the save tool succeeded and the resulting file exists with
+   nonzero size before marking this step passed. A staged write or a successful
+   tool-call status alone does not prove that an image reached disk. Otherwise
+   skip.
 
 10. **Score** — Now run the step-10 log filter once. Fill the table. Do not
     re-run the filter. Delete only the scratch dir. Leave the image where the
@@ -248,13 +293,15 @@ the host transcript says `ask` / `todo` / `task` for the same calls — either
 cite is fine. If the log has multiple headers / `reinit=append` /
 `size-cap truncate`, prefer the transcript for tool rows when early
 `EMITTED` lines are missing.
+For L3, compare only the main session's Runs. A helper has its own session
+and conversation; its cold first Run is expected and is not a parent remint.
 
 | Id | Pass when |
 |---|---|
 | L0 | Log has a process header and `debug: enabled file=`. Note `log reinit` if multiple headers / append / size-cap |
 | L1 | At least one `outbound Run:` and one `cache diagnosis:` |
 | L2 | First completed turn: `turn usage validation: status=ok` |
-| L3 | After step 7: `continuity=warm` **or** the same `requestContextHash` as the previous real Run |
+| L3 | After the new user message in step 7, the main session's `outbound Run` retains its conversation id with `checkpointLen>0`, `reset=false`, `systemPromptLen=0`, and `requestContextReused=true`. A completed `continuity=warm` diagnostic also confirms reuse, but the current turn's terminal diagnostic is written only after you finish, so do not wait or re-filter for it. Report any earlier interruption/remint separately. An equal `requestContextHash` alone does not prove warm reuse |
 | L4 | `perModelCallCache=unavailable` |
 | T1 | Scratch file / search / shell work succeeded |
 | T2 | No schema rejection on the args you copied; if a working-directory field exists, step 3’s `pwd` used it and printed the scratch dir; dedicated search/list capabilities were used when advertised; exercise work used this session’s best available tools |
@@ -263,12 +310,63 @@ cite is fine. If the log has multiple headers / `reinit=append` /
 | T5 | Helper agent ran, or honestly skipped |
 | T6 | Nothing required the provider to import `@opencode-compat/*` |
 | T7 | You did not mark pass/skip while the opposite is true (an advertised capability was skipped, todo lifecycle replayed, an unadvertised name was guessed, or a lower-quality substitute was used while the dedicated tool was available) |
-| P1 | Plan/mode outcome matches what the human did, or skipped if absent |
-| P2 | This row applies when the log shows `cursor_plan_stage` and a `bridge=stage` CreatePlan. That is omp even if `cwd` or `workspace_paths` contain `opencode-plugin-compat`, the cache path contains `opencode-providers`, or an MCP line says `requested=[opencode]`. Those strings are the workspace and an MCP server, not the host. The debug log never prints “overlay”, “approve”, “refine”, or “dismiss”. The overlay is that `bridge=stage` CreatePlan staying open, then `continuation: wrote create_plan answer`. **Approved** is **passed** when that answer is success — do not skip this as “not the failure path” or “host is opencode”. **Refine or dismiss** is **passed** only when that answer is an error. **Failed** if the stage tool returned immediately, `plan_exit` was used as the review, or the answer contradicts the human. **Skipped** only when `cursor_plan_stage` was never advertised, or step 8 was skipped because no plan capability existed |
+| P1 | The available plan/review/mode workflow matches the human's choice, using that host's result format; no implementation without execution approval. Skip if absent |
+| P2 | Stage-capability review only: apply the procedure below when `cursor_plan_stage` is advertised; otherwise skip. Other plan/mode workflows are covered by P1 |
 | P3 | Every emitted tool/interaction belonged to the selected Cursor model's advertised or native capability set; no Devin-specific tool contract was assumed |
 | H1 | Provider checkout not written |
 | H2 | No `.opencode/` under scratch from plan tools |
-| H3 | Scratch exercise files are only in the scratch dir. When step 9 ran, `binary write STAGED` has `requested` and `target` equal and both under the `project_folder` from `buildEnv:` plus `/assets/`. That cache path is the correct image location. Fail if the image is in the scratch dir, the git worktree, or the provider checkout, or if `requested` and `target` differ. A host plan file outside scratch is not an H3 failure |
+| H3 | Scratch exercise files are only in the scratch dir. When step 9 ran, `binary write STAGED` has `requested` and `target` equal and both under the `project_folder` from `buildEnv:` plus `/assets/`; the save tool succeeded; and the target file exists with nonzero size. `image save: wrote` is supporting log evidence when present. Fail if the save tool reports no pending image, the file is missing, the image is in the scratch dir, git worktree, or provider checkout, or `requested` and `target` differ. A host plan file outside scratch is not an H3 failure |
+
+### P2 decision procedure (stage capability only)
+
+This checks the advertised `cursor_plan_stage` contract (supplied by OCP for
+Cursor on OMP and DSH). It is not a universal plan-tool schema. A host need
+not expose an OMP overlay, `isError`, or `details.action=plan_approved`.
+Score the stage review once, using the step-8 evidence; do not exercise every
+Cursor transport path.
+
+1. **Applicability:** if `cursor_plan_stage` was not advertised, or step 8
+   had no plan capability, mark `skipped`. Workspace paths, cache directory
+   names, and an MCP server named `opencode` do not identify the host.
+2. **Route:** the following paths can invoke the same review UI:
+
+   | Route | Supporting log evidence |
+   |---|---|
+   | Native CreatePlan interaction | `BRIDGED create_plan` with `bridge=stage`, then `wrote create_plan answer` |
+   | Advertised stage tool called directly | `EMITTED tool-call ... toolName=cursor_plan_stage`, then matching `wrote exec result ... field=mcp_result` |
+   | DSH completed-plan fallback | DSH transcript `tool/call` for `exit_plan_mode` with a `host_plan_stage_` call id, then matching `tool/result`; provider `BRIDGED`/`EMITTED` lines are not expected |
+
+   The direct route does **not** emit `BRIDGED create_plan` or
+   `wrote create_plan answer`. Their absence is expected, not delayed logging
+   or a failure. Match call/exec ids within the same Run when citing logs;
+   an unrelated exec result is not evidence. Neither an emitted call nor a
+   written response alone proves approval.
+3. **Outcome:** use the matching review tool result in the transcript as
+   primary evidence. Require a successful result with explicit approval.
+   In OMP's structured transcript this is `isError=false` plus
+   `details.action=plan_approved` or the tool's `Plan approved ...` result.
+   If only rendered tool output is exposed, its explicit approval result and
+   successful status suffice; do not require hidden JSON fields.
+   DSH logs the same review as `exit_plan_mode`; approval is `{approved:true}`
+   with the rendered `Plan approved` result. Match the call id, not tool-name
+   spelling. Both native review UIs are valid.
+   For refine/dismiss, require an error explicitly reporting
+   refinement/not-approved/dismissal, with no implementation afterward.
+   An arbitrary tool error is not a successful rejection test. Assistant
+   narration alone is insufficient. Elapsed time does not prove a UI choice.
+4. **Verdict:** `passed` when the review outcome agrees with the human choice.
+   `failed` when it contradicts the choice, demonstrably bypasses review,
+   uses `plan_exit` instead of review, or implements after refine/dismiss.
+   `blocked` when the applicable review result or choice cannot be established.
+   Missing evidence is not proof of a runtime failure. Do not rerun step 8 or
+   the live-log filter to turn a blocked row into a pass.
+
+Example: log shows only `EMITTED ... cursor_plan_stage`; transcript shows
+`plan_approved`, `isError=false`, following the human's approval. Score
+`P2 | passed | direct stage; transcript review approved; log:<line> emitted`.
+Do not require native CreatePlan labels or test refine/dismiss afterward.
+
+### Report
 
 ```
 host:

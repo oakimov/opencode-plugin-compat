@@ -27,9 +27,11 @@ export type DshToolSchema = {
 }
 
 export type DshMessage = {
-  role: "system" | "user" | "assistant"
+  role: "system" | "user" | "assistant" | "tool"
   content: any[]
   source: { kind: string; callId?: unknown; [k: string]: unknown }
+  toolCallId?: string
+  isError?: boolean
 }
 
 export type DshGenerateOptions = {
@@ -128,6 +130,26 @@ export function translateGenerateOptionsToPrompt(
       continue
     }
 
+    // Current DSH stores tool results as first-class tool-role messages with
+    // text content and the call id on the message, not a user-role block.
+    // Preserve that role so the provider continues its held-open Cursor Run.
+    if (msg.role === "tool") {
+      const id = typeof msg.toolCallId === "string" ? msg.toolCallId
+        : typeof msg.source?.callId === "string" ? msg.source.callId : ""
+      if (!id || excludedToolCallIds.has(id)) continue
+      const value = flattenBlockText(msg.content)
+      prompt.push({
+        role: "tool",
+        content: [{
+          type: "tool-result",
+          toolCallId: id,
+          toolName: toolNames.get(id) ?? "unknown",
+          output: { type: msg.isError ? "error-text" : "text", value: value || "(no output)" },
+        }],
+      })
+      continue
+    }
+
     const regular: any[] = []
     const results: any[] = []
     for (const block of msg.content ?? []) {
@@ -181,7 +203,7 @@ export function translateTools(
     return {
       type: "function" as const,
       name: providerName,
-      description: question ? canonicalQuestionDescription() : t.description,
+      description: question ? canonicalQuestionDescription() : (toolInputs[t.name]?.providerDescription ?? t.description),
       inputSchema: (question
         ? canonicalQuestionSchema()
         : providerToolSchema(t.parameters, t.name, toolInputs)) as any,

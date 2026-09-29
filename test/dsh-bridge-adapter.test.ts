@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test"
 import { DshLlmAdapter } from "../packages/dsh-bridge/src/adapter.ts"
 import type { DshGenerateOptions, DshMessage } from "../packages/dsh-bridge/src/translate/context.ts"
-import { cursorSilentChildNoticeReason } from "../packages/dsh-bridge/src/translate/cursor-continuation.ts"
+import { cursorChildNoticeContinuation, removeVisibleReplyEchoes } from "../packages/dsh-bridge/src/translate/cursor-continuation.ts"
 
 const childId = "00000000-0000-4000-8000-000000000001"
 
@@ -86,36 +86,36 @@ describe("DshLlmAdapter prepareCall", () => {
   })
 })
 
-describe("cursorSilentChildNoticeReason", () => {
+describe("cursorChildNoticeContinuation", () => {
   test("skips a later child's send_message after a text-only continue ask", () => {
-    expect(cursorSilentChildNoticeReason([
+    expect(cursorChildNoticeContinuation([
       msg("user", "user", "execute tests"),
       continueAsk,
       msg("user", "agent-message", "Agent 206ce0fd sent a message: \nhello ocp self-verify (edited)", {
         senderSessionId: childId,
       }),
-    ])).toBe("agent-message")
+    ])?.reason).toBe("agent-message")
   })
 
   test("skips settled after that text-only stop", () => {
-    expect(cursorSilentChildNoticeReason([
+    expect(cursorChildNoticeContinuation([
       continueAsk,
       msg("user", "subagent-settled", "Background subagent 206ce0fd finished and will do no further work unless you send it more.", {
         senderSessionId: childId,
       }),
-    ])).toBe("subagent-settled")
+    ])?.reason).toBe("subagent-settled")
   })
 
   test("skips relay+settled batched after a text-only stop", () => {
-    expect(cursorSilentChildNoticeReason([
+    expect(cursorChildNoticeContinuation([
       continueAsk,
       msg("user", "agent-message", "hello", { senderSessionId: childId }),
       msg("user", "subagent-settled", "Background subagent finished.", { senderSessionId: childId }),
-    ])).toBe("agent-message+subagent-settled")
+    ])?.reason).toBe("agent-message+subagent-settled")
   })
 
   test("does not skip helper results claimed after a spawn tool-call", () => {
-    expect(cursorSilentChildNoticeReason([
+    expect(cursorChildNoticeContinuation([
       msg("assistant", "model", "spawning", {}, [
         { type: "text", text: "spawning" },
         { type: "tool-call", id: "c1", name: "subagent", arguments: "{}" },
@@ -126,20 +126,20 @@ describe("cursorSilentChildNoticeReason", () => {
   })
 
   test("does not skip a human continue", () => {
-    expect(cursorSilentChildNoticeReason([
+    expect(cursorChildNoticeContinuation([
       continueAsk,
       msg("user", "user", "continue"),
     ])).toBeUndefined()
   })
 
   test("does not skip the first user prompt", () => {
-    expect(cursorSilentChildNoticeReason([
+    expect(cursorChildNoticeContinuation([
       msg("user", "user", "execute tests"),
     ])).toBeUndefined()
   })
 
   test("does not skip child notices after a tool-call", () => {
-    expect(cursorSilentChildNoticeReason([
+    expect(cursorChildNoticeContinuation([
       msg("assistant", "model", "reading", {}, [
         { type: "text", text: "reading" },
         { type: "tool-call", id: "c1", name: "read", arguments: "{\"file_path\":\"a\"}" },
@@ -165,46 +165,77 @@ describe("DshLlmAdapter silent child-notice stream", () => {
     ],
   }
 
-  test("finishes without opening the model", async () => {
+  test("makes the last reply final and visible without opening the model", async () => {
     const adapter = new DshLlmAdapter({
       providerName: "cursor-opencode",
-      skipGenerateReason: cursorSilentChildNoticeReason,
+      skipGenerate: cursorChildNoticeContinuation,
       getLanguageModel: () => {
         throw new Error("child-notice skip must not open the model")
       },
     })
     expect(await collect(adapter.stream(skipOptions))).toEqual([
+      { type: "block-start", index: 0, blockType: "text" },
+      { type: "text-delta", index: 0, text: continueAsk.content[0].text },
+      { type: "block-end", index: 0, block: { type: "text", text: continueAsk.content[0].text } },
       { type: "usage", usage: { inputTokens: 0, outputTokens: 0, totalTokens: 0 } },
-      { type: "finish", reason: { kind: "stop" } },
+      { type: "finish", reason: { kind: "stop" }, replayState: { response: { ocp: "dsh-visible-reply-echo" } } },
     ])
+  })
+
+  test("removes only display copies before the next real model call", () => {
+    const echoed = msg("assistant", "model", continueAsk.content[0].text, {
+      replayState: { response: { ocp: "dsh-visible-reply-echo" } },
+    })
+    const human = msg("user", "user", "continue")
+    expect(removeVisibleReplyEchoes([continueAsk, echoed, human])).toEqual([continueAsk, human])
+  })
+
+  test("a second child notice does not repeat an already visible display copy", () => {
+    const echoed = msg("assistant", "model", continueAsk.content[0].text, {
+      replayState: { response: { ocp: "dsh-visible-reply-echo" } },
+    })
+    expect(cursorChildNoticeContinuation([
+      continueAsk,
+      echoed,
+      msg("user", "subagent-settled", "Background subagent finished.", { senderSessionId: childId }),
+    ])?.visibleReply).toBe("")
   })
 
   test("still opens the model for a human continue", async () => {
     let opened = false
+    let assistantReplies = 0
     const adapter = new DshLlmAdapter({
       providerName: "cursor-opencode",
-      skipGenerateReason: cursorSilentChildNoticeReason,
+      skipGenerate: cursorChildNoticeContinuation,
+      prepareOptions: options => ({ ...options, messages: removeVisibleReplyEchoes(options.messages) }),
       getLanguageModel: async () => {
         opened = true
         return {
-          doStream: async () => ({
-            stream: new ReadableStream({
-              start(controller) {
-                controller.enqueue({ type: "text-delta", delta: "ok" })
-                controller.enqueue({ type: "finish", finishReason: "stop" })
-                controller.close()
-              },
-            }),
-          }),
+          doStream: async (options: { prompt: Array<{ role: string }> }) => {
+            assistantReplies = options.prompt.filter(message => message.role === "assistant").length
+            return {
+              stream: new ReadableStream({
+                start(controller) {
+                  controller.enqueue({ type: "text-delta", delta: "ok" })
+                  controller.enqueue({ type: "finish", finishReason: "stop" })
+                  controller.close()
+                },
+              }),
+            }
+          },
         } as never
       },
+    })
+    const echoed = msg("assistant", "model", continueAsk.content[0].text, {
+      replayState: { response: { ocp: "dsh-visible-reply-echo" } },
     })
     const chunks = await collect(adapter.stream({
       provider: "cursor-opencode",
       model: "default",
-      messages: [continueAsk, msg("user", "user", "continue")],
+      messages: [continueAsk, echoed, msg("user", "user", "continue")],
     }))
     expect(opened).toBe(true)
+    expect(assistantReplies).toBe(1)
     expect(chunks.some(chunk => chunk && typeof chunk === "object" && (chunk as { type?: string }).type === "finish")).toBe(true)
   })
 
@@ -234,7 +265,7 @@ describe("DshLlmAdapter silent child-notice stream", () => {
     let opened = false
     const adapter = new DshLlmAdapter({
       providerName: "cursor-opencode",
-      skipGenerateReason: cursorSilentChildNoticeReason,
+      skipGenerate: cursorChildNoticeContinuation,
       getLanguageModel: async () => {
         opened = true
         return {

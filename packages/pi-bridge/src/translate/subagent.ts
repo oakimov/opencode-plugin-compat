@@ -712,6 +712,10 @@ function applyInputShape(
   if (shape === "opencode-read") return applyReadShape(input)
   if (shape === "opencode-todo") return applyTodoShape(input)
   if (shape === "opencode-glob") return applyGlobShape(input)
+  if (shape === "opencode-bash" && typeof input.timeout === "number" && Number.isFinite(input.timeout)) {
+    // OpenCode sends milliseconds; OMP's native bash executor takes seconds.
+    return { ...input, timeout: input.timeout / 1000 }
+  }
   if (shape !== "pi-edit" || Array.isArray(input.edits)) return input
 
   const oldText = firstString(input, PI_EDIT_OLD_KEYS)
@@ -825,12 +829,15 @@ export function translateHostToolCallInput(
     return rest
   }
   if (shape === "opencode-bash") {
-    // History must match the advertised `workdir` schema, not host `cwd`.
+    // History uses the same directory name and timeout units as the catalog.
     const cwd = input["cwd"]
-    if (typeof cwd !== "string") return input
     const rest = { ...input }
-    delete rest.cwd
-    return { ...rest, workdir: cwd }
+    if (typeof cwd === "string") {
+      delete rest.cwd
+      rest.workdir = cwd
+    }
+    if (typeof rest.timeout === "number" && Number.isFinite(rest.timeout)) rest.timeout *= 1000
+    return rest
   }
   if (shape !== "pi-edit") return input
   const edits = input["edits"]

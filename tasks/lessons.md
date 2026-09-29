@@ -2,6 +2,13 @@
 
 Corrections and durable takeaways for this repo.
 
+## 2026-09-27 — dsh-bridge `@deepseek-ai/dsh-llm` peer `>=1.0.0` blocked `ocp-dev run dsh`
+
+- **Symptom:** `./scripts/ocp-dev.sh run dsh` failed at `dsh plugin add file:…/bridge-file` with “Plugin @opencode-compat/dsh-bridge@0.4.2 is incompatible with dsh 0.1.7-rc.2: peerDependencies {"@deepseek-ai/dsh-llm":">=1.0.0"}”.
+- **Cause:** DSH `evaluatePluginCompatibility` treats every `@deepseek-ai/dsh` / `@deepseek-ai/dsh-*` peer as a requirement on the **product runtime version**, not on that package’s npm major. Runtime is `0.1.7-rc.2`; `>=1.0.0` never satisfies. `@deepseek-ai/cordis` peers are ignored by that check.
+- **Fix:** `@deepseek-ai/dsh-llm` peer → `>=0.1.0`. Documented in `packages/dsh-bridge/README.md`.
+- **Rule:** Never declare `@deepseek-ai/dsh-*` peers as if they were standalone package majors; ranges must accept the live dsh train (`0.1.x` today). Do not paper over with `dsh plugin allow-version`.
+
 ## 2026-09-24 — 0.4.1 `workspace:*` on dsh/pi bridges broke foreign `file:` installs
 
 - **Symptom:** `dsh plugin --profile web add file:…/packages/dsh-bridge` failed with `ERR_PNPM_WORKSPACE_PKG_NOT_FOUND` for `@opencode-compat/opencode-loader@workspace:*`. Local ocp-dev silently fell back; re-add on an already-wired profile also failed.

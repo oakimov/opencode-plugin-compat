@@ -133,7 +133,22 @@ export default async function piBridgeExtension(pi: PiExtensionApi): Promise<voi
         return nativeEdit
       }
       activateHashlineTool(pi, registerHashlineTool(pi, { resolveEdit, hostPi: pi.pi }))
-      const activateEdit = openCodeEditToolActivator(pi, registerOpenCodeEditTool(pi, { hostPi: pi.pi }))
+      const activateEdit = openCodeEditToolActivator(pi, registerOpenCodeEditTool(pi, {
+        resolveWrite: async ctx => {
+          const agentId = (ctx?.agent as { id?: unknown } | undefined)?.id
+          if (typeof agentId !== "string") return undefined
+          const registry = pi.pi?.AgentRegistry?.global() as {
+            get?: (id: string) => { session?: {
+              getEnabledToolNames?: () => string[]
+              getToolByName?: (name: string) => HostEditTool | undefined
+            } } | undefined
+          } | undefined
+          const session = registry?.get?.(agentId)?.session
+          if (!session?.getEnabledToolNames?.().includes("write")) return undefined
+          const tool = session.getToolByName?.("write")
+          return tool && typeof tool.execute === "function" ? tool : undefined
+        },
+      }))
       const installReplaceEdit = async () => {
         // Overlap claims and the minted-tag registry are session-scoped: the
         // host's snapshot store lives on the session, so a brand-new session has

@@ -10,12 +10,26 @@ import type { LanguageModelV3, LanguageModelV3CallOptions, LanguageModelV3Stream
 import { optionsForLevel, type ModelCallData } from "@opencode-compat/opencode-loader"
 import { translateGenerateOptionsToPrompt, translateTools, type DshGenerateOptions, type DshMessage } from "./translate/context.js"
 import { v3StreamToDshChunks, type StreamChunk } from "./translate/stream.js"
+import type { DshToolInputVocabulary } from "./translate/tools.js"
 
 export type DshLlmAdapterOptions = {
   providerName: string
+  toolInputs?: DshToolInputVocabulary
+  /** Optional per-call vocabulary when a host tool's advertised schema varies. */
+  toolInputsForCall?: (options: DshGenerateOptions) => DshToolInputVocabulary
+  /** Optional package-selected adaptation of host guidance before translation. */
+  prepareOptions?: (options: DshGenerateOptions) => DshGenerateOptions
+  /** Tools installed for another configured provider are omitted from this adapter's catalog. */
+  excludeToolNames?: ReadonlySet<string>
   /** Optional provider integration selected by the registration layer. */
-  skipGenerateReason?: (messages: readonly DshMessage[]) => string | undefined
+  skipGenerate?: (messages: readonly DshMessage[]) => {
+    reason: string
+    visibleReply: string
+    replayState: { response: unknown }
+  } | undefined
   finishUsage?: (part: LanguageModelV3StreamPart & { type: "finish" }) => LanguageModelV3Usage | null | undefined
+  /** Package-selected terminal stream adaptation, after V3 tool-name translation. */
+  reviewCompletedPlan?: (chunks: AsyncIterable<StreamChunk>, options: DshGenerateOptions) => AsyncIterable<StreamChunk>
   api?: string
   getLanguageModel: (modelId: string, apiKey: string | undefined) => Promise<LanguageModelV3> | LanguageModelV3
   /** Resolve per-model variant + entry options */
@@ -82,14 +96,19 @@ export class DshLlmAdapter extends LlmAdapter {
   override stream(options: DshGenerateOptions): AsyncIterable<StreamChunk> {
     const self = this
     return (async function* (): AsyncGenerator<StreamChunk> {
-      const skipped = self.opts.skipGenerateReason?.(options.messages ?? [])
+      const skipped = self.opts.skipGenerate?.(options.messages ?? [])
       if (skipped) {
         // eslint-disable-next-line no-console
         console.log(
-          `dsh-bridge: skipped child-notice generate sessionId=${options.sessionId ?? "-"} kinds=${skipped}`,
+          `dsh-bridge: skipped child-notice generate sessionId=${options.sessionId ?? "-"} kinds=${skipped.reason}`,
         )
+        if (skipped.visibleReply.length > 0) {
+          yield { type: "block-start", index: 0, blockType: "text" }
+          yield { type: "text-delta", index: 0, text: skipped.visibleReply }
+          yield { type: "block-end", index: 0, block: { type: "text", text: skipped.visibleReply } }
+        }
         yield { type: "usage", usage: { inputTokens: 0, outputTokens: 0, totalTokens: 0 } }
-        yield { type: "finish", reason: { kind: "stop" } }
+        yield { type: "finish", reason: { kind: "stop" }, replayState: skipped.replayState }
         return
       }
       const modelId = options.model
@@ -103,8 +122,13 @@ export class DshLlmAdapter extends LlmAdapter {
       const lm = await self.opts.getLanguageModel(variantBaseId, apiKey)
 
       // Translate DSH GenerateOptions → V3 call options
-      const prompt = translateGenerateOptionsToPrompt(options)
-      const tools = translateTools(options.tools as never)
+      const prepared = self.opts.prepareOptions?.(options) ?? options
+      const toolInputs = self.opts.toolInputsForCall?.(prepared) ?? self.opts.toolInputs
+      const prompt = translateGenerateOptionsToPrompt(prepared, toolInputs)
+      const visibleTools = self.opts.excludeToolNames
+        ? prepared.tools?.filter(tool => !self.opts.excludeToolNames!.has(tool.name))
+        : prepared.tools
+      const tools = translateTools(visibleTools, toolInputs)
 
       // Session affinity: DSH native sessionId → V3 headers x-opencode-session (like pi-bridge bridge.ts:66)
       const headers: Record<string, string> = {}
@@ -138,10 +162,12 @@ export class DshLlmAdapter extends LlmAdapter {
 
       try {
         const result = await lm.doStream(callOptions as never)
-        for await (const chunk of v3StreamToDshChunks(result.stream, undefined, {
+        const translated = v3StreamToDshChunks(result.stream, toolInputs, {
           allowedProviderToolNames: new Set(tools?.map(tool => tool.name) ?? []),
           finishUsage: self.opts.finishUsage,
-        })) {
+        })
+        const chunks = self.opts.reviewCompletedPlan?.(translated, prepared) ?? translated
+        for await (const chunk of chunks) {
           yield chunk
         }
       } catch (err) {

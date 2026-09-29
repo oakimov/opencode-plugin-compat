@@ -18,6 +18,11 @@ export type DshToolInputProfile = {
   dropRequired?: readonly string[]
   /** Provider-facing tool name when the host uses a different name. */
   providerName?: string
+  /** Optional structural adaptation for contracts that are not key renames. */
+  toHostInput?: (input: Record<string, unknown>) => Record<string, unknown>
+  toProviderInput?: (input: Record<string, unknown>) => Record<string, unknown>
+  providerSchema?: Record<string, unknown>
+  providerDescription?: string
 }
 
 export type DshHostProfile = {

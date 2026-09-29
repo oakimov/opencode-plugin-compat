@@ -103,8 +103,8 @@ const OMP_ESSENTIAL_TOOL_INPUTS: Readonly<Record<string, PiToolInputProfile>> = 
   // (utils/edit-mode.ts: model override -> PI_EDIT_VARIANT -> `edit.mode` ->
   // default `hashline`). `old_string` marks replace mode live. Under hashline
   // the bridge still remaps OpenCode `{filePath,oldString,newString}` and
-  // advertises that contract — execution goes through the replace overlay, not
-  // the live `{input}` schema. Hashline patches use the separate `hashline` tool.
+  // advertises that contract. The edit overlay applies an exact replacement
+  // through the active host write tool; hashline patches use the separate tool.
   edit: {
     inputAliases: {
       filePath: "path",

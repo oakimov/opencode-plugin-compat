@@ -1,3 +1,5 @@
+import { readFile, stat } from "node:fs/promises"
+import { isAbsolute, resolve } from "node:path"
 import { withEditLock } from "./edit-lock.js"
 import type { PiExtensionApi, PiRegisterToolDefinition } from "./pi-provider-types.js"
 
@@ -19,28 +21,64 @@ const OPENCODE_EDIT_SCHEMA = {
   additionalProperties: false,
 } as const
 
-type TextToolResult = {
-  content: Array<{ type: "text"; text: string }>
-}
-
 type InvokeTool = (
   params: Record<string, unknown>,
   options?: { signal?: AbortSignal; onUpdate?: unknown },
 ) => Promise<unknown>
 
-export type SettingsLike = {
-  override?(path: string, value: unknown): void
-  clearOverride?(path: string): void
-  get?(path: string): unknown
-}
-
 export type RegisterOpenCodeEditToolOptions = {
-  hostPi?: { settings?: SettingsLike }
-  executeReplace?: (args: Record<string, unknown>, ctx: Record<string, unknown> | undefined) => Promise<unknown>
+  resolveWrite?: (ctx: Record<string, unknown> | undefined) => Promise<{
+    execute: (toolCallId: string, args: unknown, signal?: AbortSignal, onUpdate?: unknown) => Promise<unknown>
+  } | undefined>
 }
 
-function textResult(text: string): TextToolResult {
-  return { content: [{ type: "text", text }] }
+const MAX_EDIT_SOURCE_BYTES = 50 * 1024 * 1024
+
+async function replaceThroughWrite(
+  args: Record<string, unknown>,
+  toolCallId: string,
+  signal: AbortSignal | undefined,
+  onUpdate: unknown,
+  cwd: string | undefined,
+  ctx: Record<string, unknown> | undefined,
+  resolveWrite: NonNullable<RegisterOpenCodeEditToolOptions["resolveWrite"]> | undefined,
+): Promise<unknown> {
+  signal?.throwIfAborted()
+  const requestedPath = args.path as string
+  if (!isAbsolute(requestedPath) && !cwd) {
+    throw new Error("edit is unavailable: omp did not expose the active workspace directory")
+  }
+  const target = resolve(cwd ?? "/", requestedPath)
+  const before = await stat(target, { bigint: true })
+  if (!before.isFile() || before.size > BigInt(MAX_EDIT_SOURCE_BYTES)) {
+    throw new Error(`edit requires a regular file no larger than 50 MB: ${target}`)
+  }
+  const bytes = await readFile(target)
+  if (bytes.byteLength > MAX_EDIT_SOURCE_BYTES) {
+    throw new Error(`edit source grew beyond 50 MB while reading: ${target}`)
+  }
+  if (bytes.includes(0)) throw new Error(`edit refuses binary file: ${target}`)
+  const source = new TextDecoder("utf-8", { fatal: true, ignoreBOM: true }).decode(bytes)
+  const oldString = args.old_string as string
+  const newString = args.new_string as string
+  if (!oldString) throw new Error("edit requires a non-empty oldString")
+  const first = source.indexOf(oldString)
+  if (first < 0) throw new Error(`oldString not found in ${target}`)
+  const second = source.indexOf(oldString, first + oldString.length)
+  if (second >= 0 && args.replace_all !== true) {
+    throw new Error(`oldString matches more than once in ${target}; use replaceAll or a more specific oldString`)
+  }
+  const content = args.replace_all === true
+    ? source.split(oldString).join(newString)
+    : source.slice(0, first) + newString + source.slice(first + oldString.length)
+  const write = await resolveWrite?.(ctx)
+  if (!write) throw new Error("edit is unavailable: omp did not expose an active write tool")
+  const now = await stat(target, { bigint: true })
+  if (before.dev !== now.dev || before.ino !== now.ino || before.size !== now.size || before.mtimeNs !== now.mtimeNs) {
+    throw new Error(`edit target changed while preparing replacement: ${target}`)
+  }
+  signal?.throwIfAborted()
+  return write.execute(toolCallId, { path: target, content }, signal, onUpdate)
 }
 
 function firstString(input: Record<string, unknown>, names: readonly string[]): string | undefined {
@@ -84,28 +122,22 @@ export function registerOpenCodeEditTool(
         ? (params as { input?: unknown }).input
         : undefined
       const invoke = (ctx as { invokeTool?: InvokeTool } | undefined)?.invokeTool
-      if (typeof invoke !== "function") {
-        throw new Error("edit is unavailable: omp did not expose native invokeTool for the built-in editor")
-      }
       // The separate hashline tool calls this registered same-name wrapper so
-      // omp supplies its native same-tool delegate. Do not switch modes here.
-      if (typeof input === "string") return invoke({ input }, { signal, onUpdate })
+      // omp supplies its native same-tool delegate.
+      if (typeof input === "string") {
+        if (typeof invoke !== "function") {
+          throw new Error("hashline edit is unavailable: omp did not expose native invokeTool")
+        }
+        return invoke({ input }, { signal, onUpdate })
+      }
 
       const replaceArgs = toReplaceArgs(params)
-      return withEditLock(undefined, async () => {
-        if (options.executeReplace) return options.executeReplace(replaceArgs, ctx)
-        const settings = options.hostPi?.settings ?? pi.pi?.settings
-        const previousMode = settings?.get?.("edit.mode")
-        settings?.override?.("edit.mode", "replace")
-        try {
-          const result = await invoke(replaceArgs, { signal, onUpdate })
-          if (typeof result === "string") return textResult(result)
-          return result
-        } finally {
-          if (previousMode !== undefined) settings?.override?.("edit.mode", previousMode)
-          else settings?.clearOverride?.("edit.mode")
-        }
-      })
+      return withEditLock(undefined, async () => replaceThroughWrite(
+        replaceArgs, _toolCallId, signal, onUpdate,
+        typeof ctx?.cwd === "string" ? ctx.cwd : undefined,
+        ctx,
+        options.resolveWrite,
+      ))
     },
   }
   pi.registerTool(edit)

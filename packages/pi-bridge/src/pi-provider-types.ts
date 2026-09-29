@@ -239,10 +239,5 @@ export type PiExtensionApi = {
       paths: string[],
       cwd: string,
     ) => Promise<{ errors?: Array<{ path: string; error: string }> }>
-    settings?: {
-      override?(path: string, value: unknown): void
-      clearOverride?(path: string): void
-      get?(path: string): unknown
-    }
   }
 }

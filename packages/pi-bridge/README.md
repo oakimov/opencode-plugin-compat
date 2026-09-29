@@ -215,6 +215,11 @@ Pi calls OpenCode's `glob` operation `find`; when `find` is active, the bridge
 advertises it to the provider as `glob` and translates calls/results back to
 `find`. Host-native keys already present win.
 
+OMP's `bash` is advertised with OpenCode's `workdir` and millisecond `timeout`.
+The bridge converts timeouts to native seconds before execution and back to
+milliseconds in history. A `timeout: 30000` call therefore requests 30 seconds;
+zero retains OMP's no-deadline behavior.
+
 OMP's `todo` is ops-based (`op: init|start|done|…`). The bridge advertises it as
 OpenCode `todowrite` / `todoread` and folds Cursor-style
 `{todos:[{content,status}]}` snapshots into host ops: open-only snapshots stay
@@ -228,9 +233,11 @@ OMP's `edit` is different again: it advertises a different schema per resolved
 edit mode (model override, then `PI_EDIT_VARIANT`, then the `edit.mode` setting,
 then the default `hashline`). The provider always sees OpenCode
 `{filePath, oldString, newString}`. When the live host tool is hashline, the
-bridge remaps those calls onto omp's replace-mode editor (the same
-`old_string`/`new_string` contract Cursor's `pi_edit` frame uses) and keeps
-hashline patches on the separate `hashline` tool. Parallel `hashline` calls that
+bridge validates the exact replacement against the current file and commits it
+through omp's active `write` tool, retaining its permission gate, file guards,
+formatting, and diagnostics. No process-wide edit-mode setting is changed.
+It keeps hashline patches on the separate
+`hashline` tool. Parallel `hashline` calls that
 share the same `[path#tag]` are coalesced into one multi-section host apply
 (anchors still refer to the original snapshot) so the host's short per-path
 snapshot history is not burned by one turn of disjoint hunks. Mode-independent
@@ -250,6 +257,11 @@ The host's stable provider `sessionId` is also forwarded as the namespaced
 session-affinity header). This
 lets stateful OpenCode providers retain their conversation/checkpoint across
 ordinary Pi tool turns and asynchronous parent resumptions.
+OMP provider modules are loaded once per canonical installation and reused
+when child agents bind the bridge. This preserves pending tool calls when a
+child registers the same provider API. Concurrent loads share the same module
+graph; failed loads can retry. Restart OMP after rebuilding a provider to load
+the new code.
 
 omp needs no extra installation. In pi, subagents are an optional host example,
 not a core tool; install its `packages/coding-agent/examples/extensions/subagent`

@@ -152,7 +152,7 @@ const OPENCODE_BASH_SCHEMA: Record<string, unknown> = {
         "Process working directory for this command. Set this to leave the " +
         "session root. Paths inside command alone do not change process cwd.",
     },
-    timeout: { type: "number", description: "Optional timeout" },
+    timeout: { type: "number", minimum: 0, description: "Optional command timeout in milliseconds; 0 disables the deadline" },
   },
   required: ["command"],
   additionalProperties: false,
@@ -209,7 +209,6 @@ function providerToolSchema(
     }
     if (hostProps.pty !== undefined) properties.pty = hostProps.pty
     if (hostProps.async !== undefined) properties.async = hostProps.async
-    if (hostProps.timeout !== undefined) properties.timeout = hostProps.timeout
     return {
       ...OPENCODE_BASH_SCHEMA,
       properties,

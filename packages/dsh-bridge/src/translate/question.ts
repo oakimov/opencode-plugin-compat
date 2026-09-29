@@ -58,7 +58,8 @@ export function canonicalQuestionSchema(): Record<string, unknown> {
 
 export function canonicalQuestionDescription(): string {
   return (
-    "Ask the user one or more clarifying questions before continuing. " +
+    "Ask the user for a choice, confirmation, or missing information and wait for the answer. " +
+    "The host displays a visible waiting-for-answer prompt. For a required new user turn, finish with a standalone text reply instead. " +
     "This session tool is named question (host may call it ask_user_question). " +
     "Use it for human choices — do not look for AskQuestion, and do not open MCP catalogs to find a substitute."
   )

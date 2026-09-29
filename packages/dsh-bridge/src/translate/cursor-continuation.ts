@@ -1,6 +1,13 @@
 import type { DshMessage } from "./context.js"
 
 const CHILD_NOTICE_KINDS = new Set(["agent-message", "subagent-settled"])
+const VISIBLE_REPLY_ECHO = "dsh-visible-reply-echo"
+
+export type ChildNoticeContinuation = {
+  reason: string
+  visibleReply: string
+  replayState: { response: { ocp: typeof VISIBLE_REPLY_ECHO } }
+}
 
 function isToolResult(message: DshMessage): boolean {
   return message.role === "user" && message.source?.kind === "tool"
@@ -37,13 +44,18 @@ function childNoticeKind(message: DshMessage): string {
   return "child-notice"
 }
 
+function isVisibleReplyEcho(message: DshMessage): boolean {
+  const replay = message.source?.replayState as { response?: { ocp?: unknown } } | undefined
+  return replay?.response?.ocp === VISIBLE_REPLY_ECHO
+}
+
 /**
  * Cursor-specific DSH continuation suppression. After a text-only stop, DSH
- * may wake the parent again for child relay/settled notices; reopening Cursor
- * for that notice produces a duplicate wait-for-continue banner. Keep this in
- * OCP and activate it only for the explicitly matched Cursor package.
+ * may wake the parent again for child relay/settled notices. Preserve that
+ * reply as the new final visible answer without reopening Cursor; DSH folds
+ * the earlier step into the completed Turn's process.
  */
-export function cursorSilentChildNoticeReason(messages: readonly DshMessage[]): string | undefined {
+export function cursorChildNoticeContinuation(messages: readonly DshMessage[]): ChildNoticeContinuation | undefined {
   let lastAssistant = -1
   for (let i = messages.length - 1; i >= 0; i--) {
     if (messages[i]!.role === "assistant") {
@@ -62,5 +74,18 @@ export function cursorSilentChildNoticeReason(messages: readonly DshMessage[]): 
   }
   if (trailing.length === 0) return undefined
   if (!trailing.every(isChildNotice)) return undefined
-  return trailing.map(childNoticeKind).join("+")
+  const visibleReply = isVisibleReplyEcho(messages[lastAssistant]!) ? "" : messages[lastAssistant]!.content
+    .filter(block => block?.type === "text" && typeof block.text === "string")
+    .map(block => block.text as string)
+    .join("\n")
+  return {
+    reason: trailing.map(childNoticeKind).join("+"),
+    visibleReply,
+    replayState: { response: { ocp: VISIBLE_REPLY_ECHO } },
+  }
+}
+
+/** The echo is for DSH Chat presentation only; it is not another model turn. */
+export function removeVisibleReplyEchoes(messages: readonly DshMessage[]): DshMessage[] {
+  return messages.filter(message => message.role !== "assistant" || !isVisibleReplyEcho(message))
 }

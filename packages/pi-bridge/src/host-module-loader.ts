@@ -5,12 +5,46 @@ import { fileURLToPath } from "node:url"
 import type { PiExtensionApi } from "./pi-provider-types.js"
 
 const MODULE_STORE = Symbol.for("opencode.compat.pi-bridge.module-store")
+const PROVIDER_GRAPHS = Symbol.for("opencode.compat.pi-bridge.provider-graphs")
 
 type ModuleStore = Map<string, Record<string, unknown>>
 
 function moduleStore(): ModuleStore {
   const globals = globalThis as typeof globalThis & { [MODULE_STORE]?: ModuleStore }
   return globals[MODULE_STORE] ??= new Map()
+}
+
+type ProviderGraph = Record<string, unknown>
+type ProviderGraphCache = Map<string, Promise<ProviderGraph | undefined>>
+
+/**
+ * Child agents bind the extension again and can replace the host's process-wide
+ * API registration. Keep provider module identity stable across those bindings:
+ * a new trampoline graph would strand the parent's in-memory pending tool calls.
+ * As with normal ESM imports, rebuilt provider code takes effect after restart.
+ */
+function loadProviderGraphThroughHost(
+  pi: PiExtensionApi,
+  entries: Record<string, string>,
+  cwd: string,
+): Promise<ProviderGraph | undefined> {
+  const globals = globalThis as typeof globalThis & { [PROVIDER_GRAPHS]?: ProviderGraphCache }
+  const cache = globals[PROVIDER_GRAPHS] ??= new Map()
+  const canonical = Object.entries(entries).map(([name, entry]) => [name, realpathSync(entry)] as const)
+  const key = JSON.stringify(canonical)
+  const existing = cache.get(key)
+  if (existing) return existing
+  const loading = loadStaticSpecifiersThroughHost(pi, Object.fromEntries(
+    canonical.map(([name, entry]) => [name, (dir: string) => relativeImport(dir, entry)]),
+  ), cwd).then(result => {
+    if (!result && cache.get(key) === loading) cache.delete(key)
+    return result
+  }, error => {
+    if (cache.get(key) === loading) cache.delete(key)
+    throw error
+  })
+  cache.set(key, loading)
+  return loading
 }
 
 function packageName(specifier: string): string {
@@ -154,7 +188,8 @@ export function loadModuleThroughHost(
   } catch {
     return Promise.resolve(undefined)
   }
-  return loadStaticSpecifierThroughHost(pi, dir => relativeImport(dir, entry), cwd)
+  return loadProviderGraphThroughHost(pi, { root: entry }, cwd)
+    .then(modules => modules?.root as Record<string, unknown> | undefined)
 }
 
 /** Resolve a sibling export from the exact provider installation used for its root entry. */
@@ -199,9 +234,9 @@ export async function loadProviderWithSubpathThroughHost(
   if (!subpathEntry) return undefined
   const rootEntry = resolveProviderRootEntry(pi, providerSpecifier, cwd)
   if (!rootEntry) return undefined
-  const modules = await loadStaticSpecifiersThroughHost(pi, {
-    root: dir => relativeImport(dir, rootEntry),
-    subpath: dir => relativeImport(dir, subpathEntry),
+  const modules = await loadProviderGraphThroughHost(pi, {
+    root: rootEntry,
+    subpath: subpathEntry,
   }, cwd)
   if (!modules?.root || !modules.subpath) return undefined
   return {
