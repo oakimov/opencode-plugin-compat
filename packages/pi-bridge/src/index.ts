@@ -74,7 +74,7 @@ export type {
 } from "@opencode-compat/opencode-loader"
 
 // Translation
-export { normalizeSystemPrompt, translateContextToPrompt, translateToolChoice, translateTools, type ToolSchemaFn } from "./translate/context.js"
+export { normalizeSystemPrompt, resolvePiProviderContext, systemPromptFromPiMessages, toolsFromPiMessages, translateContextToPrompt, translateToolChoice, translateTools, type ToolSchemaFn } from "./translate/context.js"
 export { emptyUsage, runV3StreamToPi } from "./translate/stream.js"
 export {
   asTranslatedCalls,

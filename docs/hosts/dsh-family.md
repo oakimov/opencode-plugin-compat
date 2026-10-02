@@ -16,7 +16,7 @@ Instead, `@opencode-compat/dsh-bridge` is a **Cordis plugin** (`name`/`inject`/`
 | model catalog | `config` hook — `config.provider[id].models`, models.dev entry shape, variant `effort` → DSH ACP `reasoningEffort` |
 | API key | `CredentialRef` env name (`CURSOR_API_KEY`, `DEVIN_API_KEY` — native, not `DSH_`-prefixed) via `ctx.credentials.resolve`, then the plugin `auth.loader` |
 | streaming | `createXxx()` AI-SDK V3 factory (`doStream`) → `StreamChunk` |
-| session affinity | `GenerateOptions.sessionId` (DSH-native) → V3 `headers["x-opencode-session"]` |
+| session affinity | `GenerateOptions.sessionId` (DSH-native) → V3 `headers["x-opencode-session-id"]` |
 
 Host variance is **data** (`DshHostProfile` single `dsh` profile) — same rule as `HostProfile`/`PiHostProfile`.
 

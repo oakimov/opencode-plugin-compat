@@ -3,15 +3,15 @@
  * Oriented on `packages/pi-bridge/src/register.ts`.
  */
 import {
-  createLoaderRunner,
   createPluginInputStub,
   derivePackageName,
   extractModelsFromConfigHook,
   inspectOpenCodePluginModule,
   instantiateHooks,
   loadOpenCodePluginModule,
+  loadProviderOptions,
+  mergeFactoryOptions,
   openCodeAuthFromResolvedKey,
-  substituteApiKey,
   type OpenCodeAuth,
   type OpenCodeHooks,
 } from "@opencode-compat/opencode-loader"
@@ -147,7 +147,6 @@ export async function registerDshPlugin(
 
   // Credentials: native ref name (env CredentialRef, not a secret).
   const credentialRef = spec.apiKey
-  const runLoader = authHook?.loader ? createLoaderRunner(authHook, stub.store) : undefined
 
   const resolveCredential = credentialRef
     ? async (ref: string, _signal?: AbortSignal): Promise<string | undefined> => {
@@ -156,21 +155,30 @@ export async function registerDshPlugin(
       }
     : undefined
 
-  const preparedCredential = async (resolved: string | undefined): Promise<string | undefined> => {
-    if (authHook && runLoader) {
+  const preparedCredential = async (resolved: string | undefined): Promise<{
+    key: string | undefined
+    loaderOptions: Record<string, unknown>
+  }> => {
+    let auth: OpenCodeAuth | undefined
+    if (authHook) {
       const stored = await stub.store.get()
       const storedKey = stored?.type === "oauth" ? stored.access : stored?.type === "api" ? stored.key : undefined
       if (resolved) {
-        const auth = stored && storedKey === resolved
+        auth = stored && storedKey === resolved
           ? stored
           : openCodeAuthFromResolvedKey(authHook, resolved, spec.preferAuthMethod)
-        await runLoader(auth)
-      } else if (stored) {
-        await runLoader(stored)
+      } else {
+        auth = stored
       }
     }
+    // Single auth.loader call: warms credential-dependent catalogs and yields
+    // any factory options (including getAccessToken after provider #35).
+    const loaderOptions = await loadProviderOptions(authHook, stub.store, auth)
     const current = await stub.store.get()
-    return credentialFromAuth(current) ?? resolved
+    return {
+      key: credentialFromAuth(current) ?? resolved,
+      loaderOptions,
+    }
   }
 
   // Drive auth.loader before the catalog read when a credential is already
@@ -217,8 +225,12 @@ export async function registerDshPlugin(
     providerOptionsKey,
     resolveCredential: credentialRef ? (ref) => resolveCredential!(ref as string) : undefined,
     getLanguageModel: async (modelId, apiKey) => {
-      const key = await preparedCredential(apiKey)
-      const options = substituteApiKey(spec.createOptions ?? { apiKey: "$apiKey" }, key) as Record<string, unknown>
+      const prepared = await preparedCredential(apiKey)
+      const options = mergeFactoryOptions({
+        createOptions: spec.createOptions,
+        apiKey: prepared.key,
+        loaderOptions: prepared.loaderOptions,
+      })
       const provider = await (loaded.factory as any)(options)
       const call = getCallData(modelId)
       return provider.languageModel(call?.variant.baseId ?? modelId)

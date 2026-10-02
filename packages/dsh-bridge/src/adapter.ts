@@ -130,11 +130,12 @@ export class DshLlmAdapter extends LlmAdapter {
         : prepared.tools
       const tools = translateTools(visibleTools, toolInputs)
 
-      // Session affinity: DSH native sessionId → V3 headers x-opencode-session (like pi-bridge bridge.ts:66)
+      // Session affinity: DSH native sessionId → requesting-session header.
+      // Skip on a zero-tool call: Cursor waits for a sibling catalog when it
+      // sees a session key with tools=[], and DSH generate is sequential.
       const headers: Record<string, string> = {}
-      if (options.sessionId) {
-        headers["x-opencode-session"] = options.sessionId
-        headers["x-session-id"] = options.sessionId
+      if (options.sessionId && (tools?.length ?? 0) > 0) {
+        headers["x-opencode-session-id"] = options.sessionId
       }
 
       const base: LanguageModelV3CallOptions = {

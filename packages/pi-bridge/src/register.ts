@@ -29,9 +29,10 @@ import {
   inspectOpenCodePluginModule,
   instantiateHooks,
   loadOpenCodePluginModule,
+  loadProviderOptions,
+  mergeFactoryOptions,
   openCodeAuthFromResolvedKey,
   optionsForLevel,
-  substituteApiKey,
   type ModelCallData,
   type OpenCodeHooks,
   type PiModelConfig,
@@ -210,7 +211,22 @@ export async function registerOpenCodePlugin(
       ? { excludedToolNames: registration.excludedToolNames }
       : {}),
     getLanguageModel: async (modelId, apiKey) => {
-      const options = substituteApiKey(spec.createOptions ?? { apiKey: "$apiKey" }, apiKey) as Record<string, unknown>
+      // Ask auth.loader for the provider options OpenCode would merge into
+      // createXxx. cursor-opencode-provider #36 returns getAccessToken there so
+      // each Run renews; older loaders that only return static fields keep working.
+      let auth = await stub.store.get()
+      if (apiKey && authHook) {
+        const storedKey = auth?.type === "oauth" ? auth.access : auth?.key
+        auth = auth && storedKey === apiKey
+          ? auth
+          : openCodeAuthFromResolvedKey(authHook, apiKey, spec.preferAuthMethod)
+      }
+      const loaderOptions = await loadProviderOptions(authHook, stub.store, auth)
+      const options = mergeFactoryOptions({
+        createOptions: spec.createOptions,
+        apiKey,
+        loaderOptions,
+      })
       const provider = await loaded.factory(options)
       // Variant entries carry synthetic ids (e.g. `grok-4.6-fast`); the plugin
       // only knows the base model, so resolve back to it.

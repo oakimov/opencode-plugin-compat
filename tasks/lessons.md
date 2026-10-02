@@ -2,6 +2,42 @@
 
 Corrections and durable takeaways for this repo.
 
+## 2026-10-02 — cursor-opencode-provider #34 / #36 need OCP header + factory-option prep
+
+- **#34 (merged):** Cursor keys conversations on `x-opencode-session-id` first.
+  OpenCode 2.x still sends `x-session-id` / `x-session-affinity` /
+  `x-opencode-session` as parent/fork cache affinity, so injecting or preferring
+  those older names makes a subagent take over its parent's Cursor conversation.
+  Pi/DSH must emit `x-opencode-session-id`; the clone adapter must read it first
+  for catalog epochs while still accepting the older spellings as fallbacks.
+- **#36 (about to merge):** Cursor's `auth.loader` returns `getAccessToken` instead
+  of a static token in factory options, so each Run can renew and retry 401s.
+  Pi/DSH previously called `createXxx({ apiKey })` and discarded loader options.
+  Merge `auth.loader`'s return into factory options (and drop static
+  `apiKey`/`accessToken` when `getAccessToken` is present) so unchanged providers
+  renew on non-OpenCode hosts the same way OpenCode does.
+- **Pi sequential + Cursor catalog wait:** A zero-tool first `streamSimple` with
+  `x-opencode-session-id` hangs in `waitForSiblingToolCatalog` because Pi never
+  starts the sibling full-catalog call until the first stream ends. Omit session
+  affinity on empty-tool Pi/DSH calls so title/lifecycle completes; keep the
+  header on tool-bearing turns.
+- **earendil Pi strips `context.tools`:** `model-runtime.streamSimple` runs
+  `normalizeContext` first — `systemPrompt` + `tools` become a leading
+  `role:"system"` message with `toolsAdded`. Custom providers then see only
+  `{ messages }`. Without reconstructing via `resolvePiProviderContext`, Cursor
+  gets `tools=0` / `allowTools=false`, refuses exec as “summary/compaction”, and
+  the model narrates that tools are unavailable. omp still passes classic
+  Context fields; leave those untouched.
+- **Pi self-verify without subagent:** stock Pi often omits `task`/`subagent`.
+  Cursor can still raise native Task → provider refuse. Do **not** soft-deny in
+  the provider (host-blind). Fix is guide-only: T5 `skipped`, continue steps
+  7/10. Never edit consumer providers for OCP host gaps.
+- **Pi self-verify plan stall:** Pi has no `plan_enter` / stage UI. Provider
+  still auto-approves Cursor SwitchMode→plan (`provider-owned fallback`) and
+  acknowledges CreatePlan; the checklist then waits for a human review Pi
+  never shows. Guide: skip P1/P2 on Pi; do not enter Cursor plan mode without
+  a host plan tool or review surface.
+
 ## 2026-09-30 — MiMo todowrite create must `start` in_progress rows in the same fan-out
 
 - Self-verify T4a/T4b failed: provider EMITTED `todowrite` with `ocp-sv-a`
@@ -166,7 +202,7 @@ Corrections and durable takeaways for this repo.
 - **Translate lifecycle semantics as well as task argument names.** When a live host requires a terminal result tool, a compatibility bridge must adapt a provider's normal final stop into that tool call. Gate the behavior on host-profile data plus the live catalog, and never synthesize success for empty, errored, truncated, or real tool-call turns.
 - **Canonical unstructured results must override specialist schemas.** OMP's bundled `scout` and other specialists may impose structured output, but OpenCode's canonical `task` result is plain text. Passing OMP's unconstrained `outputSchema` override prevents a correctly delivered text result from being reclassified as `schema_violation`.
 - **Preserve the initiator of asynchronous custom messages across role-limited protocols, but match the semantic envelope too.** OMP converts custom messages to the Pi `developer` role but retains `attribution: "agent"`. Treating every developer message as system context buried a delivered subagent result while leaving the original request as the provider's newest user turn, so the parent repeated the workflow and spawned duplicate scouts. Conversely, promoting every agent-attributed developer message can demote genuine developer guidance. Promote only OMP's background-job completion envelope; keep every other developer instruction as system context.
-- **A translated prompt is not enough for a stateful provider; preserve session affinity too.** Both Pi hosts pass a stable provider `sessionId` in `SimpleStreamOptions`. Dropping it made each asynchronous parent wake look like a fresh provider conversation, whose lossy seed-history reconstruction could re-emit already completed tool calls. Forward the host identity through the namespaced `x-opencode-session` header unless the caller supplied an explicit affinity header; a generic `x-session-id` can have unrelated provider semantics.
+- **A translated prompt is not enough for a stateful provider; preserve session affinity too.** Both Pi hosts pass a stable provider `sessionId` in `SimpleStreamOptions`. Dropping it made each asynchronous parent wake look like a fresh provider conversation, whose lossy seed-history reconstruction could re-emit already completed tool calls. Forward the host identity through `x-opencode-session-id` (the requesting session) unless the caller supplied an explicit affinity header; older `x-opencode-session` / `x-session-id` / `x-session-affinity` spellings are OpenCode 2.x parent/fork cache affinity and must not be the default injection target (cursor-opencode-provider #34).
 - **Strict host schemas need profile-driven spelling aliases at the last boundary.** OMP's hub requires `op`, while an OpenCode-oriented model emitted `action`. Translate declared aliases such as `action` → `op` immediately before host execution, let an explicit native field win, and never weaken the host schema.
 - **An opaque provider protocol cannot be repaired after `doStream`.** Cursor's dedicated `list_mcp_resources_exec_args` / `read_mcp_resource_exec_args` requests carry their arguments and correlated result channel inside the consumer provider. If that provider advertises but does not parse them, `pi-bridge` receives only a thrown error—not a tool call or URI. The generic bridge must not guess or vendor provider-specific wire parsing; implement the request/result pair in the provider that owns it.
 - **Argument aliases are not enough when host schemas change shape.** Pi's `edit` requires `path` plus `edits: [{ oldText, newText }]`, while OpenCode-oriented models may emit flat `filePath`/`oldString`/`newString`. Keep the host schema strict and convert the complete structure at the final host boundary; renaming only `filePath` leaves Pi's required `edits` field missing.

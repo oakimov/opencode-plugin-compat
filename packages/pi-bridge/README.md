@@ -10,6 +10,12 @@ package, so the facade→native-plugin delegation OCP uses for OpenCode forks
 extension seam, `pi.registerProvider(...)`, and translates between AI-SDK's
 `doStream` protocol and the host's `Context` / `AssistantMessageEvent` stream.
 
+On **pi** (earendil), `model-runtime.streamSimple` runs `normalizeContext` before
+the custom provider: `systemPrompt` + `tools` become a leading `role:"system"`
+message with `toolsAdded` / `toolsRemoved`. The bridge reconstructs the classic
+Context fields via `resolvePiProviderContext` so providers still see a tool
+catalog. **omp** still passes `{ systemPrompt, tools, messages }` directly.
+
 ## Adding a provider
 
 ```json
@@ -252,10 +258,17 @@ split conversation history from the latest user message do not restart the
 original workflow or spawn duplicate agents. Ordinary developer messages remain
 system context.
 
-The host's stable provider `sessionId` is also forwarded as the namespaced
-`x-opencode-session` (unless the caller already supplied an OpenCode
-session-affinity header). This
-lets stateful OpenCode providers retain their conversation/checkpoint across
+The host's stable provider `sessionId` is also forwarded as the requesting-session
+header `x-opencode-session-id` on calls that advertise tools (unless the caller
+already supplied an OpenCode session-affinity header). Zero-tool lifecycle calls
+(title generation) omit it: Cursor waits for a sibling full catalog when it sees
+a session key with `tools=[]`, and Pi's `streamSimple` is sequential, so that
+wait never completes. Older `x-opencode-session` / `x-session-id` /
+`x-session-affinity` spellings remain recognized as explicit affinity so a host
+that already set them is not overwritten; cooperating providers such as
+cursor-opencode-provider key conversations on `x-opencode-session-id` first
+because OpenCode 2.x reuses the older names for parent/fork cache affinity.
+This lets stateful OpenCode providers retain their conversation/checkpoint across
 ordinary Pi tool turns and asynchronous parent resumptions.
 OMP provider modules are loaded once per canonical installation and reused
 when child agents bind the bridge. This preserves pending tool calls when a

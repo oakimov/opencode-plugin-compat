@@ -94,6 +94,19 @@ use the shell for the explicit shell check or only when no dedicated capability
 exists. Copy argument names from the chosen tool's own schema. Never call a
 tool name merely because this guide or another harness mentions it.
 
+**Optional capabilities must not abort the run.** Ask, full-list todo, helper
+agent, and plan/mode are optional per host. If the **host tool catalog** does
+not list that capability, or a Cursor-native call for it is refused because no
+host executor is advertised, mark the matching score row `skipped` and
+**continue the next step immediately**. Do not stop early, do not fail the
+whole checklist, and do not retry the refused name. Steps 7 and 10 are always
+required when earlier optional steps were skipped.
+**When the host catalog does list the capability, you must exercise it** — do
+not skip an advertised ask / todowrite / task / plan tool.
+**Plan/mode exception:** Cursor-native SwitchMode/CreatePlan without a host
+plan tool or host review UI is not a completable capability — skip P1/P2
+instead of entering plan and waiting forever.
+
 Stay under an identity-free scratch directory you create (for example
 `/tmp/ocp-cursor-self-verify/`, with a random non-identifying suffix if needed).
 Do not edit this repo, the host source, or the
@@ -101,8 +114,10 @@ provider checkout. When the UI needs a human choice, stop and wait — then
 resume the **next unfinished** step (do not restart finished work). Host aliases
 are expected: score the capability exercised, not one spelling of its name.
 Cursor-native interactions may not appear as ordinary catalog tools; use them
-only when the selected Cursor model actually makes them available, and let OCP
-perform the host translation.
+only when the selected Cursor model actually makes them available **and** a
+compatible host executor (or bridged interaction named in this guide) exists.
+A Cursor-native Task/Ask/todo chrome alone is not enough when the host catalog
+has no matching tool — that path will be refused; skip that row instead.
 
 Do not print tokens, credentials, cookies, real session ids, user names, home
 directories, or private checkout/workspace paths. When citing a transcript or
@@ -174,7 +189,9 @@ workflow or speculating about asynchronous timing.
    `ocp-sv-b`, `ocp-sv-c`. Use only status values the schema allows. Always
    send the **entire** list. If you already finished 5f earlier in this
    session (including before an interrupt), do not restart — continue later
-   steps. If no full-list tool exists, skip every T4* row.
+   steps. If no full-list tool exists in the **host catalog**, skip every T4*
+   row and continue (Cursor-native todo chrome without a host list tool does
+   not count).
 
    **5a create**
    ```json
@@ -222,26 +239,44 @@ workflow or speculating about asynchronous timing.
    `ocp-sv-a` / `ocp-sv-b` / `ocp-sv-c` has none of them `pending` or
    `in_progress` (`cancelled` may be omitted). Same list tool for every update.
 
-6. **Helper agent** — If the session advertises a helper/subagent capability,
-   have one helper read `hello.txt` and return the text. Prefer the spawn result
-   or auto-delivered output. Use a status/wait capability only if the helper is
-   clearly stuck with no result. Skip if no helper capability exists.
+6. **Helper agent** — Only when the **host tool catalog** lists a helper
+   executor (`task`, `subagent`, or an obvious host alias for the same
+   spawn capability). Have one helper read `hello.txt` and return the text.
+   Prefer the spawn result or auto-delivered output. Use a status/wait
+   capability only if the helper is clearly stuck with no result.
+   Cursor-native Task alone does **not** count — without a host executor it is
+   refused. If the catalog has no helper tool, or a Task/helper call returns
+   unavailable/refused, mark T5 `skipped` immediately and continue to step 7.
+   Do not abort the checklist, do not retry Task, and do not fail the run for
+   a missing optional helper.
 
 7. **Short follow-up** — End this assistant turn by asking in chat:
    `Reply continue to run steps 8–10.` Stop and wait for a new user message.
-   Step 4 already exercises the interactive question tool; its answer is a
-   tool result and does not create the user-turn boundary needed for this
+   Always reach this prompt after steps 1–6, including when optional steps were
+   skipped. Step 4 already exercises the interactive question tool; its answer
+   is a tool result and does not create the user-turn boundary needed for this
    cache check. When the new `continue` message arrives, acknowledge it briefly
    and continue steps 8–10. Do not restart completed steps.
 
-8. **Plan / mode** — If this Cursor model and session expose a genuine plan,
-   review, or mode-switch capability (including a Cursor-native interaction),
-   use the workflow available in this session. For plan review, design a tiny
-   one-file scratch change, present it through that workflow, and wait for
-   the human. For a mode-only capability, exercise the mode transition and
-   any confirmation it requires; do not invent a stage tool or plan URI.
-   Skip if neither capability exists. Never call a hidden bridge target or
-   an unadvertised name directly.
+8. **Plan / mode** — Only when this session can complete a real human review or
+   mode transition on **this host**. That means at least one of:
+   - a host-catalog tool such as `plan_enter` / `plan_exit` / `cursor_plan_stage`
+     (or an obvious host alias), or
+   - a harness-documented review surface that a human can actually answer here
+     (OMP stage overlay, DSH `exit_plan_mode` review, OpenCode plan/build agents).
+
+   Cursor-native SwitchMode / CreatePlan alone are **not** enough when the host
+   catalog has no plan tool and no stage/review UI — the provider may
+   auto-acknowledge them (`provider-owned fallback`) while the human never gets
+   a review prompt, and the checklist stalls. In that case mark P1/P2 `skipped`
+   and continue to step 9. Do not enter plan mode, do not call CreatePlan, and
+   do not wait for an approval that this host cannot surface.
+
+   When a real plan/review/mode capability exists, design a tiny one-file
+   scratch change, present it through that workflow, and wait for the human.
+   For a mode-only capability, exercise the mode transition and any
+   confirmation it requires; do not invent a stage tool or plan URI. Never
+   call a hidden bridge target or an unadvertised name directly.
 
    Record the actual tool/interaction, its call id if exposed (privately),
    the human choice, and the returned outcome/status in the host's own format.
@@ -258,6 +293,8 @@ workflow or speculating about asynchronous timing.
      directly using its schema and the URI returned by plan entry, or reached
      through native CreatePlan. It waits on the review overlay. OMP's
      `plan_exit` does not substitute for this stage review. Apply P2 below.
+   - **Pi (and any host without plan tools / stage UI):** skip step 8 / P1 / P2.
+     Do not use Cursor SwitchMode→plan or CreatePlan here.
    - **Other harnesses:** use their advertised/native review or mode workflow
      and score P1. A `question` approval, a genuine native `plan_exit` review,
      or a primary-agent switch need not emit stage logs or OMP result fields.
@@ -306,11 +343,11 @@ and conversation; its cold first Run is expected and is not a parent remint.
 | T1 | Scratch file / search / shell work succeeded |
 | T2 | No schema rejection on the args you copied; if a working-directory field exists, step 3’s `pwd` used it and printed the scratch dir; dedicated search/list capabilities were used when advertised; exercise work used this session’s best available tools |
 | T3 | Ask-user step completed, or honestly skipped only when no ask tool existed |
-| T4a–T4f | Matching 5a–5f outcomes (all required when a full-list tool exists); lifecycle once. **Failed** if the last snapshot that still names `ocp-sv-a` / `ocp-sv-b` / `ocp-sv-c` leaves any of them `pending` or `in_progress`, even when a later call is `{ "todos": [] }` |
-| T5 | Helper agent ran, or honestly skipped |
+| T4a–T4f | Matching 5a–5f outcomes (all required when a full-list **host** tool exists); lifecycle once. **Skipped** when the host catalog has no full-list todo tool (Cursor-native todo chrome alone is not enough). **Failed** if the last snapshot that still names `ocp-sv-a` / `ocp-sv-b` / `ocp-sv-c` leaves any of them `pending` or `in_progress`, even when a later call is `{ "todos": [] }` |
+| T5 | Helper ran via a host-advertised `task`/`subagent` (or alias), or honestly skipped when none was advertised / Task was refused unavailable. A refused Task without a host executor is skip evidence, not a run failure |
 | T6 | Nothing required the provider to import `@opencode-compat/*` |
-| T7 | You did not mark pass/skip while the opposite is true (an advertised capability was skipped, todo lifecycle replayed, an unadvertised name was guessed, or a lower-quality substitute was used while the dedicated tool was available) |
-| P1 | The available plan/review/mode workflow matches the human's choice, using that host's result format; no implementation without execution approval. Skip if absent |
+| T7 | You did not mark pass/skip while the opposite is true (an advertised capability was skipped, todo lifecycle replayed, an unadvertised name was guessed, or a lower-quality substitute was used while the dedicated tool was available). Checking the catalog and skipping — or one refused unavailable Cursor-native Task followed by an immediate T5 skip — is not a T7 failure |
+| P1 | The available plan/review/mode workflow matches the human's choice, using that host's result format; no implementation without execution approval. **Skipped** when the host has no plan tool and no review UI (Cursor SwitchMode/CreatePlan alone on Pi is not enough) |
 | P2 | Stage-capability review only: apply the procedure below when `cursor_plan_stage` is advertised; otherwise skip. Other plan/mode workflows are covered by P1 |
 | P3 | Every emitted tool/interaction belonged to the selected Cursor model's advertised or native capability set; no Devin-specific tool contract was assumed |
 | H1 | Provider checkout not written |

@@ -530,7 +530,7 @@ describe("adaptLanguageModel / wrapProvider*", () => {
     const adapted = adaptLanguageModel(model, policyFromProfile(profile), profile)
     const signal = new AbortController().signal
     const shared = {
-      headers: { "x-opencode-session": "same-session", "x-provider": "generic" },
+      headers: { "x-opencode-session-id": "same-session", "x-provider": "generic" },
       providerOptions: { generic: { session: "same-session" } },
       abortSignal: signal,
       prompt: [],
@@ -584,7 +584,7 @@ describe("adaptLanguageModel / wrapProvider*", () => {
       },
     }
     const adapted = adaptLanguageModel(model, policyForHostId("opencode"))
-    const headers = { "x-opencode-session": "stable-prefix" }
+    const headers = { "x-opencode-session-id": "stable-prefix" }
 
     await adapted.doGenerate({
       headers,
@@ -625,7 +625,7 @@ describe("adaptLanguageModel / wrapProvider*", () => {
       },
     }
     const wrapped = wrapProviderSdk(sdk, policyForHostId("opencode"))
-    const headers = { "x-opencode-session": "sdk-epoch" }
+    const headers = { "x-opencode-session-id": "sdk-epoch" }
     const first = wrapped.languageModel("a") as {
       doGenerate: (call: Record<string, unknown>) => Promise<unknown>
     }
@@ -656,6 +656,62 @@ describe("adaptLanguageModel / wrapProvider*", () => {
       "frozen m",
       "frozen z",
       "new a",
+    ])
+  })
+
+  test("keys catalog epochs on x-opencode-session-id ahead of parent affinity headers", async () => {
+    const seen: Array<Record<string, unknown>> = []
+    const model = {
+      async doGenerate(call: Record<string, unknown>) {
+        seen.push(call)
+        return { content: [] }
+      },
+    }
+    const adapted = adaptLanguageModel(model, policyForHostId("opencode"))
+
+    await adapted.doGenerate({
+      headers: {
+        "x-opencode-session-id": "ses_child",
+        "x-session-affinity": "ses_parent",
+        "x-opencode-session": "ses_parent",
+      },
+      tools: [
+        { name: "z", description: "child z" },
+        { name: "m", description: "child m" },
+      ],
+    })
+    await adapted.doGenerate({
+      headers: {
+        "x-opencode-session-id": "ses_parent",
+        "x-session-affinity": "ses_parent",
+      },
+      tools: [
+        { name: "a", description: "parent a" },
+        { name: "m", description: "parent m" },
+      ],
+    })
+    await adapted.doGenerate({
+      headers: {
+        "x-opencode-session-id": "ses_child",
+        "x-session-affinity": "ses_parent",
+      },
+      tools: [
+        { name: "a", description: "new child a" },
+        { name: "m", description: "changed child m" },
+        { name: "z", description: "changed child z" },
+      ],
+    })
+
+    const catalogs = seen.map(call => call.tools as Array<{ name: string; description: string }>)
+    // Child and parent freeze independent prefixes; the child's later call
+    // appends newcomers without adopting the parent's epoch.
+    expect(catalogs[0]?.map(tool => tool.name)).toEqual(["m", "z"])
+    expect(catalogs[1]?.map(tool => tool.name)).toEqual(["a", "m"])
+    expect(catalogs[2]?.map(tool => tool.name)).toEqual(["m", "z", "a"])
+    expect(catalogs[2]?.map(tool => tool.description)).toEqual([
+      "child m",
+      "child z",
+      "new child a",
     ])
   })
 

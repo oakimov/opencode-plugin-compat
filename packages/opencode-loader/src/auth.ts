@@ -16,6 +16,7 @@
  */
 import type { AuthStore } from "./host-stub.js"
 import type { OpenCodeAuth, OpenCodeAuthHook, OpenCodeAuthMethod, OpenCodeAuthPrompt, OpenCodeOAuthCallbackResult } from "./types.js"
+import { substituteApiKey } from "./load.js"
 
 /** Pi's `OAuthCredentials` (both hosts: `{access, refresh, expires}` + optional extras). */
 export type PiOAuthCredentials = {
@@ -268,4 +269,50 @@ export function createLoaderRunner(authHook: OpenCodeAuthHook, store: AuthStore)
     const next = await store.get()
     return next && next !== auth ? next : undefined
   }
+}
+
+function isPlainObject(value: unknown): value is Record<string, unknown> {
+  return value !== null && typeof value === "object" && !Array.isArray(value)
+}
+
+/**
+ * Run a plugin's `auth.loader` against the stub store and return whatever
+ * provider options it published (OpenCode merges those into the AI-SDK factory).
+ * Empty when there is no loader or no credential yet.
+ */
+export async function loadProviderOptions(
+  authHook: OpenCodeAuthHook | undefined,
+  store: AuthStore,
+  auth: OpenCodeAuth | undefined,
+): Promise<Record<string, unknown>> {
+  if (!authHook?.loader || !auth) return {}
+  await store.set(auth)
+  const result = await authHook.loader(async () => store.get())
+  return isPlainObject(result) ? result : {}
+}
+
+/**
+ * Build AI-SDK factory options the way OpenCode does: substitute `$apiKey` in
+ * the configured template, then overlay whatever `auth.loader` returned.
+ *
+ * When the loader hands back a live `getAccessToken` (cursor-opencode-provider
+ * #36), drop static `apiKey` / `accessToken` so per-Run renewal owns the
+ * credential instead of a frozen JWT captured at language-model creation.
+ */
+export function mergeFactoryOptions(input: {
+  createOptions?: Record<string, unknown>
+  apiKey?: string
+  loaderOptions?: Record<string, unknown>
+}): Record<string, unknown> {
+  const substituted = substituteApiKey(
+    input.createOptions ?? { apiKey: "$apiKey" },
+    input.apiKey,
+  )
+  const base = isPlainObject(substituted) ? { ...substituted } : {}
+  const merged = { ...base, ...(input.loaderOptions ?? {}) }
+  if (typeof merged.getAccessToken === "function") {
+    delete merged.apiKey
+    delete merged.accessToken
+  }
+  return merged
 }

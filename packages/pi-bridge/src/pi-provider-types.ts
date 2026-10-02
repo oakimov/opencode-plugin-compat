@@ -112,7 +112,28 @@ export type PiToolResultMessage = {
   [key: string]: unknown
 }
 
-export type PiMessage = PiUserMessage | PiDeveloperMessage | PiAssistantMessage | PiToolResultMessage
+/**
+ * Pi (earendil) `model-runtime.streamSimple` runs `normalizeContext` first:
+ * `systemPrompt` + `tools` become a leading `role:"system"` message with
+ * `toolsAdded` / later `toolsRemoved` deltas. Custom providers then see only
+ * `{ messages }` — reconstruct via {@link resolvePiProviderContext}.
+ */
+export type PiSystemMessage = {
+  role: "system"
+  content: string | PiTextOrImageContent[]
+  toolsAdded?: PiTool[]
+  toolsRemoved?: Array<{ name: string }>
+  sections?: Record<string, string | null>
+  timestamp?: number
+  [key: string]: unknown
+}
+
+export type PiMessage =
+  | PiUserMessage
+  | PiDeveloperMessage
+  | PiAssistantMessage
+  | PiToolResultMessage
+  | PiSystemMessage
 
 // ── Tools / context ──
 

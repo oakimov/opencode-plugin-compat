@@ -16,6 +16,7 @@ import type {
 import type {
   PiAssistantMessage,
   PiContextLike,
+  PiMessage,
   PiTextContent,
   PiTextOrImageContent,
   PiTool,
@@ -340,6 +341,75 @@ export function normalizeSystemPrompt(systemPrompt: string | string[] | undefine
   if (systemPrompt === undefined) return undefined
   const text = Array.isArray(systemPrompt) ? systemPrompt.filter(s => s.length > 0).join("\n\n") : systemPrompt
   return text.length > 0 ? text : undefined
+}
+
+function systemMessageText(content: string | PiTextOrImageContent[]): string {
+  if (typeof content === "string") return content
+  return content
+    .filter((block): block is PiTextContent => block.type === "text")
+    .map(block => block.text)
+    .join("\n")
+}
+
+/**
+ * Replay Pi's `getCurrentTools`: fold `toolsAdded` / `toolsRemoved` across
+ * every system message in transcript order.
+ */
+export function toolsFromPiMessages(messages: readonly PiMessage[]): PiTool[] {
+  const tools = new Map<string, PiTool>()
+  for (const message of messages) {
+    if (message.role !== "system") continue
+    for (const removed of message.toolsRemoved ?? []) tools.delete(removed.name)
+    for (const added of message.toolsAdded ?? []) tools.set(added.name, added)
+  }
+  return [...tools.values()]
+}
+
+/**
+ * Replay Pi's collapsed system prompt (content + named sections) from
+ * transcript system messages. Empty → undefined.
+ */
+export function systemPromptFromPiMessages(messages: readonly PiMessage[]): string | undefined {
+  const parts: string[] = []
+  const sections = new Map<string, string>()
+  for (const message of messages) {
+    if (message.role !== "system") continue
+    const text = systemMessageText(message.content)
+    if (text.length > 0) parts.push(text)
+    for (const [name, value] of Object.entries(message.sections ?? {})) {
+      if (value === null) sections.delete(name)
+      else sections.set(name, value)
+    }
+  }
+  for (const value of sections.values()) {
+    if (value.length > 0) parts.push(value)
+  }
+  const joined = parts.filter(part => part.length > 0).join("\n\n")
+  return joined.length > 0 ? joined : undefined
+}
+
+/**
+ * Restore classic `{ systemPrompt, tools, messages }` when the host already
+ * ran Pi's `normalizeContext` (earendil model-runtime) so custom providers
+ * only receive `{ messages }` with tools on system `toolsAdded`.
+ *
+ * omp / unit tests still pass the classic fields — leave those untouched.
+ */
+export function resolvePiProviderContext(context: PiContextLike): PiContextLike {
+  const needsTools = context.tools === undefined
+  const needsPrompt = context.systemPrompt === undefined
+  if (!needsTools && !needsPrompt) return context
+
+  const tools = needsTools ? toolsFromPiMessages(context.messages) : context.tools
+  const systemPrompt = needsPrompt ? systemPromptFromPiMessages(context.messages) : context.systemPrompt
+  const consumedSystem = (needsTools || needsPrompt) && context.messages.some(message => message.role === "system")
+  return {
+    systemPrompt,
+    tools,
+    messages: consumedSystem
+      ? context.messages.filter(message => message.role !== "system")
+      : context.messages,
+  }
 }
 
 /** Translate a host Context into an AI-SDK V3 `prompt` array (system + history). */

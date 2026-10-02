@@ -18,7 +18,7 @@ import type { LanguageModelV3, LanguageModelV3CallOptions, LanguageModelV3Stream
 import { loadPiRuntime, type PiRuntime } from "./host/runtime.js"
 import { renderApiKeyRef, type PiHostProfile } from "./host/profile.js"
 import type { PiModelConfig, PiOAuthConfig } from "@opencode-compat/opencode-loader"
-import { translateContextToPrompt, translateToolChoice, translateTools } from "./translate/context.js"
+import { translateContextToPrompt, translateToolChoice, translateTools, resolvePiProviderContext } from "./translate/context.js"
 import { emptyUsage, runV3StreamToPi } from "./translate/stream.js"
 import { buildPiSubagentVocabulary, buildPiTerminalResultVocabulary, buildPiToolInputVocabulary } from "./translate/subagent.js"
 import { buildPiQuestionVocabulary } from "./translate/question.js"
@@ -61,20 +61,38 @@ async function resolveApiKey(apiKey: unknown, signal: AbortSignal | undefined): 
   return String(apiKey)
 }
 
-const SESSION_AFFINITY_HEADERS = new Set(["x-session-id", "x-session-affinity", "x-opencode-session"])
+// Requesting-session id first (`x-opencode-session-id`), then older cache/
+// affinity spellings OpenCode 2.x still sends as the parent/fork source.
+const SESSION_AFFINITY_HEADERS = new Set([
+  "x-opencode-session-id",
+  "x-opencode-session",
+  "x-session-affinity",
+  "x-session-id",
+])
 
 /**
  * Preserve the Pi host's provider-session identity on the AI-SDK call.
  * OpenCode providers commonly use one of these headers to retain opaque
  * conversation/checkpoint state across tool loops and asynchronous wake-ups.
+ *
+ * Emit `x-opencode-session-id` by default: that is the requesting session.
+ * Older `x-opencode-session` / `x-session-id` / `x-session-affinity` values are
+ * OpenCode 2.x provider-cache affinity (often the parent), so keying on them
+ * alone makes a subagent take over its parent's conversation.
+ *
+ * Do not inject affinity on a zero-tool call. cursor-opencode-provider waits
+ * for a sibling full catalog when it sees a session key with tools=[], and Pi
+ * is sequential (one streamSimple at a time), so that wait never completes.
  */
-export function aiSdkHeadersFromPi(options: PiSimpleStreamOptions | undefined): Record<string, string> | undefined {
+export function aiSdkHeadersFromPi(
+  options: PiSimpleStreamOptions | undefined,
+  extras?: { hasTools?: boolean },
+): Record<string, string> | undefined {
   const headers = options?.headers ? { ...options.headers } : {}
   const hasExplicitAffinity = Object.keys(headers).some(name => SESSION_AFFINITY_HEADERS.has(name.toLowerCase()))
-  // Use OCP's namespaced header by default. It is understood by cooperating
-  // OpenCode providers and is less likely than the generic x-session-id to be
-  // forwarded to an unrelated upstream API with provider-specific semantics.
-  if (!hasExplicitAffinity && options?.sessionId) headers["x-opencode-session"] = options.sessionId
+  if (!hasExplicitAffinity && extras?.hasTools !== false && options?.sessionId) {
+    headers["x-opencode-session-id"] = options.sessionId
+  }
   return Object.keys(headers).length > 0 ? headers : undefined
 }
 
@@ -100,23 +118,26 @@ export function buildStreamSimple(spec: AiSdkProviderSpec, runtime: PiRuntime) {
       try {
         const apiKey = await resolveApiKey(options?.apiKey, options?.signal)
         const lm = await spec.getLanguageModel(model.id, apiKey)
+        // earendil pi folds tools+systemPrompt into system messages before calling
+        // custom streamSimple; omp still passes the classic Context fields.
+        const resolved = resolvePiProviderContext(context)
         const excluded = new Set(spec.excludedToolNames ?? [])
         const providerTools = excluded.size === 0
-          ? context.tools
-          : context.tools?.filter(tool => !excluded.has(tool.name))
+          ? resolved.tools
+          : resolved.tools?.filter(tool => !excluded.has(tool.name))
         const vocabulary = buildPiSubagentVocabulary(providerTools, runtime.toolSchema, runtime.profile)
         const toolInputs = buildPiToolInputVocabulary(providerTools, runtime.profile, runtime.toolSchema)
         const question = buildPiQuestionVocabulary(providerTools, runtime.profile)
         const terminalResult = buildPiTerminalResultVocabulary(providerTools, runtime.profile)
         const translatedTools = translateTools(providerTools, runtime.toolSchema, vocabulary, toolInputs, question, terminalResult)
         const base: LanguageModelV3CallOptions = {
-          prompt: translateContextToPrompt(context, vocabulary, runtime.profile, toolInputs, question, excluded),
+          prompt: translateContextToPrompt(resolved, vocabulary, runtime.profile, toolInputs, question, excluded),
           tools: translatedTools,
           toolChoice: translateToolChoice(options?.toolChoice, vocabulary, toolInputs, question),
           abortSignal: options?.signal,
-          headers: aiSdkHeadersFromPi(options),
+          headers: aiSdkHeadersFromPi(options, { hasTools: (translatedTools?.length ?? 0) > 0 }),
         }
-        const callOptions = spec.buildCallOptions ? await spec.buildCallOptions({ model, context, options, base }) : base
+        const callOptions = spec.buildCallOptions ? await spec.buildCallOptions({ model, context: resolved, options, base }) : base
         const allowedProviderToolNames = new Set(
           (callOptions.tools ?? []).flatMap(tool =>
             "name" in tool && typeof tool.name === "string" ? [tool.name] : []

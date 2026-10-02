@@ -37,7 +37,7 @@ Only `package` is required. Optional fields match the Pi-family spec shape
 | model catalog | `config` hook — `config.provider[id].models` |
 | API key | `apiKey` CredentialRef env name via `ctx.credentials.resolve`, then the plugin `auth.loader`, before the catalog read and each factory call |
 | streaming | `createXxx()` AI-SDK V3 factory (`doStream`) |
-| session affinity | DSH `GenerateOptions.sessionId` → V3 `headers["x-opencode-session"]` |
+| session affinity | DSH `GenerateOptions.sessionId` → V3 `headers["x-opencode-session-id"]` |
 | effort variants | plugin `variants` / `effort` → `LlmResolvedModelInfo.reasoning` |
 
 The Models list is the `dsh-bridge` settings section (same shape as
@@ -69,9 +69,9 @@ and cannot see the OCP Bun workspace — `workspace:*` fails with
 `ERR_PNPM_WORKSPACE_PKG_NOT_FOUND` (0.4.1). `bump-version.ts` rewrites the pin.
 
 `peerDependencies` on `@deepseek-ai/dsh-*` are checked against the **dsh product
-runtime version** (today `0.1.x`), not the published major of that package.
-Use a `0.1`-compatible range (e.g. `>=0.1.0`); `>=1.0.0` makes
-`dsh plugin add` reject the install as incompatible.
+runtime version** (today `0.1.x` / `0.2.x`), not the published major of that
+package. Use a product-compatible range (e.g. `>=0.1.0`); `>=1.0.0` or a
+`^0.1`-only pin makes `dsh plugin add` reject newer `0.2.x` runtimes.
 
 Do not run `ocp setup` against DSH.
 

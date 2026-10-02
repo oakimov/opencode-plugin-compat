@@ -8,7 +8,7 @@
  */
 import { describe, expect, test } from "bun:test"
 import path from "node:path"
-import { buildPiOAuth, createLoaderRunner, createMemoryAuthStore, createPluginInputStub, derivePackageName, detectAiSdkFactory, detectPluginFactory, extractModelsFromConfigHook, instantiateHooks, loadOpenCodePluginModule, openCodeAuthFromOAuthCallback, openCodeAuthFromResolvedKey, toOpenCodeAuth, toPiCredentials, tokenExpiryMs, toPiModel } from "../packages/opencode-loader/src/index.ts"
+import { buildPiOAuth, createLoaderRunner, createMemoryAuthStore, createPluginInputStub, derivePackageName, detectAiSdkFactory, detectPluginFactory, extractModelsFromConfigHook, instantiateHooks, loadOpenCodePluginModule, loadProviderOptions, mergeFactoryOptions, openCodeAuthFromOAuthCallback, openCodeAuthFromResolvedKey, toOpenCodeAuth, toPiCredentials, tokenExpiryMs, toPiModel } from "../packages/opencode-loader/src/index.ts"
 import { loadModuleThroughHost } from "../packages/pi-bridge/src/host-module-loader.ts"
 
 const FIXTURE = path.join(import.meta.dir, "fixtures", "pi-bridge-acme-provider.ts")
@@ -275,6 +275,33 @@ describe("auth translation", () => {
 
   test("a plugin with no auth methods yields no oauth config", () => {
     expect(buildPiOAuth({ authHook: { provider: "x", methods: [] } })).toBeUndefined()
+  })
+
+  test("mergeFactoryOptions prefers auth.loader getAccessToken over a static apiKey", async () => {
+    const getAccessToken = async () => "renewed-token"
+    expect(mergeFactoryOptions({
+      createOptions: { apiKey: "$apiKey", workspaceRoot: "/tmp" },
+      apiKey: "static-jwt",
+      loaderOptions: { getAccessToken, cacheDir: "/cache" },
+    })).toEqual({
+      workspaceRoot: "/tmp",
+      getAccessToken,
+      cacheDir: "/cache",
+    })
+    expect(mergeFactoryOptions({
+      apiKey: "static-jwt",
+      loaderOptions: { apiKey: "loader-jwt", workspaceRoot: "/tmp" },
+    })).toEqual({
+      apiKey: "loader-jwt",
+      workspaceRoot: "/tmp",
+    })
+  })
+
+  test("loadProviderOptions returns whatever auth.loader publishes", async () => {
+    const { hooks, stub } = await loadFixtureHooks()
+    await stub.store.set({ type: "oauth", access: "a", refresh: "r", expires: 1 })
+    const options = await loadProviderOptions(hooks.auth, stub.store, await stub.store.get())
+    expect(options).toEqual({ pollCount: expect.any(Number) })
   })
 })
 

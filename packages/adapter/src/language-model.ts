@@ -569,7 +569,9 @@ function toolName(tool: unknown): string | undefined {
 function sessionAffinityFromCall(call: unknown): string | undefined {
   if (!isRecord(call) || !isRecord(call.headers)) return undefined
   const headers = call.headers
-  for (const expected of ["x-opencode-session", "x-session-affinity", "x-session-id"]) {
+ // Prefer the requesting session id. OpenCode 2.x still sends the older
+ // affinity spellings as the parent/fork source for prompt-cache sharing.
+  for (const expected of ["x-opencode-session-id", "x-opencode-session", "x-session-affinity", "x-session-id"]) {
     for (const [name, value] of Object.entries(headers)) {
       if (name.toLowerCase() === expected && typeof value === "string" && value) return value
     }

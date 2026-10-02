@@ -45,6 +45,61 @@ describe("DshLlmAdapter prepareCall", () => {
     expect(typeof prepared.stream).toBe("function")
   })
 
+  test("forwards sessionId as x-opencode-session-id for requesting-session affinity", async () => {
+    let headers: Record<string, string> | undefined
+    const adapter = new DshLlmAdapter({
+      providerName: "cursor-opencode",
+      getLanguageModel: async () => ({
+        doStream: async (options: { headers?: Record<string, string> }) => {
+          headers = options.headers
+          return {
+            stream: new ReadableStream({
+              start(controller) {
+                controller.enqueue({ type: "finish", finishReason: "stop" })
+                controller.close()
+              },
+            }),
+          }
+        },
+      } as never),
+    })
+    await collect(adapter.stream({
+      provider: "cursor-opencode",
+      model: "default",
+      sessionId: "ses_child",
+      messages: [msg("user", "user", "hi")],
+      tools: [{ name: "read", description: "Read", parameters: { type: "object" } }],
+    }))
+    expect(headers).toEqual({ "x-opencode-session-id": "ses_child" })
+  })
+
+  test("does not inject session affinity on a zero-tool generate", async () => {
+    let headers: Record<string, string> | undefined
+    const adapter = new DshLlmAdapter({
+      providerName: "cursor-opencode",
+      getLanguageModel: async () => ({
+        doStream: async (options: { headers?: Record<string, string> }) => {
+          headers = options.headers
+          return {
+            stream: new ReadableStream({
+              start(controller) {
+                controller.enqueue({ type: "finish", finishReason: "stop" })
+                controller.close()
+              },
+            }),
+          }
+        },
+      } as never),
+    })
+    await collect(adapter.stream({
+      provider: "cursor-opencode",
+      model: "default",
+      sessionId: "ses_child",
+      messages: [msg("user", "user", "hi")],
+    }))
+    expect(headers).toBeUndefined()
+  })
+
   test("keeps the native DSH plan-exit tool in Cursor calls", async () => {
     let receivedTools: Array<{ name: string }> | undefined
     const adapter = new DshLlmAdapter({

@@ -21,7 +21,7 @@ function awaitBunFile(relative: string): string {
 class FakeEventStream implements PiEventStreamLike {
   events: unknown[] = []
   push(event: unknown) { this.events.push(event) }
-  end() {}
+  end() { }
   fail(error: unknown) { throw error }
   async result() { return undefined }
   async *[Symbol.asyncIterator]() { yield* this.events }
@@ -114,11 +114,15 @@ describe.each([
     await arrived.wait()
 
     expect(calls[0]?.tools).toBeUndefined()
+    // Zero-tool (title/lifecycle) must not carry a session key: Cursor waits
+    // for a sibling catalog when both are present, and Pi is sequential.
     expect(calls[0]?.headers).toEqual({
       "x-provider": "generic",
-      "x-opencode-session": "same-provider-session",
     })
-    expect(calls[1]?.headers).toEqual(calls[0]?.headers)
+    expect(calls[1]?.headers).toEqual({
+      "x-provider": "generic",
+      "x-opencode-session-id": "same-provider-session",
+    })
     expect(calls[0]?.abortSignal).toBe(signal)
     expect(calls[1]?.abortSignal).toBe(signal)
 
