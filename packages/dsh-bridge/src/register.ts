@@ -82,6 +82,7 @@ export async function registerDshPlugin(
     : undefined
   const planTools = cursorIntegration ? await import("./cursor-plan-tools.js") : undefined
   const metadataWrite = cursorIntegration ? await import("./cursor-metadata-write.js") : undefined
+  const instructions = cursorIntegration ? await import("./cursor-instructions.js") : undefined
   const loadSpec = {
     packageSpecifier: spec.package,
     label: "dsh-bridge",
@@ -205,13 +206,13 @@ export async function registerDshPlugin(
 
   const adapter = new DshLlmAdapter({
     providerName,
-    ...(planTools && metadataWrite ? {
+    ...(planTools && metadataWrite && instructions ? {
       toolInputs: planTools.cursorPlanToolInputs,
       toolInputsForCall: options => metadataWrite.cursorMetadataWriteToolInputs(options, planTools.cursorPlanToolInputs),
-      prepareOptions: options => planTools.prepareCursorPlanOptions({
+      prepareOptions: options => planTools.prepareCursorPlanOptions(instructions.foldCursorAgentInstructions({
         ...options,
         messages: removeVisibleReplyEchoes(options.messages),
-      }),
+      })),
       reviewCompletedPlan: (chunks, options) => !options.purpose && options.sessionId
         && options.tools?.some(tool => tool.name === "exit_plan_mode")
         && isPlanActive?.(options.sessionId)

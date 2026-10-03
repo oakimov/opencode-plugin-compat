@@ -278,14 +278,22 @@ describe("Cursor host tool registration", () => {
     expect(() => mapPlanModeError(new Error("boom"))).toThrow("boom")
   })
 
-  test("plain pi registers cursor_image_save only", () => {
+  test("plain pi registers plan tools that refuse without @pify/plan-mode", async () => {
     const pi = fakePi()
     const names = registerCursorHostTools(pi, {
       hostId: "pi",
       executeImageSave: async () => "saved",
     })
-    expect(names).toEqual([CURSOR_IMAGE_SAVE_TOOL])
-    expect(pi.registered.map(tool => tool.name)).toEqual([CURSOR_IMAGE_SAVE_TOOL])
+    expect(names).toEqual([
+      PLAN_ENTER_TOOL,
+      PLAN_EXIT_TOOL,
+      CURSOR_PLAN_STAGE_TOOL,
+      CURSOR_IMAGE_SAVE_TOOL,
+    ])
+    const enter = pi.registered.find(tool => tool.name === PLAN_ENTER_TOOL)!
+    await expect(enter.execute("c1", {}, undefined, undefined, {})).rejects.toThrow(
+      /install `@pify\/plan-mode`/,
+    )
   })
 
   test("omp skips plan tools when plan.enabled is false", () => {

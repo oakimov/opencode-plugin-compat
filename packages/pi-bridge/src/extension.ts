@@ -62,7 +62,8 @@ export { stripTrailingNpmVersion } from "./config.js"
 
 /**
  * Advertise Cursor bridge tools when the Cursor provider is among the configured
- * plugins (or when tests force registration). omp gets plan_enter/plan_exit;
+ * plugins (or when tests force registration). omp gets native plan tools; pi
+ * gets the same names via `@pify/plan-mode` (or refuse stubs when absent);
  * both hosts get cursor_image_save.
  */
 export async function maybeRegisterCursorHostTools(
@@ -70,6 +71,7 @@ export async function maybeRegisterCursorHostTools(
   hostId: PiHostId,
   config: { providers?: Array<{ package?: string; providerName?: string; directory?: string }> } | null | undefined,
   imageSaveRef?: { execute?: PiBinarySaveExecute },
+  piPlanMode?: { installed: boolean; capture: import("./pi-plan-mode.js").PiPlanModeCapture },
 ): Promise<string[]> {
   const cursorProvider = (config?.providers ?? []).find(entry => isCursorProviderPackage(entry.package ?? ""))
   // Staging lives in-process with the bridged provider — only advertise when
@@ -80,6 +82,7 @@ export async function maybeRegisterCursorHostTools(
   const names = registerCursorHostTools(pi, {
     hostId,
     hostPi: pi.pi,
+    ...(piPlanMode ? { piPlanMode } : {}),
     ...(imageSaveRef ? {
       executeImageSave: async (args, ctx) => {
         const execute = imageSaveRef.execute
@@ -94,6 +97,12 @@ export async function maybeRegisterCursorHostTools(
 }
 
 export default async function piBridgeExtension(pi: PiExtensionApi): Promise<void> {
+  // Capture `@pify/plan-mode` tool/command registration when that package loads
+  // after this extension (settings `packages` order: pi-bridge before pify).
+  const { createPiPlanModeCapture, detectPiPlanModeInstalled, installPiPlanModeCapture } =
+    await import("./pi-plan-mode.js")
+  const piPlanCapture = installPiPlanModeCapture(pi, createPiPlanModeCapture())
+
   // Path bridge must land even when no provider config exists yet — CreatePlan /
   // skill discovery still need `.omp` / `.pi` rather than a invented `.opencode`.
   // Prefer env override when detection cannot probe a host package (tests / odd loads).
@@ -168,7 +177,16 @@ export default async function piBridgeExtension(pi: PiExtensionApi): Promise<voi
         if (pi.on) registerCursorHistoryRewriteListener(pi.on.bind(pi))
       }
       const imageSaveRef: { execute?: PiBinarySaveExecute } = {}
-      const cursorHostToolNames = await maybeRegisterCursorHostTools(pi, resolvedHost, config, imageSaveRef)
+      const piPlanMode = resolvedHost === "pi"
+        ? { installed: detectPiPlanModeInstalled(), capture: piPlanCapture }
+        : undefined
+      const cursorHostToolNames = await maybeRegisterCursorHostTools(
+        pi,
+        resolvedHost,
+        config,
+        imageSaveRef,
+        piPlanMode,
+      )
       imageSaveRef.execute = await registerProvidersFromConfig(pi, config, { cursorHostToolNames })
     } else {
       await registerProvidersFromConfig(pi, config)

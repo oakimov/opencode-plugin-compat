@@ -2,6 +2,60 @@
 
 Corrections and durable takeaways for this repo.
 
+## 2026-10-02 — pify bash `|` inside quotes is not plan review
+
+- **Symptom:** During Pi plan mode, UI showed
+  `Allow this while planning? unrecognized command: 'scratch'` (earlier: `'for'`).
+  No plan markdown — user thought plan review failed.
+- **Cause:** `@pify/plan-mode` `splitSegments` splits on `|` **without respecting
+  quotes**. `rg -n 'hello|scratch|ocp-cursor'` becomes segments `rg … 'hello`,
+  `scratch`, `ocp-cursor' …` → confirm on token `scratch`. Shell `for` loops are
+  the same class (first token not on the safe list).
+- **OCP fix:** `preparePiPlanModeLoadout` hides raw pify tool names from the
+  Cursor catalog (keep `plan_enter` / `plan_exit` / `cursor_plan_stage` only;
+  nested `ctx.executeTool` still reaches write/exit), and appends a bash
+  description note about quote-blind `|`. Guide: prefer grep/read while
+  planning; stage via `cursor_plan_stage`.
+- **Operator:** That confirm is a shell-policy gate. Yes allows the call; it is
+  still not the plan approval UI.
+
+## 2026-10-02 — pi plan tools are per-extension; use ctx.executeTool
+
+- **Symptom:** `plan_enter` returned `Plan mode activated via /plan.` then planning
+  bash hit pify's `Allow this while planning? unrecognized command: 'for'` — no
+  plan markdown / approval UI ever appeared. `cursor_plan_stage` was never
+  callable through captured handles.
+- **Cause:** Pi's loader gives each package its own ExtensionAPI. Wrapping
+  `pi.registerTool` inside pi-bridge never sees `@pify/plan-mode`'s
+  `enter_plan_mode` / `write_plan` / `exit_plan_mode`. Capture maps stayed empty;
+  enter fell back to `sendUserMessage("/plan")`; stage would have thrown
+  not-captured.
+- **Fix:** Drive pify tools through `ctx.executeTool(name, args)` from the
+  Cursor host-tool execute context (same catalog + hooks). Keep same-API capture
+  for unit tests only; `/plan` / `/plan off` remain last-resort enter/leave.
+- **Note:** Shell confirm during planning is pify policy (first token `for` is
+  not on the safe list). That is not plan review — answer Yes for a read-only
+  loop, or have the model use `ls`/`cat` / then `cursor_plan_stage`.
+
+## 2026-10-02 — omp plan-mode friction mapped to pi `@pify/plan-mode` bridge
+
+- **Soft-approve without tools:** Cursor SwitchMode auto-approves when
+  `plan_enter` is missing. Advertising refuse stubs (not omitting tools) stops
+  that on Pi without `@pify/plan-mode`.
+- **`plan_exit` ≠ submit:** Leaving plan mode must not approve. omp: exit binder
+  only. pi/pify: `/plan off` (captured command or `sendUserMessage`), never
+  `exit_plan_mode` for leave — that tool is the approval UI.
+- **Stage waits on review:** `cursor_plan_stage` must not return until approve /
+  revise / dismiss. omp: write artifact + plan-review overlay. pi: `write_plan`
+  then `exit_plan_mode`; revise/dismiss/`!approved` → `PlanNotApprovedError` so
+  the model stays planning.
+- **Propose/gate desync after exit:** Returning from stage before the UI answer
+  let the model call `plan_exit` and continue with no review. Keep stage blocked
+  on the host choice; treat dismiss/revise as not-approved, not as leave.
+- **Indent caveat:** Cursor Write/StrReplace often halved leading spaces in this
+  session — prefer Python rewrites after `git checkout HEAD -- file` for 2-space
+  TypeScript.
+
 ## 2026-10-02 — cursor-opencode-provider #34 / #36 need OCP header + factory-option prep
 
 - **#34 (merged):** Cursor keys conversations on `x-opencode-session-id` first.
@@ -32,11 +86,15 @@ Corrections and durable takeaways for this repo.
   Cursor can still raise native Task → provider refuse. Do **not** soft-deny in
   the provider (host-blind). Fix is guide-only: T5 `skipped`, continue steps
   7/10. Never edit consumer providers for OCP host gaps.
-- **Pi self-verify plan stall:** Pi has no `plan_enter` / stage UI. Provider
-  still auto-approves Cursor SwitchMode→plan (`provider-owned fallback`) and
-  acknowledges CreatePlan; the checklist then waits for a human review Pi
-  never shows. Guide: skip P1/P2 on Pi; do not enter Cursor plan mode without
-  a host plan tool or review surface.
+- **Pi self-verify plan stall (superseded by pi-plan-mode bridge):** Plain Pi
+  historically had no `plan_enter` / stage UI, so Cursor SwitchMode soft-approved
+  into an unenforceable plan mode and CreatePlan waited on a review that never
+  appeared. Fix: `packages/pi-bridge/src/pi-plan-mode.ts` + Cursor host tools on
+  `hostId === "pi"` drive `@pify/plan-mode` (`enter_plan_mode` / `write_plan` +
+  `exit_plan_mode` for stage; `/plan off` for leave — never `exit_plan_mode` for
+  leave). Without the package, tools still register but refuse so SwitchMode
+  cannot soft-approve. Bridge must load before pify in settings `packages`.
+  Guide: P1/P2 on Pi only when `@pify/plan-mode` is installed and captured.
 
 ## 2026-09-30 — MiMo todowrite create must `start` in_progress rows in the same fan-out
 

@@ -156,7 +156,8 @@ describe("Cursor host tools remain an optional OCP layer", () => {
   })
   test.each([
     ["omp", ["plan_enter", "plan_exit", "cursor_plan_stage", "cursor_image_save"]],
-    ["pi", ["cursor_image_save"]],
+    // Plain pi registers the plan tools too; without @pify/plan-mode they refuse.
+    ["pi", ["plan_enter", "plan_exit", "cursor_plan_stage", "cursor_image_save"]],
   ] as const)("%s registers only its supported optional host tools", (hostId, expected) => {
     const registered: string[] = []
     registerCursorHostTools(

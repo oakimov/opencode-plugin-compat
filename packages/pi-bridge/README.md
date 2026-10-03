@@ -150,22 +150,23 @@ registers the tools that provider already bridges on:
 
 | Tool | Host | Behavior |
 |---|---|---|
-| `plan_enter` / `plan_exit` | **omp only** | Drive native omp plan mode (ACP-shaped session APIs via `AgentRegistry`) |
-| `cursor_plan_stage` | **omp only** | Stage Cursor CreatePlan markdown under omp's session-local `local://` root and wait on omp's plan-review overlay |
+| `plan_enter` / `plan_exit` | **omp**; **pi** with `@pify/plan-mode` | omp: native AgentRegistry plan mode. pi: drive `enter_plan_mode` / `/plan off` |
+| `cursor_plan_stage` | **omp**; **pi** with `@pify/plan-mode` | omp: session-local plan + plan-review overlay. pi: `write_plan` then `exit_plan_mode` approval UI |
 | `cursor_image_save` | **omp and pi** | Commit staged Cursor image bytes (`image_id` only) |
 
-`cursor_plan_stage` writes the session-local plan and does not return until
-omp's plan-review overlay is answered ([plan mode](https://omp.sh/docs/plan)).
+`cursor_plan_stage` does not return until the host approval UI is answered.
 Approve and execute succeeds and queues implementation. Refine or dismissing
-the overlay is an error, so Cursor keeps planning. Returning before that
-choice let the model call `plan_exit` and continue with no review. `plan_exit`
-leaves plan mode; it is not the submit.
+is an error, so Cursor keeps planning. Returning before that choice let the
+model call `plan_exit` and continue with no review. `plan_exit` leaves plan
+mode; it is not the submit.
 
-Plain **pi** has no plan mode, so SwitchMode stays refused there. Image save
-works on both hosts when the Cursor provider is loaded in-process. OCP loads
-the save export from the same configured provider installation as the model;
-its staged image ids are valid only in that module instance. Force registration
-in tests with `PI_BRIDGE_CURSOR_HOST_TOOLS=1`.
+On **pi**, install `@pify/plan-mode` (`pi install npm:@pify/plan-mode`) and list
+`@opencode-compat/pi-bridge` **before** `npm:@pify/plan-mode` in settings
+`packages` so the bridge can capture its tools. Without that package, pi still
+advertises the three plan tools but execute refuses — Cursor SwitchMode cannot
+soft-approve into an unenforceable plan mode. Image save works on both hosts
+when the Cursor provider is loaded in-process. Force registration in tests with
+`PI_BRIDGE_CURSOR_HOST_TOOLS=1`.
 
 Cursor's billed input can include several tool steps from one held Run. The
 bridge preserves those raw totals for cost, and separately forwards Cursor's

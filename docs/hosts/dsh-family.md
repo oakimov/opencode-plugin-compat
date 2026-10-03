@@ -131,6 +131,12 @@ metadata directory under the host cache, OCP supplies DSH's normal file-write
 escalation fields. The native write asks for approval because this cache is
 outside the workspace. OCP does not widen other file writes.
 
+DSH sends AGENTS.md and scoped instruction files as user-role
+`agent-instructions` messages. For Cursor, OCP moves them into the system
+prompt, which the Cursor provider delivers as an always-apply rule; as separate
+user messages they would be dropped on resumed turns or start a new turn after
+tool results. Other providers receive DSH's messages unchanged.
+
 ## Path bridge
 
 On load, `dsh-bridge` installs `Symbol.for("opencode.host.path-bridge")`:

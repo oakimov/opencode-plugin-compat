@@ -131,6 +131,15 @@ metadata path, the bridge adds DSH's advertised `danger-full-access` escalation
 fields so the native write tool asks for approval before saving outside the
 workspace. Other write paths and providers retain their original arguments.
 
+DSH delivers AGENTS.md and scoped instruction files as user-role messages
+(`source.kind: "agent-instructions"`). For Cursor only, the bridge moves them
+into `system`, in request order: cursor-opencode-provider reaches the model
+with host system context only through an always-apply rule built from the
+system prompt, and sends just the latest user message as a turn's live text, so
+an instruction message elsewhere in the request would be lost, and one after
+tool results would read as a new user turn. Devin and generic providers keep
+DSH's native user-role messages.
+
 ## Path bridge
 
 On apply, installs `Symbol.for("opencode.host.path-bridge")`:

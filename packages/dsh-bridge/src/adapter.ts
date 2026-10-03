@@ -131,8 +131,9 @@ export class DshLlmAdapter extends LlmAdapter {
       const tools = translateTools(visibleTools, toolInputs)
 
       // Session affinity: DSH native sessionId → requesting-session header.
-      // Skip on a zero-tool call: Cursor waits for a sibling catalog when it
-      // sees a session key with tools=[], and DSH generate is sequential.
+      // Skip on a zero-tool call: a provider may treat a session-keyed call
+      // with tools=[] as a lifecycle signal that waits for a sibling call's
+      // full catalog, and DSH generate is sequential.
       const headers: Record<string, string> = {}
       if (options.sessionId && (tools?.length ?? 0) > 0) {
         headers["x-opencode-session-id"] = options.sessionId

@@ -293,7 +293,14 @@ workflow or speculating about asynchronous timing.
      directly using its schema and the URI returned by plan entry, or reached
      through native CreatePlan. It waits on the review overlay. OMP's
      `plan_exit` does not substitute for this stage review. Apply P2 below.
-   - **Pi (and any host without plan tools / stage UI):** skip step 8 / P1 / P2.
+   - **Pi with `@pify/plan-mode` + OCP:** use advertised `plan_enter`, then submit
+     with `cursor_plan_stage` (not raw `write_plan` / `exit_plan_mode`). That
+     opens the host approval UI. While planning, prefer `grep`/`read` over bash
+     regexes that contain `|` — pify’s shell policy splits on `|` even inside
+     quotes, so `rg 'a|b'` can prompt
+     `Allow this while planning? unrecognized command: 'b'` (that is **not**
+     plan review). Plain Pi without `@pify/plan-mode` still skips P1/P2.
+   - **Pi without plan tools / stage UI:** skip step 8 / P1 / P2.
      Do not use Cursor SwitchMode→plan or CreatePlan here.
    - **Other harnesses:** use their advertised/native review or mode workflow
      and score P1. A `question` approval, a genuine native `plan_exit` review,

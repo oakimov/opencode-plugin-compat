@@ -21,95 +21,95 @@ export type PiThinkingContent = { type: "thinking"; thinking: string; thinkingSi
 export type PiRedactedThinkingContent = { type: "redactedThinking"; data: string }
 export type PiImageContent = { type: "image"; data: string; mimeType: string; detail?: string }
 export type PiToolCall = {
-  type: "toolCall"
-  id: string
-  name: string
-  arguments: Record<string, unknown>
-  [key: string]: unknown
+ type: "toolCall"
+ id: string
+ name: string
+ arguments: Record<string, unknown>
+ [key: string]: unknown
 }
 
 export type PiTextOrImageContent = PiTextContent | PiImageContent
 export type PiAssistantContent =
-  | PiTextContent
-  | PiThinkingContent
-  | PiRedactedThinkingContent
-  | PiImageContent
-  | PiToolCall
+ | PiTextContent
+ | PiThinkingContent
+ | PiRedactedThinkingContent
+ | PiImageContent
+ | PiToolCall
 
 // ── Usage / messages ──
 
 export type PiUsage = {
-  input: number
-  output: number
-  cacheRead: number
-  cacheWrite: number
-  totalTokens: number
-  /** Authoritative occupied context, separate from cumulative billable tokens. */
-  contextTokens?: number
-  /** Billable provider-side work that is absent from the replayed prompt. */
-  orchestration?: { input?: number; output?: number; cacheRead?: number }
-  reasoning?: number
-  cost: { input: number; output: number; cacheRead: number; cacheWrite: number; total: number }
+ input: number
+ output: number
+ cacheRead: number
+ cacheWrite: number
+ totalTokens: number
+ /** Authoritative occupied context, separate from cumulative billable tokens. */
+ contextTokens?: number
+ /** Billable provider-side work that is absent from the replayed prompt. */
+ orchestration?: { input?: number; output?: number; cacheRead?: number }
+ reasoning?: number
+ cost: { input: number; output: number; cacheRead: number; cacheWrite: number; total: number }
 }
 
 /** Opaque-id file commit contract used by optional provider-owned host tools. */
 export type PiBinarySaveExecute = (
-  args: Record<string, unknown>,
-  ctx: {
-    worktree: string
-    directory: string
-    ask: (input: {
-      permission: string
-      patterns: string[]
-      always: string[]
-      metadata: Record<string, unknown>
-    }) => Promise<void>
-  },
+ args: Record<string, unknown>,
+ ctx: {
+  worktree: string
+  directory: string
+  ask: (input: {
+   permission: string
+   patterns: string[]
+   always: string[]
+   metadata: Record<string, unknown>
+  }) => Promise<void>
+ },
 ) => Promise<string | { title: string; output: string }>
 
 export type PiStopReason = "stop" | "length" | "toolUse" | "error" | "aborted" | "deferred"
 
 export type PiUserMessage = {
-  role: "user"
-  content: string | PiTextOrImageContent[]
-  timestamp?: number
-  [key: string]: unknown
+ role: "user"
+ content: string | PiTextOrImageContent[]
+ timestamp?: number
+ [key: string]: unknown
 }
 
 export type PiDeveloperMessage = {
-  role: "developer"
-  content: string | PiTextOrImageContent[]
-  /**
-   * OMP preserves the origin of custom messages here. In particular,
-   * background-job completions arrive as `attribution: "agent"` even though
-   * the host's LLM-facing role is `developer`.
-   */
-  attribution?: "user" | "agent"
-  timestamp?: number
-  [key: string]: unknown
+ role: "developer"
+ content: string | PiTextOrImageContent[]
+ /**
+  * OMP preserves the origin of custom messages here. In particular,
+  * background-job completions arrive as `attribution: "agent"` even though
+  * the host's LLM-facing role is `developer`.
+  */
+ attribution?: "user" | "agent"
+ timestamp?: number
+ [key: string]: unknown
 }
 
 export type PiAssistantMessage = {
-  role: "assistant"
-  content: PiAssistantContent[]
-  api: string
-  provider: string
-  model: string
-  usage: PiUsage
-  stopReason: PiStopReason
-  errorMessage?: string
-  timestamp: number
-  [key: string]: unknown
+ role: "assistant"
+ content: PiAssistantContent[]
+ api: string
+ provider: string
+ model: string
+ usage: PiUsage
+ stopReason: PiStopReason
+ errorMessage?: string
+ timestamp: number
+ [key: string]: unknown
 }
 
 export type PiToolResultMessage = {
-  role: "toolResult"
-  toolCallId: string
-  toolName: string
-  content: PiTextOrImageContent[]
-  isError: boolean
-  timestamp?: number
-  [key: string]: unknown
+ role: "toolResult"
+ toolCallId: string
+ toolName: string
+ content: PiTextOrImageContent[]
+ isError: boolean
+ timestamp?: number
+ [key: string]: unknown
 }
 
 /**
@@ -119,92 +119,92 @@ export type PiToolResultMessage = {
  * `{ messages }` — reconstruct via {@link resolvePiProviderContext}.
  */
 export type PiSystemMessage = {
-  role: "system"
-  content: string | PiTextOrImageContent[]
-  toolsAdded?: PiTool[]
-  toolsRemoved?: Array<{ name: string }>
-  sections?: Record<string, string | null>
-  timestamp?: number
-  [key: string]: unknown
+ role: "system"
+ content: string | PiTextOrImageContent[]
+ toolsAdded?: PiTool[]
+ toolsRemoved?: Array<{ name: string }>
+ sections?: Record<string, string | null>
+ timestamp?: number
+ [key: string]: unknown
 }
 
 export type PiMessage =
-  | PiUserMessage
-  | PiDeveloperMessage
-  | PiAssistantMessage
-  | PiToolResultMessage
-  | PiSystemMessage
+ | PiUserMessage
+ | PiDeveloperMessage
+ | PiAssistantMessage
+ | PiToolResultMessage
+ | PiSystemMessage
 
 // ── Tools / context ──
 
 export type PiTool = {
-  name: string
-  description: string
-  /** ArkType (omp) or TypeBox (pi); resolved via the host runtime's tool-schema fn. */
-  parameters: unknown
-  [key: string]: unknown
+ name: string
+ description: string
+ /** ArkType (omp) or TypeBox (pi); resolved via the host runtime's tool-schema fn. */
+ parameters: unknown
+ [key: string]: unknown
 }
 
 export type PiContextLike = {
-  /** `string[]` on oh-my-pi, `string` on pi. */
-  systemPrompt?: string | string[]
-  messages: PiMessage[]
-  tools?: PiTool[]
+ /** `string[]` on oh-my-pi, `string` on pi. */
+ systemPrompt?: string | string[]
+ messages: PiMessage[]
+ tools?: PiTool[]
 }
 
 export type PiToolChoice =
-  | "auto"
-  | "none"
-  | "any"
-  | "required"
-  | { type: "function"; name: string }
-  | { type: "tool"; name: string }
+ | "auto"
+ | "none"
+ | "any"
+ | "required"
+ | { type: "function"; name: string }
+ | { type: "tool"; name: string }
 
 export type PiSimpleStreamOptions = {
-  apiKey?: unknown
-  signal?: AbortSignal
-  headers?: Record<string, string>
-  toolChoice?: PiToolChoice
-  reasoning?: string
-  sessionId?: string
-  [key: string]: unknown
+ apiKey?: unknown
+ signal?: AbortSignal
+ headers?: Record<string, string>
+ toolChoice?: PiToolChoice
+ reasoning?: string
+ sessionId?: string
+ [key: string]: unknown
 }
 
 export type PiModelLike = {
-  id: string
-  name?: string
-  api: string
-  provider: string
-  baseUrl?: string
-  reasoning?: boolean
-  cost: { input: number; output: number; cacheRead: number; cacheWrite: number }
-  contextWindow?: number | null
-  maxTokens?: number | null
-  [key: string]: unknown
+ id: string
+ name?: string
+ api: string
+ provider: string
+ baseUrl?: string
+ reasoning?: boolean
+ cost: { input: number; output: number; cacheRead: number; cacheWrite: number }
+ contextWindow?: number | null
+ maxTokens?: number | null
+ [key: string]: unknown
 }
 
 // ── Events ──
 
 export type PiAssistantMessageEvent =
-  | { type: "start"; partial: PiAssistantMessage }
-  | { type: "text_start"; contentIndex: number; partial: PiAssistantMessage }
-  | { type: "text_delta"; contentIndex: number; delta: string; partial: PiAssistantMessage }
-  | { type: "text_end"; contentIndex: number; content: string; partial: PiAssistantMessage }
-  | { type: "thinking_start"; contentIndex: number; partial: PiAssistantMessage }
-  | { type: "thinking_delta"; contentIndex: number; delta: string; partial: PiAssistantMessage }
-  | { type: "thinking_end"; contentIndex: number; content: string; partial: PiAssistantMessage }
-  | { type: "toolcall_start"; contentIndex: number; partial: PiAssistantMessage }
-  | { type: "toolcall_delta"; contentIndex: number; delta: string; partial: PiAssistantMessage }
-  | { type: "toolcall_end"; contentIndex: number; toolCall: PiToolCall; partial: PiAssistantMessage }
-  | { type: "done"; reason: "stop" | "length" | "toolUse"; message: PiAssistantMessage }
-  | { type: "error"; reason: "aborted" | "error"; error: PiAssistantMessage }
+ | { type: "start"; partial: PiAssistantMessage }
+ | { type: "text_start"; contentIndex: number; partial: PiAssistantMessage }
+ | { type: "text_delta"; contentIndex: number; delta: string; partial: PiAssistantMessage }
+ | { type: "text_end"; contentIndex: number; content: string; partial: PiAssistantMessage }
+ | { type: "thinking_start"; contentIndex: number; partial: PiAssistantMessage }
+ | { type: "thinking_delta"; contentIndex: number; delta: string; partial: PiAssistantMessage }
+ | { type: "thinking_end"; contentIndex: number; content: string; partial: PiAssistantMessage }
+ | { type: "toolcall_start"; contentIndex: number; partial: PiAssistantMessage }
+ | { type: "toolcall_delta"; contentIndex: number; delta: string; partial: PiAssistantMessage }
+ | { type: "toolcall_end"; contentIndex: number; toolCall: PiToolCall; partial: PiAssistantMessage }
+ | { type: "done"; reason: "stop" | "length" | "toolUse"; message: PiAssistantMessage }
+ | { type: "error"; reason: "aborted" | "error"; error: PiAssistantMessage }
 
 export type PiEventStream = {
-  push(event: PiAssistantMessageEvent): void
-  end(result?: PiAssistantMessage): void
-  fail(err: unknown): void
-  result(): Promise<unknown>
-  [Symbol.asyncIterator](): AsyncIterator<unknown>
+ push(event: PiAssistantMessageEvent): void
+ end(result?: PiAssistantMessage): void
+ fail(err: unknown): void
+ result(): Promise<unknown>
+ [Symbol.asyncIterator](): AsyncIterator<unknown>
 }
 
 /** The minimal slice of the host's `ExtensionAPI` this bridge depends on. */
@@ -212,53 +212,85 @@ export type PiToolInfoLike = string | { name: string }
 
 /** Zod-like schema builder injected on omp/pi ExtensionAPI (`pi.zod`). */
 export type PiZodLike = {
-  object: (shape: Record<string, unknown>) => unknown
-  string: () => { describe: (text: string) => unknown }
+ object: (shape: Record<string, unknown>) => unknown
+ string: () => { describe: (text: string) => unknown }
 }
 
 /**
  * Minimal `registerTool` definition. Hosts accept Zod (preferred) or TypeBox /
  * JSON Schema; we keep parameters untyped so the bridge can pass either.
  */
+export type PiToolLoadoutLike = {
+ declared: ReadonlyArray<{ name: string; description?: string }>
+ callable?: ReadonlyArray<unknown>
+ registered?: ReadonlyArray<unknown>
+}
+
+export type PiToolLoadoutChanges = {
+ descriptions?: Readonly<Record<string, string>>
+ /** Keep tools active/callable but omit them from model-facing listings. */
+ hiddenDeclarations?: ReadonlyArray<string>
+}
+
 export type PiRegisterToolDefinition = {
-  name: string
-  label: string
-  description: string
-  parameters: unknown
-  loadMode?: "essential" | "discoverable" | string
-  approval?: "read" | "write" | "exec" | string
-  hidden?: boolean
-  defaultInactive?: boolean
-  execute: (
-    toolCallId: string,
-    params: unknown,
-    signal: AbortSignal | undefined,
-    onUpdate: unknown,
-    ctx: Record<string, unknown> | undefined,
-  ) => Promise<unknown>
+ name: string
+ label: string
+ description: string
+ parameters: unknown
+ loadMode?: "essential" | "discoverable" | string
+ approval?: "read" | "write" | "exec" | string
+ hidden?: boolean
+ defaultInactive?: boolean
+ /** Optional host loadout hook (pi): hide sibling tools / retarget descriptions. */
+ prepareLoadout?: (
+  loadout: PiToolLoadoutLike,
+ ) => PiToolLoadoutChanges | void | Promise<PiToolLoadoutChanges | void>
+ execute: (
+  toolCallId: string,
+  params: unknown,
+  signal: AbortSignal | undefined,
+  onUpdate: unknown,
+  ctx: Record<string, unknown> | undefined,
+ ) => Promise<unknown>
 }
 
 export type PiExtensionApi = {
-  registerProvider(name: string, config: Record<string, unknown>): void
-  /** Available after the extension factory; used to activate host-registered tools on session_start. */
-  on?: (event: string, handler: (...args: unknown[]) => unknown) => void
-  getActiveTools?: () => string[]
-  getAllTools?: () => readonly PiToolInfoLike[]
-  setActiveTools?: (toolNames: string[]) => void | Promise<void>
-  /** omp/pi: register an LLM-callable tool into the host catalog. */
-  registerTool?: (tool: PiRegisterToolDefinition) => void
-  /** omp/pi: injected Zod builder for tool parameter schemas. */
-  zod?: PiZodLike
-  /** omp: settings getter (`plan.enabled`, …). Absent on plain pi. */
-  getSetting?: (key: string) => unknown
-  /** omp's self-reference namespace; its AgentRegistry is the live singleton. */
-  pi?: {
-    AgentRegistry?: { global(): unknown }
-    MAIN_AGENT_ID?: string
-    getPluginsDir?: () => string
-    loadExtensions?: (
-      paths: string[],
-      cwd: string,
-    ) => Promise<{ errors?: Array<{ path: string; error: string }> }>
-  }
+ registerProvider(name: string, config: Record<string, unknown>): void
+ /** Available after the extension factory; used to activate host-registered tools on session_start. */
+ on?: (event: string, handler: (...args: unknown[]) => unknown) => void
+ getActiveTools?: () => string[]
+ getAllTools?: () => readonly PiToolInfoLike[]
+ setActiveTools?: (toolNames: string[]) => void | Promise<void>
+ /** omp/pi: register an LLM-callable tool into the host catalog. */
+ registerTool?: (tool: PiRegisterToolDefinition) => void
+ /**
+  * omp/pi: register a `/command`. Optional on the structural type — used to
+  * capture `@pify/plan-mode`'s `/plan` handler for leave-without-approval.
+  */
+ registerCommand?: (
+  name: string,
+  def: { handler?: (args: string | undefined, ctx: Record<string, unknown>) => unknown | Promise<unknown> } & Record<string, unknown>,
+ ) => void
+ /**
+  * omp/pi: queue a user message / slash command. Optional — fallback when a
+  * captured `/plan` command handle is unavailable.
+  */
+ sendUserMessage?: (
+  content: string,
+  options?: { deliverAs?: string; expandPromptTemplates?: boolean },
+ ) => void | Promise<void>
+ /** omp/pi: injected Zod builder for tool parameter schemas. */
+ zod?: PiZodLike
+ /** omp: settings getter (`plan.enabled`, …). Absent on plain pi. */
+ getSetting?: (key: string) => unknown
+ /** omp's self-reference namespace; its AgentRegistry is the live singleton. */
+ pi?: {
+  AgentRegistry?: { global(): unknown }
+  MAIN_AGENT_ID?: string
+  getPluginsDir?: () => string
+  loadExtensions?: (
+   paths: string[],
+   cwd: string,
+  ) => Promise<{ errors?: Array<{ path: string; error: string }> }>
+ }
 }
