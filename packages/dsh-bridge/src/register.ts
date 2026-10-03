@@ -6,7 +6,6 @@ import {
   createPluginInputStub,
   derivePackageName,
   extractModelsFromConfigHook,
-  inspectOpenCodePluginModule,
   instantiateHooks,
   loadOpenCodePluginModule,
   loadProviderOptions,
@@ -51,17 +50,6 @@ function credentialFromAuth(auth: OpenCodeAuth | undefined): string | undefined 
   if (auth.type === "oauth") return auth.access || undefined
   if (auth.type === "api") return auth.key || undefined
   return undefined
-}
-
-function toDshModelInfo(provider: string, id: string, entry: any, variantNameSuffix = ""): LlmModelInfo {
-  const name = (entry.name as string | undefined) ?? id
-  const modalities: ("text" | "image")[] = entry.attachment ? ["text", "image"] : ["text"]
-  return {
-    provider,
-    id: `${id}${variantNameSuffix}`,
-    name: `${name}${variantNameSuffix ? ` ${variantNameSuffix}` : ""}`,
-    inputModalities: modalities,
-  }
 }
 
 export type RegisterResult = {

@@ -24,6 +24,7 @@ import type {
   PiToolResultMessage,
 } from "../pi-provider-types.js"
 import type { PiHostProfile } from "../host/profile.js"
+import { hostToolRenames, translatePromptToolNames } from "@opencode-compat/opencode-loader"
 import {
   canonicalSubagentDescription,
   canonicalSubagentSchema,
@@ -424,8 +425,18 @@ export function translateContextToPrompt(
   const prompt: LanguageModelV3Prompt = []
   const excludedToolCallIds = new Set<string>()
 
+  // The host prompt names tools in host vocabulary; restate the ones this call
+  // renames (same mapping as `translateTools`) so the prompt matches the catalog.
+  const renames = hostToolRenames(
+    (context.tools ?? []).map(tool => tool.name),
+    name => question && name === question.hostToolName
+      ? CANONICAL_QUESTION_TOOL
+      : canonicalToolName(name, vocabulary, toolInputs),
+  )
+  const hostText = (text: string) => translatePromptToolNames(text, renames, { toolListItems: true })
+
   const systemText = normalizeSystemPrompt(context.systemPrompt)
-  if (systemText) prompt.push({ role: "system", content: systemText })
+  if (systemText) prompt.push({ role: "system", content: hostText(systemText) })
 
   // Fanned-out todo results collapse into the first message for their canonical id.
   // Multi-path read fan-outs are left as separate results (matched by call id).
@@ -459,7 +470,7 @@ export function translateContextToPrompt(
       // No `developer` role in AI-SDK V3 prompts; fold into `system` like most
       // non-OpenAI wire protocols do. Images have no `system` equivalent.
       const text = flattenToPlainText(message.content)
-      if (text.length > 0) prompt.push({ role: "system", content: text })
+      if (text.length > 0) prompt.push({ role: "system", content: hostText(text) })
     } else if (message.role === "assistant") {
       const translated = assistantMessageToV3(
         message,

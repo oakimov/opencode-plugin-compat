@@ -23,6 +23,7 @@
       "version": "0.4.2",
       "dependencies": {
         "@opencode-compat/host-promise-v2": "workspace:*",
+        "@opencode-compat/opencode-loader": "workspace:*",
         "@opencode-compat/profile": "workspace:*",
       },
       "devDependencies": {
@@ -50,11 +51,11 @@
       "version": "0.4.2",
       "dependencies": {
         "@ai-sdk/provider": "^3.0.14",
-        "@opencode-compat/opencode-loader": "workspace:*",
+        "@opencode-compat/opencode-loader": "0.4.2",
       },
       "peerDependencies": {
         "@deepseek-ai/cordis": ">=1.0.0",
-        "@deepseek-ai/dsh-llm": ">=1.0.0",
+        "@deepseek-ai/dsh-llm": ">=0.1.0",
       },
       "optionalPeers": [
         "@deepseek-ai/cordis",

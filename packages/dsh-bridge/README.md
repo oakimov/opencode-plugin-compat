@@ -85,6 +85,11 @@ provider calls are mapped back on `block-end`:
 | `todo_write` | `todowrite` | Strip `id`/`priority`/`merge`; omit `cancelled` |
 | `ask_user_question` | `question` | Canonical schema; missing `id` is filled; `multiple` ↔ `multi_select`; JSON answers rewritten to OpenCode prose |
 
+System text and system-role messages name those tools by their OpenCode names
+too: a code span that is exactly `` `todo_write` `` or `` `ask_user_question` ``
+becomes `` `todowrite` `` / `` `question` ``, for every provider. Prose is left
+alone.
+
 File tools still advertise `filePath` and map `path`/`filePath` → `file_path`.
 Bash still drops required `description` and fills it from `command`.
 For Cursor packages, the optional plan integration registers `plan_enter`

@@ -399,6 +399,14 @@ resolves, and `PI_BRIDGE_HOST=omp|pi` remains an explicit override. Only the
 event variants **both** hosts share are emitted, so the translation layer is
 identical on each.
 
+The host system prompt (and `developer` messages folded into system context)
+names tools in host vocabulary, so the bridge restates the ones it renames:
+pi's `- find: …` tool-list line becomes `- glob: …`, and code spans such as
+`` `find` ``, `` `subagent` ``, omp's `` `todo` `` and `` `ask` `` become
+`` `glob` ``, `` `task` ``, `` `todowrite` `` and `` `question` ``. Prose and
+partial spans are left alone. This applies to every provider, since each one
+sees the translated catalog.
+
 ### Provider-native MCP resource operations
 
 The bridge can translate only AI-SDK tool calls emitted by `doStream`; it never

@@ -460,6 +460,23 @@ describe("reconstructHostTodos", () => {
 })
 
 describe("translatePrompt", () => {
+  test("completion-clear normalization leaves file reads and unrelated tools untouched", () => {
+    const prompt = [
+      { role: "assistant", content: [
+        { type: "tool-call", toolCallId: "clear#0", toolName: "task", input: { operation: { action: "abandon", id: "T1", event_summary: "completed" } } },
+        { type: "tool-call", toolCallId: "other", toolName: "fixture", input: { operation: { action: "abandon", id: "T2", event_summary: "completed" } } },
+      ] },
+      { role: "tool", content: [
+        { type: "tool-result", toolCallId: "read1", toolName: "read", output: { type: "text", value: "T1 abandoned — file content" } },
+        { type: "tool-result", toolCallId: "other", toolName: "fixture", output: { type: "text", value: "abandon → abandoned" } },
+        { type: "tool-result", toolCallId: "list1", toolName: "task", output: { type: "text", value: "T1 abandoned\nT2 abandoned" } },
+      ] },
+    ]
+    const out = translatePrompt(prompt, mimoVocab())
+    expect(out[1]!.content.slice(0, 2)).toEqual(prompt[1]!.content.slice(0, 2))
+    expect(out[1]!.content[2]!.output).toEqual({ type: "text", value: "T1 done\nT2 abandoned" })
+  })
+
   test("fanned-out calls and results fold back into the single canonical call", () => {
     const prompt = [
       {
@@ -533,6 +550,47 @@ describe("translatePrompt", () => {
       "done → done\nabandon → abandoned",
       "T1 done — ocp-sv-a\nT3 abandoned — ocp-sv-c",
     ])
+  })
+
+  test("a finished-list abandon in AI-SDK V3 typed output is shown as done", () => {
+    // Hosts send tool results as `{ type: "text", value }`, not plain strings.
+    const prompt = [
+      {
+        role: "assistant",
+        content: [
+          {
+            type: "tool-call",
+            toolCallId: "c1#0",
+            toolName: "task",
+            input: { operation: { action: "abandon", id: "T1", event_summary: "completed" } },
+          },
+          {
+            type: "tool-call",
+            toolCallId: "c1#1",
+            toolName: "task",
+            input: { operation: { action: "abandon", id: "T2", event_summary: "completed" } },
+          },
+        ],
+      },
+      {
+        role: "tool",
+        content: [
+          { type: "tool-result", toolCallId: "c1#0", toolName: "task", output: { type: "text", value: "abandon → abandoned" } },
+          { type: "tool-result", toolCallId: "c1#1", toolName: "task", output: { type: "text", value: "abandon → abandoned" } },
+          {
+            type: "tool-result",
+            toolCallId: "list1",
+            toolName: "task",
+            output: { type: "content", value: [{ type: "text", text: "T1 abandoned — a\nT2 abandoned — b" }] },
+          },
+        ],
+      },
+    ]
+    const out = translatePrompt(prompt, mimoVocab()) as Array<{ content: Array<{ output?: unknown }> }>
+    const texts = out[1]!.content.map((part) => JSON.stringify(part.output))
+    expect(texts.join("\n")).not.toContain("abandoned")
+    expect(texts.join("\n")).toContain("done → done")
+    expect(texts.join("\n")).toContain("T1 done — a")
   })
 
   test("a subagent call is restated flat under its canonical name", () => {

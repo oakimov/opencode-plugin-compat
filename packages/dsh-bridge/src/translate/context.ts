@@ -6,6 +6,7 @@
  */
 import type { LanguageModelV3FunctionTool, LanguageModelV3Prompt } from "@ai-sdk/provider"
 import { dshToolInputs } from "../host/profile.js"
+import { hostToolRenames, translatePromptToolNames } from "@opencode-compat/opencode-loader"
 import {
   canonicalQuestionDescription,
   canonicalQuestionSchema,
@@ -87,8 +88,11 @@ export function translateGenerateOptionsToPrompt(
   excludedToolNames?: ReadonlySet<string>,
 ): LanguageModelV3Prompt {
   const prompt: LanguageModelV3Prompt = []
+  // The host prompt names tools in host vocabulary; restate the ones this call
+  // renames so the prompt matches the canonical catalog.
+  const renames = hostToolRenames((options.tools ?? []).map((tool) => tool.name), (name) => canonicalToolName(name, toolInputs))
   const system = normalizeSystemPrompt(options.system)
-  if (system) prompt.push({ role: "system", content: system })
+  if (system) prompt.push({ role: "system", content: translatePromptToolNames(system, renames) })
 
   const toolNames = new Map<string, string>()
   const excludedToolCallIds = new Set<string>()
@@ -97,7 +101,7 @@ export function translateGenerateOptionsToPrompt(
   for (const msg of options.messages) {
     if (msg.role === "system") {
       const text = flattenBlockText(msg.content)
-      if (text) prompt.push({ role: "system", content: text })
+      if (text) prompt.push({ role: "system", content: translatePromptToolNames(text, renames) })
       continue
     }
 

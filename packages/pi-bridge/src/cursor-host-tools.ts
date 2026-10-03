@@ -246,7 +246,7 @@ async function loadPlanReviewOverlay(): Promise<PlanReviewOverlayCtor | undefine
 async function presentHostPlanReview(
  ctx: unknown,
  content: string,
- title: string,
+ _title: string,
 ): Promise<string | undefined> {
  const ui = (ctx as { ui?: HostReviewUi } | undefined)?.ui
  if (typeof ui?.custom !== "function") {

@@ -59,7 +59,7 @@ export abstract class LlmAdapter {
   imageRequestPricing(_provider: string, _model: string): unknown {
     return undefined
   }
-  listModels(provider: string): Promise<readonly { provider: string; id: string; name: string }[]> {
+  listModels(_provider: string): Promise<readonly { provider: string; id: string; name: string }[]> {
     return Promise.resolve([])
   }
   resolveModel(provider: string, model: string, _signal?: AbortSignal): Promise<{ provider: string; id: string; name: string; [k: string]: unknown }> {
@@ -181,7 +181,7 @@ export class DshLlmAdapter extends LlmAdapter {
   }
 
   // Advisory catalog — DSH runtime will call listModels/resolveModel for UI
-  override async listModels(provider: string): Promise<readonly { provider: string; id: string; name: string }[]> {
+  override async listModels(_provider: string): Promise<readonly { provider: string; id: string; name: string }[]> {
     return []
   }
 

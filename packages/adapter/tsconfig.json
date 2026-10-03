@@ -8,6 +8,7 @@
   "include": ["src/**/*.ts"],
   "references": [
     { "path": "../profile" },
+    { "path": "../opencode-loader" },
     { "path": "../host-promise-v2" }
   ]
 }

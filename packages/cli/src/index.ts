@@ -20,8 +20,6 @@ import { resolve } from "node:path"
 import {
   parseSetupArgs,
   setup,
-  type SetupOptions,
-  type SetupResult,
 } from "./setup"
 
 export {

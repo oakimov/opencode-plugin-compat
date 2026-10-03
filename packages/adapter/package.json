@@ -36,6 +36,7 @@
   },
   "dependencies": {
     "@opencode-compat/host-promise-v2": "workspace:*",
+    "@opencode-compat/opencode-loader": "workspace:*",
     "@opencode-compat/profile": "workspace:*"
   },
   "devDependencies": {

@@ -23,6 +23,7 @@ import {
   type HostProfile,
   type HostToolRoles,
 } from "@opencode-compat/profile"
+import { translatePromptToolNames } from "@opencode-compat/opencode-loader"
 
 export type ToolRole = keyof HostToolRoles
 
@@ -816,7 +817,7 @@ export type CompletionClear = {
 }
 
 /** Abandons that cleared a finished list, distinct from a real cancellation. */
-export function completionClears(prompt: readonly unknown[]): CompletionClear {
+export function completionClears(prompt: readonly unknown[], hostToolName?: string): CompletionClear {
   const hostIds = new Set<string>()
   const callIds = new Set<string>()
   if (!Array.isArray(prompt)) return { hostIds, callIds }
@@ -824,6 +825,7 @@ export function completionClears(prompt: readonly unknown[]): CompletionClear {
     if (!isRecord(message) || !Array.isArray(message["content"])) continue
     for (const part of message["content"]) {
       if (!isRecord(part) || part["type"] !== "tool-call") continue
+      if (hostToolName && part["toolName"] !== hostToolName) continue
       const operation = operationOf(part["input"])
       if (!operation || operation["action"] !== "abandon" || operation["event_summary"] !== "completed") continue
       if (typeof operation["id"] === "string") hostIds.add(operation["id"])
@@ -853,17 +855,19 @@ export function rewriteCompletionClearText(
 }
 
 /**
- * Restate prior turns in canonical vocabulary.
- *
- * A plugin emitted `todowrite` under one call id; the host executed N `task`
- * calls under derived ids and returned N results. Left alone, the next turn
- * would show the plugin a history it never produced — calls it did not make,
- * under names it does not know, and no result for the call it is still waiting
- * on. Fanned-out calls are folded back into the single canonical call and their
- * results concatenated into one.
+ * Rewrite code spans whose whole content is a rotated host tool name, in one
+ * pass so swapped names (`actor` → `task`, `task` → `todowrite`) never chain.
+ * Prose words are left alone.
  */
+export function translateSystemToolNames(text: string, renames: ReadonlyMap<string, string>): string {
+  return translatePromptToolNames(text, renames)
+}
+
+/** Restate host prompt references, calls, and folded results in canonical vocabulary. */
 export function translatePrompt<T>(prompt: readonly T[], vocab: Vocabulary): T[] {
-  const cleared = completionClears(prompt)
+  const cleared = vocab.todoWriteHost
+    ? completionClears(prompt, vocab.todoWriteHost)
+    : { hostIds: new Set<string>(), callIds: new Set<string>() }
   const hostToCanonical = new Map<string, RoleBinding>()
   for (const binding of vocab.bindings) {
     // todoWrite and todoRead share one host name; the call id decides which,
@@ -873,7 +877,16 @@ export function translatePrompt<T>(prompt: readonly T[], vocab: Vocabulary): T[]
     }
   }
 
+  const systemRenames = new Map<string, string>()
+  for (const [host, binding] of hostToCanonical) systemRenames.set(host, binding.canonical)
+
   return prompt.map((message) => {
+    // The host system prompt names tools in host vocabulary (MiMo: "Work
+    // tracking: `task`", "Subagents: `actor`"); restate them for the catalog.
+    if (isRecord(message) && message["role"] === "system" && typeof message["content"] === "string") {
+      const content = translateSystemToolNames(message["content"], systemRenames)
+      return (content === message["content"] ? message : { ...message, content }) as T
+    }
     if (!isRecord(message) || !Array.isArray(message["content"])) return message
 
     const out: unknown[] = []
@@ -894,7 +907,9 @@ export function translatePrompt<T>(prompt: readonly T[], vocab: Vocabulary): T[]
       }
 
       const binding = hostToCanonical.get(toolName)
-      const visible = rewriteClearPart(part, cleared)
+      const visible = binding?.role === "todoWrite" || binding?.role === "todoRead"
+        ? rewriteClearPart(part, cleared)
+        : part
       if (!binding) {
         out.push(visible)
         continue
@@ -964,14 +979,34 @@ function rewriteClearPart(part: Record<string, unknown>, cleared: CompletionClea
   if (cleared.hostIds.size === 0 || part["type"] !== "tool-result") return part
   const callId = typeof part["toolCallId"] === "string" ? part["toolCallId"] : ""
   const ownResult = cleared.callIds.has(callId)
+  const rewrite = (text: string) => rewriteCompletionClearText(text, cleared.hostIds, ownResult)
   const next: Record<string, unknown> = { ...part }
-  if (typeof next["output"] === "string") {
-    next["output"] = rewriteCompletionClearText(next["output"], cleared.hostIds, ownResult)
-  }
-  if (typeof next["result"] === "string") {
-    next["result"] = rewriteCompletionClearText(next["result"], cleared.hostIds, ownResult)
-  }
+  if ("output" in next) next["output"] = mapToolOutputText(next["output"], rewrite)
+  if (typeof next["result"] === "string") next["result"] = rewrite(next["result"])
   return next
+}
+
+/**
+ * Apply `fn` to the text of a tool-result output: a plain string, or the
+ * AI-SDK V3 typed shape hosts actually send (`{type: "text" | "error-text",
+ * value}`, and the text parts of `{type: "content", value: [...]}`).
+ */
+function mapToolOutputText(output: unknown, fn: (text: string) => string): unknown {
+  if (typeof output === "string") return fn(output)
+  if (!isRecord(output)) return output
+  if ((output["type"] === "text" || output["type"] === "error-text") && typeof output["value"] === "string") {
+    return { ...output, value: fn(output["value"]) }
+  }
+  if (output["type"] === "content" && Array.isArray(output["value"])) {
+    return {
+      ...output,
+      value: output["value"].map((item: unknown) =>
+        isRecord(item) && item["type"] === "text" && typeof item["text"] === "string"
+          ? { ...item, text: fn(item["text"]) }
+          : item),
+    }
+  }
+  return output
 }
 
 function mergeFoldedPart(target: Record<string, unknown>, part: Record<string, unknown>): void {
