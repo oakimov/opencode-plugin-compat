@@ -81,7 +81,34 @@ docs/guides/       # companion privacy / ZCode import notes (non-OCP runtime)
 3. `packages/dsh-bridge/README.md` — contract + Cordis patch config for the DSH family
 4. `docs/hosts/opencode-clones.md` (MiMo/Kilo/ZCode) / `docs/hosts/pi-family.md` (Pi) / `docs/hosts/dsh-family.md` (DSH) — one self-contained guide per host family; install lives **in** them, not in a separate top-level INSTALL doc
 5. Provider-maintained interactive acceptance checklist: `cursor-opencode-provider/docs/host-compat-acceptance.md`; run the OMP/Pi/DSH items against stock hosts before claiming interactive parity.
-6. `docs/plans/**` — **historical**; shipped work, kept for provenance. Superseded by the above wherever they disagree; do not treat as a roadmap.
+6. `CHANGELOG.md` — user-facing release notes for the shared `@opencode-compat/*` train (see § Changelog).
+7. `docs/plans/**` — **historical**; shipped work, kept for provenance. Superseded by the above wherever they disagree; do not treat as a roadmap.
+
+## Changelog
+
+Location: root `CHANGELOG.md` (one file for the whole train — all eleven packages share one version).
+
+Modeled on [oh-my-pi](https://github.com/can1357/oh-my-pi)'s changelog contract; adapted to a single train instead of per-package files.
+
+**Format** — sections under `## [Unreleased]`:
+
+- `### Breaking Changes` (first if present)
+- `### Added`
+- `### Changed`
+- `### Fixed`
+- `### Removed`
+
+**Rules (mandatory for every agent change):**
+
+- User-facing behavior, public APIs, install/setup UX, host compatibility, or published package contracts **MUST** get a one-line entry under `## [Unreleased]` in the **same change** as the code. Do not defer to “later” or the release bump.
+- Entries are one line, brief, and user-facing: lead with what the operator or plugin author will see or can now do. Root-cause narration and implementation detail belong in the commit/PR, not the changelog.
+- New entries always go under `## [Unreleased]`. Never invent a version section ahead of a release.
+- Never modify already-released sections (e.g. `## [0.4.3]`) — they are immutable.
+- Pure internal refactors, test-only edits, and docs that do not change operator-visible behavior may skip a changelog line. When unsure, add the entry.
+- Keep empty subsection headings out of `[Unreleased]` — only include headings that have at least one bullet.
+- Attribution when linking tracker items:
+  - Internal (from issues): `Fixed foo bar ([#123](https://github.com/oakimov/opencode-plugin-compat/issues/123)).`
+  - External contributions: `Added feature X ([#456](https://github.com/oakimov/opencode-plugin-compat/pull/456) by [@username](https://github.com/username)).`
 
 ## Version bump / publish (agent runbook)
 
@@ -132,6 +159,7 @@ This order is `PACKAGES` in `scripts/publish.ts` — keep the two in sync when a
 3. **Docs / defaults sync**
    - CLI setup default is `OCP_VERSION` from `@opencode-compat/profile` — no hardcoded train pin needed in `setup.ts`.
    - Update user-facing train mentions in `docs/hosts/opencode-clones.md` §2.4 (example `--version` / “today **X.Y.Z**”) when they still name an older train.
+   - **Finalize `CHANGELOG.md`:** move every bullet under `## [Unreleased]` into a new `## [X.Y.Z] - YYYY-MM-DD` section (today’s date, UTC or local calendar day of the release), preserving subsection order (`Breaking Changes` → `Added` → `Changed` → `Fixed` → `Removed`). Leave a fresh empty `## [Unreleased]` at the top. If `[Unreleased]` is empty, stop and ask — a release with no notes usually means entries were forgotten.
    - Do **not** churn historical narrative in `docs/guides/npm-publish.md` bootstrap sections, plan docs, or host-profile `drafts.ts` `ocpVersion` contract examples unless the user asks.
 
 4. **Verify (fail closed)**
@@ -151,7 +179,7 @@ This order is `PACKAGES` in `scripts/publish.ts` — keep the two in sync when a
    git commit -m "chore: release X.Y.Z"
    git push origin main
    ```
-   Include `bun.lock` and any INSTALL/default sync files.
+   Include `bun.lock`, finalized `CHANGELOG.md`, and any INSTALL/default sync files.
 
 6. **Tag + push tag (triggers OIDC publish)**
    ```bash

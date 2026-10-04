@@ -33,6 +33,7 @@ import {
   mergeFactoryOptions,
   openCodeAuthFromResolvedKey,
   optionsForLevel,
+  providerPackageMatches,
   type ModelCallData,
   type OpenCodeHooks,
   type PiModelConfig,
@@ -195,14 +196,22 @@ export async function registerOpenCodePlugin(
   // not necessarily the host-facing name (that one may have been de-collided).
   const providerOptionsKey = authHook?.provider ?? hooks?.auth?.provider ?? providerName
   const cursorUsage = cursorIntegration
+  const devinUsage = providerPackageMatches(spec.package, "devin-opencode-provider")
+    ? await import("@opencode-compat/opencode-loader/devin-usage") : undefined
 
   const profile = await registerAiSdkProvider(pi, {
     name: providerName,
     api,
     baseUrl: spec.baseUrl ?? `opencode-plugin:${spec.package}`,
-    ...(cursorUsage ? { finishUsage: cursorUsage.cursorFinishUsage } : {}),
-    ...(cursorUsage ? { finishContextTokens: cursorUsage.cursorFinishContextTokens } : {}),
-    ...(cursorUsage ? { finishPiUsage: cursorUsage.cursorFinishPiUsage } : {}),
+    ...(cursorUsage ? { finishUsage: cursorUsage.cursorFinishUsage }
+      : devinUsage ? { finishUsage: devinUsage.devinFinishUsage } : {}),
+    ...(cursorUsage ? { finishContextTokens: cursorUsage.cursorFinishContextTokens }
+      : devinUsage ? { finishContextTokens: part => devinUsage.devinFinishContext(part)?.contextTokens } : {}),
+    ...(cursorUsage ? {
+      finishPiUsage: (part, usage) => cursorUsage.cursorFinishPiUsage(part, usage, hostProfile.id),
+    } : devinUsage && hostProfile.id === "pi" ? {
+      finishPiUsage: (_part, usage) => usage.contextTokens === undefined ? usage : { ...usage, totalTokens: usage.contextTokens },
+    } : {}),
     ...(spec.apiKey ? { apiKey: spec.apiKey } : {}),
     ...(initialModels.length > 0 ? { models: initialModels } : {}),
     ...(fetchModels ? { fetchModels } : {}),

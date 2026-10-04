@@ -2,6 +2,36 @@
 
 Corrections and durable takeaways for this repo.
 
+## 2026-10-04 — Review accounting against every host consumer
+
+- A field used by a compaction meter may also feed session billing statistics.
+  Review both consumers before changing its meaning, and test host selection
+  through the registration path as well as the stream projection.
+- A `tool-calls` finish is not evidence of zero billable work. Only an explicit
+  package-selected display-only signal may suppress a provider's usage.
+- Test cache-read and cache-write partitions together; a correct-looking input
+  total can still double-count caches or omit a bucket in the host's sum.
+- Prefer a public Cordis bundle provider that delegates to native metering
+  over changing billed buckets to impersonate context occupancy. Keep signed
+  history deltas, replay, request-header matching, and display echoes covered.
+- An install-tree runtime is copied per provider. Process-wide event hooks
+  need shared OCP-owned accounting state, not module-local state in one copy.
+- Exercise both `doStream` and `doGenerate`; generation reports terminal
+  usage outside the content array. Preserve catalog limits through resolution.
+  Clone hosts persist `step-finish` only from streamed steps, so never queue
+  reconciliation records for generation results.
+- Kilo/MiMo call every distinct function export of a classic plugin module.
+  Wrapping only `export default X` while `export { X }` stays raw loads the
+  provider plugin twice; add a separate export instead of re-identifying one.
+- One bus payload reaches every plugin hook (Kilo re-wraps the envelope per
+  hook). A shared bridge fed by several hooks must handle each payload once.
+- Never feature-probe a host seam with `x?.()` inside a silent `try/catch`
+  (`settings.installSection` vanished in DSH 0.1.7 and Models rows silently
+  disappeared). Log the miss. DSH settings are now the plugin's own volatile
+  Cordis Config, addressed by entry id.
+- DSH validates detached `Session.create` seeds eagerly; pass the store's
+  `messageProjections` or plugin-owned events (`image/offload`) throw.
+
 ## 2026-10-02 — pify bash `|` inside quotes is not plan review
 
 - **Symptom:** During Pi plan mode, UI showed

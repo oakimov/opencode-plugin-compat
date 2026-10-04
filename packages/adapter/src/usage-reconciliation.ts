@@ -70,9 +70,17 @@ type HostEventInput = {
   serverUrl: URL
 }
 
-let reconciliationRoot: string | undefined
-const ledgers = new Map<string, UsageLedger>()
-const eventQueues = new Map<string, Promise<void>>()
+// Each install-tree provider gets a self-contained runtime copy. They must
+// share the owner state used by the single process-wide event capability.
+const STATE_KEY = Symbol.for("opencode.compat.usage-reconciliation-state")
+type SharedState = {
+  root?: string; ledgers: Map<string, UsageLedger>; eventQueues: Map<string, Promise<void>>
+}
+const sharedRoot = globalThis as typeof globalThis & { [STATE_KEY]?: SharedState }
+const shared = sharedRoot[STATE_KEY] ??= {
+  ledgers: new Map<string, UsageLedger>(), eventQueues: new Map<string, Promise<void>>(),
+}
+const { ledgers, eventQueues } = shared
 
 const zeroUsage = (): HostTokenUsage => ({
   total: 0,
@@ -238,7 +246,7 @@ function estimateStep(
  * terminal aggregate clears them and replaces their sum with exact counters.
  */
 export function recordFinishUsage(sessionID: string | undefined, part: unknown, step?: StepObservation): void {
-  const root = reconciliationRoot
+  const root = shared.root
   if (!root || !isRecord(part) || part.type !== "finish") return
   const expected = hostUsageFromV3(part.usage)
   const accounting = usageMetadata(part.providerMetadata)
@@ -285,12 +293,12 @@ function isOccupancyFinish(part: StreamPartLike): boolean {
   return usageMetadata(part.providerMetadata)?.occupancyOnly === true
 }
 
-/** Kilo accounts for step parts separately from assistant context snapshots. */
+/** Clone hosts account for step parts separately from assistant context snapshots. */
 export function usageIntegrationForHost(
   hostId: string,
   env: Record<string, string | undefined> = process.env,
 ): ProviderUsageIntegration | undefined {
-  if (hostId !== "kilo") return undefined
+  if (hostId !== "kilo" && hostId !== "mimo") return undefined
   installUsageReconciliation(hostId, env)
   return {
     isOccupancyFinish,
@@ -359,7 +367,7 @@ function usageFromPart(part: RecordLike): HostTokenUsage | undefined {
 }
 
 function claimRecord(sessionID: string, observed: HostTokenUsage, reason: string | undefined): { file: string; record: ReconciliationRecord } | undefined {
-  const root = reconciliationRoot
+  const root = shared.root
   if (!root) return undefined
   const prefix = `${sessionPrefix(sessionID)}-`
   let names: string[]
@@ -524,15 +532,15 @@ async function reconcileEvent(input: HostEventInput): Promise<void> {
   }
 }
 
-/** Install Kilo's accounting reconciliation as a host capability. */
+/** Install accounting reconciliation through the public plugin event hook. */
 export function installUsageReconciliation(
   id: string,
   env: Record<string, string | undefined> = process.env,
 ): void {
-  if (id !== "kilo") return
-  reconciliationRoot = path.join(hostCacheDir(id, env), "ocp", "usage-reconciliation")
+  if (id !== "kilo" && id !== "mimo") return
+  shared.root = path.join(hostCacheDir(id, env), "ocp", "usage-reconciliation")
   try {
-    mkdirSync(reconciliationRoot, { recursive: true, mode: 0o700 })
+    mkdirSync(shared.root, { recursive: true, mode: 0o700 })
   } catch {
     // Stream adoption remains available even when accounting state is not.
   }
@@ -542,11 +550,21 @@ export function installUsageReconciliation(
   const prior = isRecord(current) && typeof current.handle === "function"
     ? current.handle.bind(current) as (input: HostEventInput) => void | Promise<void>
     : undefined
+  // Hosts deliver one bus event to every plugin hook, and several plugins may
+  // forward it here (OCP's event plugin per provider, providers that dispatch
+  // themselves). Kilo builds a fresh event envelope per hook around a shared
+  // payload; MiMo shares the envelope. Handle each payload once.
+  const delivered = new WeakSet<object>()
   root[HOST_EVENT_BRIDGE] = {
     [BRIDGE_MARKER]: true,
     async handle(input: HostEventInput) {
       const properties = isRecord(input.event) && isRecord(input.event.properties)
         ? input.event.properties : undefined
+      const payload = properties ?? (isRecord(input.event) ? input.event : undefined)
+      if (payload) {
+        if (delivered.has(payload)) return
+        delivered.add(payload)
+      }
       const part = properties && isRecord(properties.part) ? properties.part : undefined
       const key = part?.type === "step-finish" && typeof part.sessionID === "string"
         ? part.sessionID : undefined
@@ -568,7 +586,7 @@ export function installUsageReconciliation(
 }
 
 export function resetUsageReconciliationForTests(): void {
-  reconciliationRoot = undefined
+  shared.root = undefined
   ledgers.clear()
   eventQueues.clear()
   const root = globalThis as typeof globalThis & Record<typeof HOST_EVENT_BRIDGE, unknown>

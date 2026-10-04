@@ -166,14 +166,17 @@ ocp setup --host kilo
 # 1. Bump the whole train (package.json + VERSION constants + bun.lock)
 bun scripts/bump-version.ts 0.1.2
 
-# 2. Verify (fails closed if bun.lock or packed deps drift from the train)
+# 2. Finalize CHANGELOG.md: move ## [Unreleased] bullets into ## [0.1.2] - YYYY-MM-DD
+#    and leave a fresh empty ## [Unreleased] (agent contract in AGENTS.md § Changelog).
+
+# 3. Verify (fails closed if bun.lock or packed deps drift from the train)
 bun run pack:check
 
-# 3. Commit + push main (include bun.lock)
+# 4. Commit + push main (include bun.lock + CHANGELOG.md)
 git add -A && git commit -m "chore: release 0.1.2"
 git push origin main
 
-# 4. Tag must match package version (v-prefix)
+# 5. Tag must match package version (v-prefix)
 git tag v0.1.2
 git push origin v0.1.2
 ```

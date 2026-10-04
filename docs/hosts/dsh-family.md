@@ -43,17 +43,23 @@ No `dsh-bridge.json` file search. Configuration is the Cordis patch `config.prov
         providers:
           - package: cursor-opencode-provider
             providerName: cursor          # optional
-            apiKey: CURSOR_API_KEY      # CredentialRef env name, not a secret
+            apiKeyEnv: CURSOR_API_KEY   # CredentialRef env name, not a secret
             createOptions: { apiKey: "$apiKey" }
           - package: devin-opencode-provider
-            apiKey: DEVIN_API_KEY
+            apiKeyEnv: DEVIN_API_KEY
 ```
 
-Only `package` is required. The same `OpenCodePluginSpec` shape as `pi-bridge` is accepted (`providerName`, `apiKey`, `createOptions`, `disableOAuth`, `preferAuthMethod`, `splitDimensions`, `directory`) but stored in yml, not a JSON file.
+Only `package` is required. The same `OpenCodePluginSpec` shape as `pi-bridge` is accepted (`providerName`, `apiKey`, `createOptions`, `disableOAuth`, `preferAuthMethod`, `splitDimensions`, `directory`) but stored in yml, not a JSON file. `apiKeyEnv` names the CredentialRef; `apiKey` is its alias, but only `apiKeyEnv` drives the Settings → Models key badge.
 
-The Models list is the `dsh-bridge` settings section (same shape as `llm-pi-ai.providers.<id>`). The bridge seeds `dsh-bridge.providers.<route>` from the patch (`apiKeyEnv` = the `apiKey` CredentialRef) so a registered adapter shows as a configured row without Add provider.
+Settings → Models lists each registered route as a configured row addressed into the bridge entry's volatile `providers` Config (DSH keeps live settings in the plugin's own Config). Editing `providers` in the patch re-registers the bridge live. See the [settings contract](../../packages/dsh-bridge/README.md#adding-a-provider).
 
 Variant `effort` dimensions map to the host ACP effort picker via `LlmResolvedModelInfo.reasoning.efforts`.
+
+The bridge also preserves the provider's context and output limits. Its bundle
+selects an OCP token-meter provider through the native `token-meter` entry;
+no extra user configuration is required. That meter delegates to stock DSH
+and separates explicit provider context snapshots from billed token buckets.
+See the [accounting contract](../../packages/dsh-bridge/README.md#token-accounting).
 
 ## Development helper
 
@@ -64,7 +70,7 @@ Local/npm switch is via `scripts/ocp-dev.sh` (DSH family, local checkout + npm m
 ./scripts/ocp-dev.sh run dsh --mode npm
 ```
 
-`local` runs `pnpm install` and the harness documented build (`build:native-system`, host/client lib, `build:web`; tsdown only for directories with `package.json`), builds local `opencode-loader` + `dsh-bridge` and the provider, stages dsh-bridge with a `file:` pin to the local loader (profile pnpm cannot resolve Bun `workspace:*` or an unpublished train pin), adds that stage via `dsh plugin add`, syncs those packages' `dist` into the profile `node_modules` copy (pnpm `file:` does not pick up newly emitted files), and points the patch entry at the provider's absolute `dist/index.js`. `npm` switches back to bare npm names. Mirrors `docs/hosts/pi-family.md:87` for `pi/omp`.
+`local` runs `pnpm install` and the harness documented build (`build:native-system`, host/client lib, `build:web`; tsdown only for directories with `package.json`), builds local `opencode-loader` + `dsh-bridge` and the provider, stages dsh-bridge with a `file:` pin to the local loader (profile pnpm cannot resolve Bun `workspace:*` or an unpublished train pin), adds that stage via `dsh plugin add`, syncs those packages' `dist`, manifests, and bundle patch into the profile `node_modules` copy (pnpm `file:` does not pick up newly emitted files), and points the patch entry at the provider's absolute `dist/index.js`. `npm` switches back to bare npm names. Mirrors `docs/hosts/pi-family.md:87` for `pi/omp`.
 
 **Train pin rule:** `packages/dsh-bridge/package.json` must keep `@opencode-compat/opencode-loader` as an **exact train pin**, never `workspace:*`. Profile pnpm reads the source manifest on `dsh plugin add file:…` and fails with `ERR_PNPM_WORKSPACE_PKG_NOT_FOUND` otherwise (0.4.1 regression). `bun scripts/bump-version.ts` rewrites the pin and refuses workspace protocol on dsh-bridge / pi-bridge — see [`docs/guides/npm-publish.md`](../guides/npm-publish.md).
 

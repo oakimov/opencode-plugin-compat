@@ -1,7 +1,11 @@
 # dsh-bridge bundle — inserted when the bundle is listed in a profile.
 # Users add provider rows via their own profile cordis.patch.yml (the next layer),
 # which overrides this row's `config` whole-object.
+- id: token-meter
+  disabled: true
 - insert:
+    - id: ocp-token-meter
+      name: '@opencode-compat/dsh-bridge/token-meter'
     - id: ocp-dsh-bridge
       name: '@opencode-compat/dsh-bridge'
       config:

@@ -169,12 +169,18 @@ when the Cursor provider is loaded in-process. Force registration in tests with
 `PI_BRIDGE_CURSOR_HOST_TOOLS=1`.
 
 Cursor's billed input can include several tool steps from one held Run. The
-bridge preserves those raw totals for cost, and separately forwards Cursor's
-checkpoint `usedTokens` as Pi's `contextTokens`. OMP uses `contextTokens` for
-compaction timing and its history cut point. The billable input beyond the
-occupied prompt is recorded as Pi `orchestration` usage; otherwise OMP's
-overflow check mistakes a successful held Run for a prompt larger than the
-model window. With `snapcompact`, OMP may turn
+bridge computes **cost** from those raw totals and forwards Cursor's checkpoint
+`usedTokens` as `contextTokens`. OMP uses `contextTokens` for compaction and
+keeps `totalTokens` billable for session totals. On vanilla pi only, the bridge
+also puts occupancy in `totalTokens`, which sizes its footer/compaction meter.
+This applies to tool boundaries and non-error terminal finishes, including
+length stops. Occupancy-only boundaries carry zero billable components/cost.
+The billable input beyond the occupied prompt is recorded as `orchestration`
+usage so input-based overflow checks do not mistake a held Run for an oversized
+prompt. Vanilla pi does not include that sidecar in its input/cache session
+statistics; its displayed cost still includes all billed work. Without a
+checkpoint, the bridge retains the available usage instead of inventing an
+occupancy value. With `snapcompact`, OMP may turn
 text history into image frames even when the user supplied no images; those
 frames can cause one image-save call per frame on the next Cursor Run.
 
@@ -186,6 +192,13 @@ the host. Devin and generic models therefore cannot inherit Cursor's private
 mode, staging, or image lifecycle even when both providers are configured.
 
 ## Path bridge
+
+Generic V3 providers retain aggregate input when `noCache` is absent. Cache
+partitions and reasoning are bounded by known aggregates. Devin's optional
+package-selected integration treats cache-read counters larger than aggregate
+input as context snapshots: billed input stays at the aggregate, while Pi's
+context total and OMP's `contextTokens` receive the reconstructed occupancy.
+The original provider metadata remains available.
 
 On extension load, the bridge installs `Symbol.for("opencode.host.path-bridge")`
 for the detected host so unmodified providers resolve project/global config,

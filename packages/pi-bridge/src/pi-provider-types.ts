@@ -43,8 +43,13 @@ export type PiUsage = {
  output: number
  cacheRead: number
  cacheWrite: number
+ /**
+  * Occupied context for hosts that size the meter from `totalTokens`
+  * (vanilla pi). On that host, Cursor occupancy replaces the held-Run billable
+  * sum. OMP keeps this field billable and sizes context from `contextTokens`.
+  */
  totalTokens: number
- /** Authoritative occupied context, separate from cumulative billable tokens. */
+ /** Authoritative occupied context (OMP). Mirrored into `totalTokens` only for pi. */
  contextTokens?: number
  /** Billable provider-side work that is absent from the replayed prompt. */
  orchestration?: { input?: number; output?: number; cacheRead?: number }

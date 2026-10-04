@@ -8,6 +8,7 @@
  * (which additionally has a `deferred` done-reason).
  */
 import type { LanguageModelV3FinishReason, LanguageModelV3StreamPart, LanguageModelV3Usage } from "@ai-sdk/provider"
+import { normalizeUsage } from "@opencode-compat/opencode-loader"
 import type {
   PiAssistantMessage as AssistantMessage,
   PiEventStream as AssistantMessageEventStream,
@@ -32,12 +33,11 @@ export function emptyUsage(): PiUsage {
 }
 
 function translateUsage(usage: LanguageModelV3Usage, model: Model): PiUsage {
-  const input = usage.inputTokens.noCache ?? 0
-  const cacheRead = usage.inputTokens.cacheRead ?? 0
-  const cacheWrite = usage.inputTokens.cacheWrite ?? 0
-  const output = usage.outputTokens.total ?? 0
-  const totalInput = usage.inputTokens.total ?? input + cacheRead + cacheWrite
-  const totalTokens = totalInput + output
+  const normalized = normalizeUsage(usage)
+  const { input, output } = normalized
+  const cacheRead = normalized.cacheRead ?? 0
+  const cacheWrite = normalized.cacheWrite ?? 0
+  const totalTokens = normalized.total ?? input + cacheRead + cacheWrite + output
   const rate = model.cost
   const cost = {
     input: (input / 1_000_000) * rate.input,
@@ -48,7 +48,7 @@ function translateUsage(usage: LanguageModelV3Usage, model: Model): PiUsage {
   }
   cost.total = cost.input + cost.output + cost.cacheRead + cost.cacheWrite
   const out: PiUsage = { input, output, cacheRead, cacheWrite, totalTokens, cost }
-  if (usage.outputTokens.reasoning !== undefined) out.reasoning = usage.outputTokens.reasoning
+  if (normalized.reasoning !== undefined) out.reasoning = normalized.reasoning
   return out
 }
 

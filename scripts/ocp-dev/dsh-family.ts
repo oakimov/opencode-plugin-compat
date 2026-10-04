@@ -114,13 +114,41 @@ export function syncInstalledFilePackageDist(sourcePkg: string, destPkg: string)
   return true
 }
 
+/** Refresh new package exports and bundle entries, retaining local file pins. */
+export function syncInstalledFilePackage(sourcePkg: string, destPkg: string): boolean {
+  if (!syncInstalledFilePackageDist(sourcePkg, destPkg)) return false
+  const sourceManifest = join(sourcePkg, "package.json")
+  const destManifest = join(destPkg, "package.json")
+  if (existsSync(sourceManifest) && existsSync(destManifest)) {
+    const fresh = JSON.parse(readFileSync(sourceManifest, "utf8"))
+    const installed = JSON.parse(readFileSync(destManifest, "utf8"))
+    for (const [name, range] of Object.entries(installed.dependencies ?? {})) {
+      if (name.startsWith("@opencode-compat/") && typeof range === "string" && range.startsWith("file:") && fresh.dependencies?.[name]) {
+        fresh.dependencies[name] = range
+      }
+    }
+    const srcStat = statSync(sourceManifest)
+    const dstStat = statSync(destManifest)
+    if (srcStat.ino !== dstStat.ino || srcStat.dev !== dstStat.dev) writeFileSync(destManifest, `${JSON.stringify(fresh, null, 2)}\n`)
+  }
+  for (const name of ["cordis.patch.yml", "README.md"] as const) {
+    const from = join(sourcePkg, name)
+    const to = join(destPkg, name)
+    if (!existsSync(from)) continue
+    const srcStat = statSync(from)
+    const dstStat = existsSync(to) ? statSync(to) : undefined
+    if (!dstStat || srcStat.ino !== dstStat.ino || srcStat.dev !== dstStat.dev) copyFileSync(from, to)
+  }
+  return true
+}
+
 function syncLocalBridgeIntoProfile(): void {
   const profileNm = join(configDir("dsh"), "node_modules/@opencode-compat")
   const root = repoRoot()
   for (const name of ["dsh-bridge", "opencode-loader"] as const) {
     const dest = join(profileNm, name)
-    if (syncInstalledFilePackageDist(join(root, "packages", name), dest)) {
-      console.log(`ocp-dev: synced ${name} dist into ${dest}`)
+    if (syncInstalledFilePackage(join(root, "packages", name), dest)) {
+      console.log(`ocp-dev: synced ${name} package into ${dest}`)
     }
   }
 }
@@ -167,12 +195,12 @@ function buildLocal(providers: ReadonlyArray<{ path: string; label: string }>): 
   for (const provider of providers) buildProviderPackage(provider.path, provider.label)
 }
 
-export type DshProviderRow = { package: string; apiKey: string }
+export type DshProviderRow = { package: string; apiKeyEnv: string }
 
 export function formatDshBridgePatch(rows: readonly DshProviderRow[], header = ""): string {
   if (rows.length === 0) throw new Error("dsh-bridge patch needs at least one provider")
   const providers = rows
-    .map((row) => `      - package: '${row.package}'\n        apiKey: ${row.apiKey}`)
+    .map((row) => `      - package: '${row.package}'\n        apiKeyEnv: ${row.apiKeyEnv}`)
     .join("\n")
   return `${header}- id: ocp-dsh-bridge\n  config:\n    providers:\n${providers}\n`
 }
@@ -180,13 +208,13 @@ export function formatDshBridgePatch(rows: readonly DshProviderRow[], header = "
 export function localDshProviderRows(): DshProviderRow[] {
   const rows: DshProviderRow[] = [{
     package: resolve(join(defaultProviderPath(), "dist", "index.js")),
-    apiKey: "CURSOR_API_KEY",
+    apiKeyEnv: "CURSOR_API_KEY",
   }]
   const devin = defaultDevinProviderPath()
   if (devin) {
     rows.push({
       package: resolve(join(devin, "dist", "index.js")),
-      apiKey: "DEVIN_API_KEY",
+      apiKeyEnv: "DEVIN_API_KEY",
     })
   }
   return rows
@@ -272,7 +300,7 @@ export async function runDsh(host: DshHost, mode: WireMode): Promise<void> {
     const patch = writeDevPatch(rows)
     console.log(`\nocp-dev: dsh is on LOCAL dsh-bridge + LOCAL ${rows.map((row) => row.package).join(" + ")}`)
     console.log(`  bridge: ${dshBridgePath()}/dist/index.js`)
-    for (const row of rows) console.log(`  provider: ${row.package} (${row.apiKey})`)
+    for (const row of rows) console.log(`  provider: ${row.package} (${row.apiKeyEnv})`)
     console.log(`  persistent patch: ${persistent}`)
     console.log(`  dev overlay: ${patch} (for ad-hoc node apps/cli/lib/bin.js web --patch)`)
     console.log(`\n  Verify:`)
@@ -309,8 +337,8 @@ export async function runDsh(host: DshHost, mode: WireMode): Promise<void> {
       run(cwd, [dshBin, "plugin", "--profile", "web", "add", `@opencode-compat/dsh-bridge@${bridgeVersion}`])
       run(cwd, [dshBin, "plugin", "--profile", "web", "add", `${plugin}@${pluginVersion}`])
       const npmRows: DshProviderRow[] = [
-        { package: plugin, apiKey: "CURSOR_API_KEY" },
-        { package: "devin-opencode-provider", apiKey: "DEVIN_API_KEY" },
+        { package: plugin, apiKeyEnv: "CURSOR_API_KEY" },
+        { package: "devin-opencode-provider", apiKeyEnv: "DEVIN_API_KEY" },
       ]
       const persistent = persistentPatchPath()
       mkdirSync(join(persistent, ".."), { recursive: true })

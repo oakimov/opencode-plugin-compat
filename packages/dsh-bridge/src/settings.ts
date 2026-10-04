@@ -1,98 +1,68 @@
-export const DSH_BRIDGE_SETTINGS_NS = "dsh-bridge"
+/**
+ * DSH Settings → Models contract ("profile-owned live configuration"): a
+ * plugin's live settings are the `.volatile()` fields of its own Cordis
+ * `Config`, addressed by the plugin's profile entry id. A provider row is
+ * listed as configured when the adapter's directory entry points at a value
+ * inside that volatile Config. The bridge therefore exposes its `providers`
+ * rows (the `cordis.patch.yml` specs) as one volatile field.
+ */
 
-export type DshBridgeProviderProfile = {
-  apiKeyEnv?: string
-  displayName?: string
+/** Only the Schemastery surface this schema uses, kept structural. */
+type SchemaNode = {
+  required(): SchemaNode
+  role(text: string): SchemaNode
+  default(value: unknown): SchemaNode
+  volatile(): SchemaNode
+}
+type SchemaFactory = {
+  object(dict: Record<string, SchemaNode>): SchemaNode
+  array(inner: SchemaNode): SchemaNode
+  string(): SchemaNode
 }
 
-export type DshBridgeSettings = {
-  providers: Record<string, DshBridgeProviderProfile>
-}
-
-export function settingsPathFor(provider: string): string[] {
-  return ["providers", provider]
-}
-
-export function createSettingsSchema(): ((data: unknown) => DshBridgeSettings) & {
-  type: string
-  meta: { default: DshBridgeSettings }
-  dict: Record<string, unknown>
-  toJSON: () => unknown
-} {
-  const apiKeyEnv = { type: "string", meta: { role: "credential-ref" } }
-  const displayName = { type: "string", meta: {} }
-  const profile = {
-    type: "object",
-    meta: { default: {} },
-    dict: { apiKeyEnv, displayName },
-  }
-  const providers = {
-    type: "dict",
-    meta: { default: {} },
-    inner: profile,
-    sKey: { type: "string", meta: {} },
-  }
-  const validate = (data: unknown): DshBridgeSettings => {
-    const raw = (data as { providers?: unknown } | null)?.providers
-    const out: Record<string, DshBridgeProviderProfile> = {}
-    if (raw === undefined || raw === null) return { providers: out }
-    if (typeof raw !== "object" || Array.isArray(raw)) {
-      throw new Error("dsh-bridge settings: providers must be a dict")
-    }
-    for (const [id, value] of Object.entries(raw as Record<string, unknown>)) {
-      if (id.length === 0) throw new Error("dsh-bridge settings: empty provider id")
-      if (value == null) continue
-      if (typeof value !== "object" || Array.isArray(value)) {
-        throw new Error(`dsh-bridge settings: providers.${id} must be an object`)
-      }
-      const rec = value as Record<string, unknown>
-      const next: DshBridgeProviderProfile = {}
-      if (typeof rec.apiKeyEnv === "string" && rec.apiKeyEnv.length > 0) next.apiKeyEnv = rec.apiKeyEnv
-      if (typeof rec.displayName === "string" && rec.displayName.length > 0) next.displayName = rec.displayName
-      out[id] = next
-    }
-    return { providers: out }
-  }
-  return Object.assign(validate, {
-    type: "object",
-    meta: { default: { providers: {} } },
-    dict: { providers },
-    toJSON() {
-      return {
-        uid: 7,
-        refs: {
-          1: { type: "string", meta: { role: "credential-ref" } },
-          2: { type: "string", meta: {} },
-          3: { type: "object", meta: { default: {} }, dict: { apiKeyEnv: 1, displayName: 2 } },
-          5: { type: "string", meta: {} },
-          6: { type: "dict", meta: { default: {} }, inner: 3, sKey: 5 },
-          7: { type: "object", meta: { default: {} }, dict: { providers: 6 } },
-        },
-      }
-    },
+/**
+ * Declare only what Settings reads. Schemastery objects are non-strict, so
+ * every other provider-spec field is preserved untouched; declaring them would
+ * materialize absent arrays and dicts (`models: []`) and change their meaning.
+ */
+export function createConfigSchema(z: SchemaFactory): SchemaNode {
+  return z.object({
+    providers: z.array(z.object({
+      package: z.string().required(),
+      apiKeyEnv: z.string().role("credential-ref"),
+    })).default([]).volatile(),
   })
 }
 
-type SettingsHost = {
-  inject?: (deps: string[], fn: (ctx: {
-    settings: {
-      installSection: (
-        owner: unknown,
-        ns: string,
-        schema: unknown,
-        entry: DshBridgeSettings,
-        hooks: { setSource: (source: () => DshBridgeSettings) => void; onChange: () => void },
-      ) => void
-    }
-  }) => void) => void
+/**
+ * Resolve the host's Schemastery lazily: it exists only inside DSH, which
+ * routes the optional peer to its installed copy. Elsewhere the bridge keeps
+ * an unvalidated Config and manual validation in `apply`.
+ */
+export async function loadConfigSchema(): Promise<SchemaNode | undefined> {
+  const specifier = "@deepseek-ai/schemastery"
+  try {
+    const mod = await import(specifier) as { default?: SchemaFactory } & Partial<SchemaFactory>
+    const z = mod.default ?? mod as SchemaFactory
+    return typeof z.object === "function" ? createConfigSchema(z) : undefined
+  } catch {
+    return undefined
+  }
 }
 
-export function installDshBridgeSettings(ctx: SettingsHost, entry: DshBridgeSettings): void {
-  const schema = createSettingsSchema()
-  ctx.inject?.(["settings"], (settingsCtx) => {
-    settingsCtx.settings.installSection(ctx, DSH_BRIDGE_SETTINGS_NS, schema, entry, {
-      setSource: () => {},
-      onChange: () => {},
-    })
-  })
+/** Read the providers snapshot from a volatile reference or a plain config. */
+export function providerSpecs(config: unknown): unknown {
+  const raw = (config as { providers?: unknown } | null | undefined)?.providers
+  const value = raw !== null && typeof raw === "object" && typeof (raw as { get?: unknown }).get === "function"
+    ? (raw as { get(): unknown }).get()
+    : raw
+  // Volatile snapshots are frozen; registration owns its own copies.
+  return value === undefined ? value : structuredClone(value)
+}
+
+/** Settings address of one provider row: this entry's id and its `providers` index. */
+export type SettingsAddress = { settingsNs: string; settingsPath: string[] }
+
+export function settingsAddress(entryId: string | undefined, index: number): SettingsAddress | undefined {
+  return entryId ? { settingsNs: entryId, settingsPath: ["providers", String(index)] } : undefined
 }

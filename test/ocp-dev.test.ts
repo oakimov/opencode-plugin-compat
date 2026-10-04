@@ -12,6 +12,7 @@ import {
   formatDshBridgePatch,
   stageDshBridgeForForeignFileInstall,
   syncInstalledFilePackageDist,
+  syncInstalledFilePackage,
 } from "../scripts/ocp-dev/dsh-family.ts"
 import { avoidProviderIdCollision, dshProfile } from "../packages/dsh-bridge/src/host/profile.ts"
 import { defaultDevinProviderPath } from "../scripts/ocp-dev/paths.ts"
@@ -304,6 +305,25 @@ describe("dsh discovery", () => {
     }
   })
 
+  test("syncs new profile exports and bundle patches without losing local loader pins", () => {
+    const root = mkdtempSync(join(tmpdir(), "ocp-dsh-package-sync-"))
+    try {
+      const source = join(root, "source")
+      const dest = join(root, "dest")
+      mkdirSync(join(source, "dist"), { recursive: true })
+      mkdirSync(dest)
+      writeFileSync(join(source, "dist", "token-meter.js"), "export default {}\n")
+      writeFileSync(join(source, "package.json"), JSON.stringify({ exports: { "./token-meter": "./dist/token-meter.js" }, dependencies: { "@opencode-compat/opencode-loader": "0.4.3" } }))
+      writeFileSync(join(dest, "package.json"), JSON.stringify({ exports: {}, dependencies: { "@opencode-compat/opencode-loader": "file:/workspace/loader" } }))
+      writeFileSync(join(source, "cordis.patch.yml"), "- id: token-meter\n  disabled: true\n")
+      expect(syncInstalledFilePackage(source, dest)).toBe(true)
+      const installed = JSON.parse(readFileSync(join(dest, "package.json"), "utf8"))
+      expect(installed.exports["./token-meter"]).toBe("./dist/token-meter.js")
+      expect(installed.dependencies["@opencode-compat/opencode-loader"]).toBe("file:/workspace/loader")
+      expect(readFileSync(join(dest, "cordis.patch.yml"), "utf8")).toContain("disabled: true")
+    } finally { rmSync(root, { recursive: true, force: true }) }
+  })
+
   test("launches the built CLI instead of checkout pnpm dsh / tsx", () => {
     expect(dshBuiltCli("/tmp/harness")).toBe(resolve("/tmp/harness/apps/cli/lib/bin.js"))
     const source = readFileSync(resolve(import.meta.dir, "../scripts/ocp-dev/dsh-family.ts"), "utf8")
@@ -336,13 +356,13 @@ describe("dsh discovery", () => {
 
   test("formats Cursor and Devin DSH provider rows", () => {
     const yaml = formatDshBridgePatch([
-      { package: "/abs/cursor-opencode-provider/dist/index.js", apiKey: "CURSOR_API_KEY" },
-      { package: "/abs/devin-opencode-provider/dist/index.js", apiKey: "DEVIN_API_KEY" },
+      { package: "/abs/cursor-opencode-provider/dist/index.js", apiKeyEnv: "CURSOR_API_KEY" },
+      { package: "/abs/devin-opencode-provider/dist/index.js", apiKeyEnv: "DEVIN_API_KEY" },
     ])
     expect(yaml).toContain("package: '/abs/cursor-opencode-provider/dist/index.js'")
-    expect(yaml).toContain("apiKey: CURSOR_API_KEY")
+    expect(yaml).toContain("apiKeyEnv: CURSOR_API_KEY")
     expect(yaml).toContain("package: '/abs/devin-opencode-provider/dist/index.js'")
-    expect(yaml).toContain("apiKey: DEVIN_API_KEY")
+    expect(yaml).toContain("apiKeyEnv: DEVIN_API_KEY")
   })
 
   test("resolves Devin checkout from OCP_DEV_DEVIN_PROVIDER_PATH", () => {

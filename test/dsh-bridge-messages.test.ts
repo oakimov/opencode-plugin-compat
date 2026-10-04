@@ -480,7 +480,7 @@ describe("dsh-bridge stream translation", () => {
     expect(chunks.at(-1)).toMatchObject({ type: "finish", reason: { kind: "tool-calls" } })
   })
 
-  test("intermediate tool-calls finishes emit zero usage so DSH sums stay near billed", async () => {
+  test("Cursor occupancy-only finishes emit zero usage without adding a full prefix", async () => {
     // DSH token-meter sums every step's sample; one held provider Run serves
     // many steps with a single billed aggregate. Intermediate occupancy
     // snapshots must not each contribute a full prefix.
@@ -490,14 +490,15 @@ describe("dsh-bridge stream translation", () => {
         finishReason: "tool-calls",
         usage: {
           inputTokens: { total: 100000, noCache: 5000, cacheRead: 95000, cacheWrite: 0 },
-          outputTokens: { total: 1, text: 1, reasoning: 0 },
+        outputTokens: { total: 1, text: 1, reasoning: 0 },
         },
+        providerMetadata: { cursor: { occupancyOnly: true } },
       } as never,
-    ]))
+    ]), undefined, { finishUsage: cursorFinishUsage })
     const usage = chunks.find(c => c.type === "usage")
     expect(usage).toMatchObject({
       type: "usage",
-      usage: { inputTokens: 0, outputTokens: 0, cacheReadTokens: 0 },
+      usage: { inputTokens: 0, outputTokens: 0, totalTokens: 0 },
     })
   })
 
@@ -523,7 +524,57 @@ describe("dsh-bridge stream translation", () => {
     const usage = chunks.find(c => c.type === "usage")
     expect(usage).toMatchObject({
       type: "usage",
-      usage: { inputTokens: 324922, outputTokens: 3581, cacheReadTokens: 266112, reasoningTokens: 2355 },
+      usage: { inputTokens: 58810, outputTokens: 3581, totalTokens: 328503, cacheReadTokens: 266112, cacheWriteTokens: 0, reasoningTokens: 2355 },
+    })
+  })
+
+  test.each(["stop", "tool-calls"])("generic %s finishes retain disjoint cache buckets and exact totals", async reason => {
+    const chunks = await collectV3ToDsh(parts([{
+      type: "finish",
+      finishReason: { unified: reason },
+      usage: {
+        inputTokens: { total: 100, noCache: 20, cacheRead: 70, cacheWrite: 10 },
+        outputTokens: { total: 15, text: 10, reasoning: 5 },
+      },
+    }]))
+    expect(chunks.find(chunk => chunk.type === "usage")).toEqual({
+      type: "usage",
+      usage: { inputTokens: 20, outputTokens: 15, totalTokens: 115, cacheReadTokens: 70, cacheWriteTokens: 10, reasoningTokens: 5 },
+    })
+  })
+
+  test("DSH derives uncached input and totals when only V3 aggregate/cache counts are supplied", async () => {
+    const chunks = await collectV3ToDsh(parts([{
+      type: "finish", finishReason: { unified: "stop" },
+      usage: { inputTokens: { total: 100, cacheRead: 70, cacheWrite: 10 }, outputTokens: { text: 10, reasoning: 5 } },
+    }]))
+    expect(chunks.find(chunk => chunk.type === "usage")).toMatchObject({
+      usage: { inputTokens: 20, outputTokens: 15, totalTokens: 115, cacheReadTokens: 70, cacheWriteTokens: 10 },
+    })
+  })
+
+  test("DSH omits exact totals when V3 aggregate input or output is unavailable", async () => {
+    for (const usage of [
+      { inputTokens: { noCache: 20, cacheRead: 70 }, outputTokens: { total: 15 } },
+      { inputTokens: { total: 100 }, outputTokens: { text: 10 } },
+      { inputTokens: {}, outputTokens: {} },
+    ]) {
+      const chunks = await collectV3ToDsh(parts([{
+        type: "finish", finishReason: { unified: "stop" }, usage,
+      }]))
+      const sample = chunks.find(chunk => chunk.type === "usage")
+      expect(sample?.type).toBe("usage")
+      if (sample?.type === "usage") expect(sample.usage.totalTokens).toBeUndefined()
+    }
+  })
+
+  test("DSH derives exact totals from a complete V3 component partition", async () => {
+    const chunks = await collectV3ToDsh(parts([{
+      type: "finish", finishReason: { unified: "stop" },
+      usage: { inputTokens: { noCache: 20, cacheRead: 70, cacheWrite: 10 }, outputTokens: { text: 10, reasoning: 5 } },
+    }]))
+    expect(chunks.find(chunk => chunk.type === "usage")).toMatchObject({
+      usage: { inputTokens: 20, outputTokens: 15, totalTokens: 115 },
     })
   })
 

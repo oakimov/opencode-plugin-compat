@@ -103,6 +103,14 @@ function makeFactoryConstsMutable(
   return result
 }
 
+/** A classic plugin module default-exports something other than its AI-SDK factory. */
+function hasPluginDefault(source: string, factories: readonly ShimFactoryBinding[]): boolean {
+  const statement = /\bexport\s+default\s+([A-Za-z_$][\w$]*)?/.exec(source)
+  if (statement) return !factories.some((factory) => factory.localName === statement[1])
+  const clause = /\bexport\s*\{[^}]*?\b([A-Za-z_$][\w$]*)\s+as\s+default\b/.exec(source)
+  return !!clause && !factories.some((factory) => factory.localName === clause[1])
+}
+
 /** Instrument a stock ESM entry without copying it to a backup file. */
 export function renderProviderShimSource(
   meta: ShimMeta,
@@ -127,10 +135,17 @@ export function renderProviderShimSource(
         `${localName} = __ocpWrappedFactories[${JSON.stringify(exportName)}]`,
     )
     .join("\n")
+  // Clone hosts call every function export of a classic plugin module. A
+  // separate event-only plugin keeps the provider's own exports identical, so
+  // the host never instantiates the provider plugin a second time.
+  const eventExport = hasPluginDefault(stockSource, meta.factories)
+    ? "\nexport const __ocpUsageEvents = __ocpUsageEventPlugin(__host)"
+    : ""
 
   const header = `${HEADER_START}
 import {
-  usageIntegrationForHost,
+  providerUsageIntegrationForHost,
+  usageEventPlugin as __ocpUsageEventPlugin,
   detectHostId,
   installPathBridge,
   policyForHostId,
@@ -140,7 +155,7 @@ import {
 
 const __host = detectHostId(process.env, process.argv, process.execPath, ${hostHint})
 installPathBridge(__host, process.env)
-const __usage = usageIntegrationForHost(__host, process.env)
+const __usage = providerUsageIntegrationForHost(__host, process.env, ${JSON.stringify(meta.packageName ?? "")})
 const __policy = policyForHostId(__host)
 const __roles = toolRolesForHostId(__host)
 ${HEADER_END}`
@@ -149,7 +164,7 @@ ${HEADER_END}`
 const __ocpWrappedFactories = wrapProviderModule({
 ${factoryEntries}
 }, __policy, __roles, __usage)
-${assignments}
+${assignments}${eventExport}
 ${BINDINGS_END}`
 
   return `${header}\n${instrumentedSource}\n${bindings}\n`

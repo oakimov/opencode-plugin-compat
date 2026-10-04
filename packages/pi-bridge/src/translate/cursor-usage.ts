@@ -1,6 +1,7 @@
 /** Cursor's terminal Run counters are separate from its context occupancy. */
 import type { LanguageModelV3StreamPart, LanguageModelV3Usage } from "@ai-sdk/provider"
 import type { PiUsage } from "../pi-provider-types.js"
+import type { PiHostId } from "../host/profile.js"
 
 function asRecord(value: unknown): Record<string, unknown> | undefined {
   return value && typeof value === "object" && !Array.isArray(value)
@@ -57,38 +58,55 @@ export function cursorFinishContextTokens(
  * Pi's overflow classifier sums usage.input/cacheRead/cacheWrite even after a
  * successful turn. Cursor's terminal raw counters cover every step in a held
  * Run, so that sum can exceed the model window while the live checkpoint is
- * small. Keep the full billable total and cost, but classify the input beyond
- * the occupied prompt as provider-side orchestration. This is the same Pi
- * usage field used for billable work that is absent from replayed context.
+ * small. Keep billable cost, but classify the input beyond the occupied prompt
+ * as provider-side orchestration (billable work absent from replayed context).
+ *
+ * Vanilla pi sizes the footer/compaction meter from `totalTokens` and ignores
+ * `contextTokens`. Only that host needs occupancy mirrored into both fields.
+ * OMP prefers `contextTokens` and sums `totalTokens` for billable session usage.
  */
 export function cursorFinishPiUsage(
   part: LanguageModelV3StreamPart & { type: "finish" },
   usage: PiUsage,
+  host: PiHostId = "omp",
 ): PiUsage {
-  if (part.finishReason.unified !== "stop" && part.finishReason.unified !== "tool-calls") return usage
+  if (part.finishReason.unified === "error") return usage
   const cursor = asRecord(asRecord(part.providerMetadata)?.cursor)
-  if (!cursor || cursor.occupancyOnly === true || usage.contextTokens === undefined) return usage
-  const rawInput = usage.input + usage.cacheRead + usage.cacheWrite
-  const reportedOccupiedInput = part.usage.inputTokens.total
-  const occupiedInput = typeof reportedOccupiedInput === "number" && Number.isFinite(reportedOccupiedInput)
-    ? Math.max(0, Math.trunc(reportedOccupiedInput))
-    : usage.contextTokens
-  const budget = Math.min(rawInput, usage.contextTokens, occupiedInput)
-  if (rawInput <= budget) return usage
+  const contextTokens = usage.contextTokens
+  if (!cursor || contextTokens === undefined) return usage
 
-  const input = Math.min(usage.input, budget)
-  const cacheWrite = Math.min(usage.cacheWrite, budget - input)
-  const cacheRead = Math.min(usage.cacheRead, budget - input - cacheWrite)
-  const extraInput = usage.input - input + usage.cacheWrite - cacheWrite
-  const extraCacheRead = usage.cacheRead - cacheRead
-  return {
-    ...usage,
-    input,
-    cacheRead,
-    cacheWrite,
-    orchestration: {
-      ...(extraInput > 0 ? { input: extraInput } : {}),
-      ...(extraCacheRead > 0 ? { cacheRead: extraCacheRead } : {}),
-    },
+  let next = usage
+  if (cursor.occupancyOnly !== true) {
+    const rawInput = usage.input + usage.cacheRead + usage.cacheWrite
+    const reportedOccupiedInput = part.usage.inputTokens.total
+    const occupiedInput = typeof reportedOccupiedInput === "number" && Number.isFinite(reportedOccupiedInput)
+      ? Math.max(0, Math.trunc(reportedOccupiedInput))
+      : contextTokens
+    const budget = Math.min(rawInput, contextTokens, occupiedInput)
+    if (rawInput > budget) {
+      const input = Math.min(usage.input, budget)
+      const cacheWrite = Math.min(usage.cacheWrite, budget - input)
+      const cacheRead = Math.min(usage.cacheRead, budget - input - cacheWrite)
+      const extraInput = usage.input - input + usage.cacheWrite - cacheWrite
+      const extraCacheRead = usage.cacheRead - cacheRead
+      next = {
+        ...usage,
+        input,
+        cacheRead,
+        cacheWrite,
+        orchestration: {
+          ...(extraInput > 0 ? { input: extraInput } : {}),
+          ...(extraCacheRead > 0 ? { cacheRead: extraCacheRead } : {}),
+        },
+      }
+    }
   }
+
+  // Vanilla pi: calculateContextTokens(usage) === usage.totalTokens || components.
+  // Keep cost/orchestration as the billable sidecar; never leave totalTokens on
+  // the held-Run raw sum or the meter reads hundreds of thousands too high.
+  if (host === "pi" && next.totalTokens !== contextTokens) {
+    next = { ...next, totalTokens: contextTokens }
+  }
+  return next
 }

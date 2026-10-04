@@ -11,14 +11,16 @@ import {
   loadProviderOptions,
   mergeFactoryOptions,
   openCodeAuthFromResolvedKey,
+  providerPackageMatches,
   type OpenCodeAuth,
   type OpenCodeHooks,
+  type PiModelConfig,
 } from "@opencode-compat/opencode-loader"
 import { avoidProviderIdCollision, dshProfile } from "./host/profile.js"
 import { DshLlmAdapter, type DshLlmAdapterOptions } from "./adapter.js"
 import type { OpenCodePluginSpec } from "./config.js"
 import { isCursorProviderPackage } from "./config.js"
-import { DSH_BRIDGE_SETTINGS_NS, settingsPathFor } from "./settings.js"
+import type { SettingsAddress } from "./settings.js"
 import { cursorChildNoticeContinuation, removeVisibleReplyEchoes } from "./translate/cursor-continuation.js"
 
 // Minimal DSH Cordis types — structural
@@ -43,6 +45,15 @@ type LlmModelInfo = {
   name: string
   description?: string
   inputModalities?: readonly ("text" | "image")[]
+  context?: { contextWindow: number }
+  defaultMaxTokens?: number
+}
+
+function modelInfo(provider: string, model: PiModelConfig): LlmModelInfo {
+  return {
+    provider, id: model.id, name: model.name, inputModalities: model.input,
+    context: { contextWindow: model.contextWindow }, defaultMaxTokens: model.maxTokens,
+  }
 }
 
 function credentialFromAuth(auth: OpenCodeAuth | undefined): string | undefined {
@@ -63,11 +74,14 @@ export async function registerDshPlugin(
   spec: OpenCodePluginSpec,
   hasCursorPlanEntry = false,
   isPlanActive?: (sessionId: string) => boolean,
+  settings?: SettingsAddress,
 ): Promise<RegisterResult> {
   const cursorIntegration = isCursorProviderPackage(spec.package)
   const cursorUsage = cursorIntegration
     ? await import("./translate/cursor-usage.js")
     : undefined
+  const devinUsage = providerPackageMatches(spec.package, "devin-opencode-provider")
+    ? await import("@opencode-compat/opencode-loader/devin-usage") : undefined
   const planTools = cursorIntegration ? await import("./cursor-plan-tools.js") : undefined
   const metadataWrite = cursorIntegration ? await import("./cursor-metadata-write.js") : undefined
   const instructions = cursorIntegration ? await import("./cursor-instructions.js") : undefined
@@ -114,13 +128,14 @@ export async function registerDshPlugin(
   // Model harvesting — run config hook, expand variants
   const callData = new Map<string, { entryOptions: Record<string, unknown>; variant: any }>()
   const harvest = async (): Promise<LlmModelInfo[]> => {
-    if (!hooks || !spec.models) {
+    if (!spec.models) {
+      if (!hooks) return []
       // Use loader's extractModels but adapt to DSH shapes
       const result = await extractModelsFromConfigHook(hooks as never, authHook?.provider, profile as never, { splitDimensions: spec.splitDimensions as never })
       const out: LlmModelInfo[] = []
       for (const m of result.models) {
         // m is PiModelConfig — adapt to DSH LlmModelInfo
-        out.push({ provider: providerName, id: m.id, name: m.name, inputModalities: m.input as any })
+        out.push(modelInfo(providerName, m))
         const cd = result.callData.get(m.id)
         if (cd) callData.set(m.id, cd)
       }
@@ -129,13 +144,19 @@ export async function registerDshPlugin(
       return out
     }
     // spec.models provided directly — not yet mapped, treat as DshModelInfo[]
-    return (spec.models as any[]).map((m: any) => ({ provider: providerName, id: m.id, name: m.name ?? m.id } as LlmModelInfo))
+    return (spec.models as Array<LlmModelInfo & Partial<PiModelConfig>>).map(m => ({
+      provider: providerName, id: m.id, name: m.name ?? m.id,
+      ...(m.inputModalities || m.input ? { inputModalities: m.inputModalities ?? m.input } : {}),
+      ...(m.context || m.contextWindow ? { context: m.context ?? { contextWindow: m.contextWindow! } } : {}),
+      ...(m.defaultMaxTokens || m.maxTokens ? { defaultMaxTokens: m.defaultMaxTokens ?? m.maxTokens } : {}),
+    }))
   }
 
   const providerOptionsKey = authHook?.provider ?? hooks?.auth?.provider ?? providerName
 
-  // Credentials: native ref name (env CredentialRef, not a secret).
-  const credentialRef = spec.apiKey
+  // Credentials: native ref name (env CredentialRef, not a secret). `apiKey`
+  // is the shared OpenCodePluginSpec spelling; Settings → Models reads `apiKeyEnv`.
+  const credentialRef = spec.apiKeyEnv || spec.apiKey
 
   const resolveCredential = credentialRef
     ? async (ref: string, _signal?: AbortSignal): Promise<string | undefined> => {
@@ -143,6 +164,12 @@ export async function registerDshPlugin(
         return (resolved as { value?: string } | undefined)?.value
       }
     : undefined
+
+  // A DSH CredentialRef names an API key; the bridge runs no OAuth login that
+  // could store a session token behind it. Unlike Pi (whose resolved key may
+  // come from the plugin's own OAuth login), prefer the plugin's API method.
+  const resolvedAuthMethod = spec.preferAuthMethod
+    ?? (authHook?.methods?.some(method => method.type === "api") ? "api" : undefined)
 
   const preparedCredential = async (resolved: string | undefined): Promise<{
     key: string | undefined
@@ -155,7 +182,7 @@ export async function registerDshPlugin(
       if (resolved) {
         auth = stored && storedKey === resolved
           ? stored
-          : openCodeAuthFromResolvedKey(authHook, resolved, spec.preferAuthMethod)
+          : openCodeAuthFromResolvedKey(authHook, resolved, resolvedAuthMethod)
       } else {
         auth = stored
       }
@@ -183,7 +210,7 @@ export async function registerDshPlugin(
   if (initialModels.length === 0 && hooks) {
     const raw = await extractModelsFromConfigHook(hooks, authHook?.provider, undefined, { splitDimensions: spec.splitDimensions })
     for (const m of raw.models) {
-      initialModels.push({ provider: providerName, id: m.id, name: m.name })
+      initialModels.push(modelInfo(providerName, m))
     }
   }
 
@@ -209,7 +236,8 @@ export async function registerDshPlugin(
     } satisfies Pick<DshLlmAdapterOptions, "toolInputs" | "toolInputsForCall" | "prepareOptions" | "reviewCompletedPlan"> : {}),
     ...(!cursorIntegration && hasCursorPlanEntry ? { excludeToolNames: new Set(["plan_enter", "cursor_image_save"]) } : {}),
     skipGenerate: cursorIntegration ? cursorChildNoticeContinuation : undefined,
-    ...(cursorUsage ? { finishUsage: cursorUsage.cursorFinishUsage } : {}),
+    ...(cursorUsage ? { finishUsage: cursorUsage.cursorFinishUsage, finishContext: cursorUsage.cursorFinishContext }
+      : devinUsage ? { finishUsage: devinUsage.devinFinishUsage, finishContext: devinUsage.devinFinishContext } : {}),
     credentialRef,
     providerOptionsKey,
     resolveCredential: credentialRef ? (ref) => resolveCredential!(ref as string) : undefined,
@@ -240,33 +268,29 @@ export async function registerDshPlugin(
     if (call?.variant?.levels?.length) {
       const levels = call.variant.levels as string[]
       return {
-        provider,
-        id: model,
-        name: base.name,
-        context: { contextWindow: 128_000 },
+        ...base, provider,
         reasoning: {
           efforts: levels.map((lvl) => ({ id: lvl, name: lvl.charAt(0).toUpperCase() + lvl.slice(1) })),
           defaultEffort: levels[Math.floor(levels.length / 2)],
         },
       }
     }
-    return { provider, id: model, name: base.name }
+    return { ...base, provider }
   }
 
   // Register with DSH LLM runtime
   ctx.llm.registerAdapter([providerName], adapter as never)
 
-  // Register configurable provider + discovery for DSH settings UI (directory pattern)
-  try {
-    ;(ctx.llm as any).registerConfigurableProviders?.([
-      {
-        provider: providerName,
-        displayName: providerName,
-        settingsNs: DSH_BRIDGE_SETTINGS_NS,
-        settingsPath: settingsPathFor(providerName),
-      },
-    ])
-  } catch { /* ignore if not available */ }
+  // Settings → Models lists a route when its directory entry addresses a value
+  // in this entry's volatile Config (`providers[index]`, see settings.ts).
+  if (settings) {
+    try {
+      ctx.llm.registerConfigurableProviders?.([{ provider: providerName, displayName: providerName, ...settings }])
+    } catch (error) {
+      // eslint-disable-next-line no-console
+      console.error(`dsh-bridge: "${providerName}" is not listed in Settings → Models — ${error instanceof Error ? error.message : String(error)}`)
+    }
+  }
 
   return { providerName, modelCount: initialModels.length, hasOAuth: Boolean(authHook) }
 }

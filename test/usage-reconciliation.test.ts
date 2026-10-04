@@ -28,6 +28,31 @@ function setup() {
 }
 
 describe("Kilo usage reconciliation", () => {
+  test("separate install-tree runtime copies share the event owner's reconciliation state", async () => {
+    const { bridge } = setup()
+    const root = mkdtempSync(path.join(tmpdir(), "ocp-usage-runtime-copy-"))
+    roots.push(root)
+    const runtime = await import(`../packages/adapter/dist/ocp-lm-runtime.js?usage-copy=${Date.now()}`)
+    runtime.installUsageReconciliation("kilo", { XDG_CACHE_HOME: root, HOME: root })
+    runtime.recordFinishUsage("session", {
+      type: "finish", finishReason: { unified: "stop" },
+      usage: { inputTokens: { total: 100 }, outputTokens: { total: 10 } },
+      providerMetadata: { acme: { usageVersion: 3, inputTokensRaw: 300, outputTokensRaw: 20,
+        cacheReadRaw: 200, cacheWriteRaw: 0, reasoningTokensRaw: 0 } },
+    })
+    const updates: any[] = []
+    await bridge.handle({
+      event: { type: "message.part.updated", properties: { part: {
+        id: "part", sessionID: "session", messageID: "message", type: "step-finish", reason: "stop",
+        tokens: { input: 100, output: 10, reasoning: 0, cache: { read: 0, write: 0 } },
+      } } },
+      client: { _client: { patch: async (request: any) => { updates.push(request.body) } } },
+      directory: "/workspace", serverUrl: new URL("http://127.0.0.1:4096"),
+    })
+    expect(updates).toHaveLength(1)
+    expect(updates[0].tokens).toEqual({ total: 320, input: 100, output: 20, reasoning: 0, cache: { read: 200, write: 0 } })
+  })
+
   test("publishes provisional step usage and settles every component to the exact turn totals", async () => {
     const { bridge } = setup()
     const parts = new Map<string, Record<string, any>>()
@@ -92,7 +117,7 @@ describe("Kilo usage reconciliation", () => {
     roots.push(root)
     const env = { XDG_CACHE_HOME: root, HOME: root }
     expect(usageIntegrationForHost("kilo", env)).toBeDefined()
-    expect(usageIntegrationForHost("mimo", env)).toBeUndefined()
+    expect(usageIntegrationForHost("mimo", env)).toBeDefined()
     expect(usageIntegrationForHost("opencode", env)).toBeUndefined()
     expect(usageIntegrationForHost("kilo", env)?.isOccupancyFinish({
       providerMetadata: { devin: { usageCounters: { inputTokens: 10 } } },

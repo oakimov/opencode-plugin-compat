@@ -128,10 +128,11 @@ describe("runV3StreamToPi", () => {
       piStream: intermediate as never,
       finishUsage: cursorFinishUsage,
       finishContextTokens: cursorFinishContextTokens,
-      finishPiUsage: cursorFinishPiUsage,
+      finishPiUsage: (part, usage) => cursorFinishPiUsage(part, usage, "pi"),
     })
     expect((intermediate.events.at(-1) as { message: { usage: unknown } }).message.usage).toEqual({
       ...emptyUsage(),
+      totalTokens: 35_272,
       contextTokens: 35_272,
     })
 
@@ -159,7 +160,7 @@ describe("runV3StreamToPi", () => {
       piStream: terminal as never,
       finishUsage: cursorFinishUsage,
       finishContextTokens: cursorFinishContextTokens,
-      finishPiUsage: cursorFinishPiUsage,
+      finishPiUsage: (part, usage) => cursorFinishPiUsage(part, usage, "pi"),
     })
     const usage = (terminal.events.at(-1) as { message: { usage: Record<string, unknown> } }).message.usage
     expect(usage).toMatchObject({
@@ -168,7 +169,7 @@ describe("runV3StreamToPi", () => {
       cacheRead: 0,
       cacheWrite: 0,
       reasoning: 2_355,
-      totalTokens: 328_503,
+      totalTokens: 54_129,
       contextTokens: 54_129,
       orchestration: { input: 4_682, cacheRead: 266_112 },
     })
@@ -196,16 +197,75 @@ describe("runV3StreamToPi", () => {
       providerMetadata: { cursor: { context: { usedTokens: 80_007, maxTokens: 256_000 } } },
       finishReason: { unified: "stop" },
     } as never
-    const projected = cursorFinishPiUsage(finish, billed)
+    const projected = cursorFinishPiUsage(finish, billed, "pi")
     expect(billed.input + billed.cacheRead).toBeGreaterThan(256_000)
     expect(projected.input + projected.cacheRead + projected.cacheWrite).toBe(80_006)
     expect(projected.orchestration).toEqual({ cacheRead: 502_871 })
     expect(projected.input + projected.cacheRead + projected.cacheWrite +
       (projected.orchestration?.input ?? 0) + (projected.orchestration?.cacheRead ?? 0)).toBe(582_877)
     expect(projected.contextTokens).toBe(80_007)
-    expect(projected.totalTokens).toBe(587_205)
+    // Vanilla pi sizes context from totalTokens; keep it on occupancy, not the
+    // held-Run billable sum. Cost still reflects the full raw request.
+    expect(projected.totalTokens).toBe(80_007)
     expect(projected.cost).toEqual(billed.cost)
     expect(cursorFinishPiUsage({ ...finish, finishReason: { unified: "error" } } as never, billed)).toBe(billed)
+  })
+
+  test("OMP keeps billable totalTokens while Pi uses occupancy, including tool boundaries", async () => {
+    for (const host of ["pi", "omp"] as const) {
+      for (const occupancyOnly of [true, false]) {
+        const stream = new FakeAssistantMessageEventStream()
+        await runV3StreamToPi({
+          model: MODEL,
+          v3Stream: v3Parts([{
+            type: "finish",
+            finishReason: { unified: occupancyOnly ? "tool-calls" : "stop" },
+            usage: { inputTokens: { total: 99 }, outputTokens: { total: 1 } },
+            providerMetadata: { cursor: {
+              occupancyOnly,
+              context: { usedTokens: 100 },
+              inputTokensRaw: 800, outputTokensRaw: 200,
+              cacheReadRaw: 600, cacheWriteRaw: 0, reasoningTokensRaw: 50,
+            } },
+          }]) as never,
+          piStream: stream as never,
+          finishUsage: cursorFinishUsage,
+          finishContextTokens: cursorFinishContextTokens,
+          finishPiUsage: (part, usage) => cursorFinishPiUsage(part, usage, host),
+        })
+        const { usage } = await stream.result() as { usage: ReturnType<typeof emptyUsage> }
+        expect(usage.contextTokens).toBe(100)
+        expect(usage.totalTokens).toBe(host === "pi" ? 100 : occupancyOnly ? 0 : 1_000)
+        expect(usage.cost.total).toBeCloseTo(occupancyOnly ? 0 : 0.0009, 10)
+        expect(usage.input + usage.cacheRead + usage.cacheWrite).toBe(occupancyOnly ? 0 : 99)
+        expect(usage.input + usage.cacheRead + usage.cacheWrite +
+          (usage.orchestration?.input ?? 0) + (usage.orchestration?.cacheRead ?? 0)).toBe(occupancyOnly ? 0 : 800)
+      }
+    }
+  })
+
+  test.each(["length", "content-filter", "other"])("Pi still uses occupancy for a %s finish", async reason => {
+    const stream = new FakeAssistantMessageEventStream()
+    await runV3StreamToPi({
+      model: MODEL,
+      v3Stream: v3Parts([{
+        type: "finish",
+        finishReason: { unified: reason },
+        usage: { inputTokens: { total: 99 }, outputTokens: { total: 1 } },
+        providerMetadata: { cursor: {
+          context: { usedTokens: 100 },
+          inputTokensRaw: 800, outputTokensRaw: 200, cacheReadRaw: 600,
+        } },
+      }]) as never,
+      piStream: stream as never,
+      finishUsage: cursorFinishUsage,
+      finishContextTokens: cursorFinishContextTokens,
+      finishPiUsage: (part, usage) => cursorFinishPiUsage(part, usage, "pi"),
+    })
+    const { usage } = await stream.result() as { usage: ReturnType<typeof emptyUsage> }
+    expect(usage.totalTokens).toBe(100)
+    expect(usage.input + usage.cacheRead + usage.cacheWrite).toBe(99)
+    expect(usage.cost.total).toBeCloseTo(0.0009, 10)
   })
 
   test("generic providers use V3 usage even when metadata contains a cursor key", async () => {

@@ -7,7 +7,7 @@
  * `LlmAdapter.stream(GenerateOptions)` → `StreamChunk`.
  */
 import type { LanguageModelV3, LanguageModelV3CallOptions, LanguageModelV3StreamPart, LanguageModelV3Usage } from "@ai-sdk/provider"
-import { optionsForLevel, type ModelCallData } from "@opencode-compat/opencode-loader"
+import { optionsForLevel, type ModelCallData, type UsageContext } from "@opencode-compat/opencode-loader"
 import { translateGenerateOptionsToPrompt, translateTools, type DshGenerateOptions, type DshMessage } from "./translate/context.js"
 import { v3StreamToDshChunks, type StreamChunk } from "./translate/stream.js"
 import type { DshToolInputVocabulary } from "./translate/tools.js"
@@ -28,6 +28,7 @@ export type DshLlmAdapterOptions = {
     replayState: { response: unknown }
   } | undefined
   finishUsage?: (part: LanguageModelV3StreamPart & { type: "finish" }) => LanguageModelV3Usage | null | undefined
+  finishContext?: (part: LanguageModelV3StreamPart & { type: "finish" }) => UsageContext | undefined
   /** Package-selected terminal stream adaptation, after V3 tool-name translation. */
   reviewCompletedPlan?: (chunks: AsyncIterable<StreamChunk>, options: DshGenerateOptions) => AsyncIterable<StreamChunk>
   api?: string
@@ -108,7 +109,10 @@ export class DshLlmAdapter extends LlmAdapter {
           yield { type: "block-end", index: 0, block: { type: "text", text: skipped.visibleReply } }
         }
         yield { type: "usage", usage: { inputTokens: 0, outputTokens: 0, totalTokens: 0 } }
-        yield { type: "finish", reason: { kind: "stop" }, replayState: skipped.replayState }
+        yield { type: "finish", reason: { kind: "stop" }, replayState: {
+          ...skipped.replayState,
+          response: { ...skipped.replayState.response as object, ocpContext: { carry: true } },
+        } }
         return
       }
       const modelId = options.model
@@ -167,6 +171,7 @@ export class DshLlmAdapter extends LlmAdapter {
         const translated = v3StreamToDshChunks(result.stream, toolInputs, {
           allowedProviderToolNames: new Set(tools?.map(tool => tool.name) ?? []),
           finishUsage: self.opts.finishUsage,
+          finishContext: self.opts.finishContext,
         })
         const chunks = self.opts.reviewCompletedPlan?.(translated, prepared) ?? translated
         for await (const chunk of chunks) {

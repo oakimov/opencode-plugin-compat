@@ -55,6 +55,7 @@ Also: [`fixtures/`](./fixtures) (conformance), [`docs/hosts/`](./docs/hosts) (ho
 
 | Doc | Purpose |
 |-----|---------|
+| [`CHANGELOG.md`](./CHANGELOG.md) | **Release notes** for the shared `@opencode-compat/*` train |
 | [`docs/hosts/opencode-clones.md`](./docs/hosts/opencode-clones.md) | **MiMo / Kilo / ZCode** — install, per-host internals, Promise v2 sidecar, troubleshooting |
 | [`docs/hosts/pi-family.md`](./docs/hosts/pi-family.md) | **pi / oh-my-pi** — install, config, model variants, verification |
 | [`docs/hosts/dsh-family.md`](./docs/hosts/dsh-family.md) | **DSH** — install, Cordis patch, Models list, verification |

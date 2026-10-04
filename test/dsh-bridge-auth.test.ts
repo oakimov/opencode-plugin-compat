@@ -3,6 +3,7 @@ import path from "node:path"
 import { createPluginInputStub } from "../packages/opencode-loader/src/host-stub.ts"
 import { registerDshPlugin } from "../packages/dsh-bridge/src/register.ts"
 import { factoryKeys, loaderKeys } from "./fixtures/dsh-auth-provider.ts"
+import { offered, seenAuth } from "./fixtures/dsh-auth-methods-provider.ts"
 
 const FIXTURE = path.join(import.meta.dir, "fixtures", "dsh-auth-provider.ts")
 
@@ -58,5 +59,30 @@ describe("dsh provider authentication", () => {
     }, { package: FIXTURE, apiKey: "DSH_AUTH_KEY" })
     expect(result.modelCount).toBe(0)
     expect(loaderKeys).toEqual([])
+  })
+
+  describe("a resolved CredentialRef is an API key, not an OAuth session", () => {
+    const METHODS = path.join(import.meta.dir, "fixtures", "dsh-auth-methods-provider.ts")
+    const register = (spec: Record<string, unknown>) => registerDshPlugin({
+      llm: { registerAdapter: () => () => {} },
+      credentials: { resolve: async () => ({ value: "crsr_raw" }) },
+    }, { package: METHODS, apiKeyEnv: "CURSOR_API_KEY", ...spec } as never)
+    beforeEach(() => { seenAuth.length = 0; offered.methods = ["oauth", "api"] })
+
+    test("the plugin's API method receives the key even when OAuth is listed first", async () => {
+      await register({})
+      expect(seenAuth).toEqual([{ type: "api", key: "crsr_raw" }])
+    })
+
+    test("an explicit preferAuthMethod still selects OAuth", async () => {
+      await register({ preferAuthMethod: "oauth" })
+      expect(seenAuth[0]).toMatchObject({ type: "oauth", access: "crsr_raw" })
+    })
+
+    test("an OAuth-only plugin keeps its only method", async () => {
+      offered.methods = ["oauth"]
+      await register({})
+      expect(seenAuth[0]).toMatchObject({ type: "oauth", access: "crsr_raw" })
+    })
   })
 })

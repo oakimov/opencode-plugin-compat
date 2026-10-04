@@ -6,6 +6,7 @@
  * Validated against `packages/llm/llm/src/types.ts:364` + `assembler.ts:38`.
  */
 import type { LanguageModelV3StreamPart, LanguageModelV3Usage } from "@ai-sdk/provider"
+import { normalizeUsage, type UsageContext } from "@opencode-compat/opencode-loader"
 import { dshToolInputs } from "../host/profile.js"
 import {
   hostToolCallArgumentsJson,
@@ -20,7 +21,7 @@ export type StreamChunk =
   | { type: "reasoning-delta"; index: number; text: string }
   | { type: "tool-call-delta"; index: number; id: string; name?: string; argumentsDelta: string }
   | { type: "block-end"; index: number; block: { type: string; [k: string]: unknown } }
-  | { type: "usage"; usage: { inputTokens: number; outputTokens: number; totalTokens?: number; cacheReadTokens?: number; reasoningTokens?: number; [k: string]: unknown } }
+  | { type: "usage"; usage: { inputTokens: number; outputTokens: number; totalTokens?: number; cacheReadTokens?: number; cacheWriteTokens?: number; reasoningTokens?: number; [k: string]: unknown } }
   | { type: "finish"; reason: { kind: string; [k: string]: unknown }; replayState?: unknown }
 
 function mapFinishReason(v3: unknown): { kind: string; [k: string]: unknown } {
@@ -47,6 +48,7 @@ export async function* v3StreamToDshChunks(
     allowedProviderToolNames?: ReadonlySet<string>
     /** Optional package-selected accounting projection; null means display only. */
     finishUsage?: (part: LanguageModelV3StreamPart & { type: "finish" }) => LanguageModelV3Usage | null | undefined
+    finishContext?: (part: LanguageModelV3StreamPart & { type: "finish" }) => UsageContext | undefined
   } = {},
 ): AsyncGenerator<StreamChunk> {
   const reader = stream.getReader()
@@ -231,37 +233,26 @@ export async function* v3StreamToDshChunks(
         case "finish": {
           const projected = options.finishUsage?.(part)
           const usage = (projected === null
-            ? { inputTokens: { total: 0 }, outputTokens: { total: 0 } }
+            ? { inputTokens: { total: 0, noCache: 0, cacheRead: 0, cacheWrite: 0 }, outputTokens: { total: 0, reasoning: 0 } }
             : projected ?? part.usage) as any
           if (usage) {
-            const mapped: any = {}
-            if (typeof usage.inputTokens === "object" && usage.inputTokens) {
-              mapped.inputTokens = usage.inputTokens.total ?? usage.inputTokens.noCache ?? 0
-              if (usage.inputTokens.cacheRead !== undefined) mapped.cacheReadTokens = usage.inputTokens.cacheRead
-            } else if (typeof usage.inputTokens === "number") mapped.inputTokens = usage.inputTokens
-            else mapped.inputTokens = 0
-            if (typeof usage.outputTokens === "object" && usage.outputTokens) {
-              mapped.outputTokens = usage.outputTokens.total ?? ((usage.outputTokens.text ?? 0) + (usage.outputTokens.reasoning ?? 0))
-              if (usage.outputTokens.reasoning !== undefined) mapped.reasoningTokens = usage.outputTokens.reasoning
-            } else if (typeof usage.outputTokens === "number") mapped.outputTokens = usage.outputTokens
-            else mapped.outputTokens = 0
-            // DSH sums every step. A tool-call boundary or a projection marked
-            // display-only must not add another occupancy sample.
-            const fr = (part as any).finishReason
-            const unified = typeof fr === "string"
-              ? fr
-              : (fr && typeof fr === "object" && "unified" in fr ? String((fr as { unified?: unknown }).unified ?? "") : "")
-            if (unified === "tool-calls" || projected === null) {
-              mapped.inputTokens = 0
-              mapped.outputTokens = 0
-              if (mapped.cacheReadTokens !== undefined) mapped.cacheReadTokens = 0
-              if (mapped.reasoningTokens !== undefined) mapped.reasoningTokens = 0
-            }
-            if (mapped.inputTokens !== undefined || mapped.outputTokens !== undefined) {
-              pendingUsage = { type: "usage", usage: mapped }
-            }
+            const mapped = normalizeUsage(usage)
+            pendingUsage = { type: "usage", usage: {
+              inputTokens: mapped.input, outputTokens: mapped.output,
+              ...(mapped.cacheRead === undefined ? {} : { cacheReadTokens: mapped.cacheRead }),
+              ...(mapped.cacheWrite === undefined ? {} : { cacheWriteTokens: mapped.cacheWrite }),
+              ...(mapped.reasoning === undefined ? {} : { reasoningTokens: mapped.reasoning }),
+              ...(mapped.total === undefined ? {} : { totalTokens: mapped.total }),
+            } }
           }
-          pendingFinish = { type: "finish", reason: mapFinishReason((part as any).finishReason), ...(part.providerMetadata ? { replayState: part.providerMetadata } : {}) }
+          const context = options.finishContext?.(part)
+          pendingFinish = {
+            type: "finish", reason: mapFinishReason(part.finishReason),
+            ...(part.providerMetadata || context ? { replayState: { response: {
+              ...(part.providerMetadata ? { providerMetadata: part.providerMetadata } : {}),
+              ...(context ? { ocpContext: context } : {}),
+            } } } : {}),
+          }
           break
         }
 
@@ -320,6 +311,7 @@ export async function collectV3ToDsh(
   options?: {
     allowedProviderToolNames?: ReadonlySet<string>
     finishUsage?: (part: LanguageModelV3StreamPart & { type: "finish" }) => LanguageModelV3Usage | null | undefined
+    finishContext?: (part: LanguageModelV3StreamPart & { type: "finish" }) => UsageContext | undefined
   },
 ): Promise<StreamChunk[]> {
   const out: StreamChunk[] = []

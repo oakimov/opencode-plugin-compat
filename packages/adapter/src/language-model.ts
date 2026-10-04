@@ -23,6 +23,7 @@
  * match upstream take a byte-identical path.
  */
 import type { HostId, HostProfile } from "@opencode-compat/profile"
+import { normalizeV3Usage } from "@opencode-compat/opencode-loader"
 import {
   buildVocabulary,
   compareCanonicalKeys,
@@ -54,6 +55,7 @@ export type StreamPartLike = {
 
 /** Optional host usage integration for provider-declared metadata contracts. */
 export type ProviderUsageIntegration = {
+  projectFinish?(part: StreamPartLike): StreamPartLike
   isOccupancyFinish(part: StreamPartLike): boolean
   recordFinishUsage(sessionID: string | undefined, part: StreamPartLike, step?: {
     textChars: number
@@ -410,7 +412,10 @@ export function adoptStreamPart(
     return [part]
   }
 
-  if (part.type === "finish") return [collapseOccupancyFinish(part, policy, usageIntegration)]
+  if (part.type === "finish") {
+    const projected = usageIntegration?.projectFinish?.(part) ?? part
+    return [collapseOccupancyFinish({ ...projected, usage: normalizeV3Usage(projected.usage) }, policy, usageIntegration)]
+  }
 
   if (part.type !== "tool-call") return [part]
 
@@ -757,7 +762,12 @@ export function adaptLanguageModel<T>(
             content.push(adopted)
           }
         }
-        return { ...record, content }
+        // doGenerate reports its finish at the result level, outside content.
+        // Clone hosts persist step-finish parts only from streamed steps, so a
+        // generation result is projected but never queued for reconciliation.
+        const terminal = adoptStreamPart({ ...record, type: "finish" }, policy, seenStarts,
+          prepared.toolSchemas, prepared.context, usageIntegration)[0]!
+        return { ...record, content, usage: terminal.usage, providerMetadata: terminal.providerMetadata }
       }
       if (isThenable(result)) return result.then(finish)
       return finish(result)

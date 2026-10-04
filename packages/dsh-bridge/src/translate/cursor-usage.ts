@@ -1,10 +1,20 @@
 /** Cursor's terminal Run counters are separate from its context occupancy. */
 import type { LanguageModelV3StreamPart, LanguageModelV3Usage } from "@ai-sdk/provider"
+import { usageCount, type UsageContext } from "@opencode-compat/opencode-loader"
 
 function asRecord(value: unknown): Record<string, unknown> | undefined {
   return value && typeof value === "object" && !Array.isArray(value)
     ? value as Record<string, unknown>
     : undefined
+}
+
+export function cursorFinishContext(part: LanguageModelV3StreamPart & { type: "finish" }): UsageContext | undefined {
+  if (part.finishReason.unified === "error") return undefined
+  const cursor = asRecord(asRecord(part.providerMetadata)?.cursor)
+  const contextTokens = usageCount(asRecord(cursor?.context)?.usedTokens)
+  if (contextTokens === undefined) return undefined
+  const promptTokens = Math.min(contextTokens, usageCount(part.usage.inputTokens.total) ?? contextTokens)
+  return { contextTokens, promptTokens }
 }
 
 export function cursorFinishUsage(

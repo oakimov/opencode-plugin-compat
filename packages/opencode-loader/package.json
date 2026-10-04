@@ -16,6 +16,10 @@
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
   "exports": {
+    "./devin-usage": {
+      "types": "./dist/devin-usage.d.ts",
+      "import": "./dist/devin-usage.js"
+    },
     ".": {
       "types": "./dist/index.d.ts",
       "import": "./dist/index.js"

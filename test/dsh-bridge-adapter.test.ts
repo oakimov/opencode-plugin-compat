@@ -233,7 +233,7 @@ describe("DshLlmAdapter silent child-notice stream", () => {
       { type: "text-delta", index: 0, text: continueAsk.content[0].text },
       { type: "block-end", index: 0, block: { type: "text", text: continueAsk.content[0].text } },
       { type: "usage", usage: { inputTokens: 0, outputTokens: 0, totalTokens: 0 } },
-      { type: "finish", reason: { kind: "stop" }, replayState: { response: { ocp: "dsh-visible-reply-echo" } } },
+      { type: "finish", reason: { kind: "stop" }, replayState: { response: { ocp: "dsh-visible-reply-echo", ocpContext: { carry: true } } } },
     ])
   })
 

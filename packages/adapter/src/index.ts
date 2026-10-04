@@ -94,7 +94,8 @@ import {
   wrapProviderSdkForProfile,
 } from "./language-model"
 import { installPathBridge } from "./runtime-host"
-import { usageIntegrationForHost } from "./usage-reconciliation"
+import { providerUsageIntegrationForHost } from "./provider-usage"
+export { providerUsageIntegrationForHost, usageEventPlugin } from "./provider-usage"
 
 /** Resolve the active host profile (throws if OCP load is not supported). */
 export function requireHost(options?: DetectOptions): HostProfile {
@@ -135,9 +136,10 @@ export function wirePromiseV2(
     plugins: () => host.plugins(),
     async resolveProvider(input) {
       const result = await host.resolveProvider(input)
-      const usage = usageIntegrationForHost(
+      const usage = providerUsageIntegrationForHost(
         profile.id,
         options?.env as Record<string, string | undefined> | undefined,
+        input.package,
       )
       return {
         ...result,

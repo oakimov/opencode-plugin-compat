@@ -22,27 +22,35 @@ Cordis patch (`$DSH_HOME/profiles/web/cordis.patch.yml`), not a JSON file:
   config:
     providers:
       - package: cursor-opencode-provider
-        apiKey: CURSOR_API_KEY
+        apiKeyEnv: CURSOR_API_KEY
       - package: devin-opencode-provider
-        apiKey: DEVIN_API_KEY
+        apiKeyEnv: DEVIN_API_KEY
 ```
 
 Only `package` is required. Optional fields match the Pi-family spec shape
 (`providerName`, `apiKey`, `createOptions`, `disableOAuth`,
-`preferAuthMethod`, `splitDimensions`, `directory`).
+`preferAuthMethod`, `splitDimensions`, `directory`). `apiKeyEnv` is the
+CredentialRef env name; `apiKey` is accepted as its alias, but only
+`apiKeyEnv` is shown in Settings → Models.
 
 | Discovered | From the plugin's own… |
 |---|---|
 | provider id | `auth.provider` (else the package name; de-collided against reserved DSH ids such as `cursor` → `cursor-opencode`) |
 | model catalog | `config` hook — `config.provider[id].models` |
-| API key | `apiKey` CredentialRef env name via `ctx.credentials.resolve`, then the plugin `auth.loader`, before the catalog read and each factory call |
+| API key | `apiKeyEnv` (or `apiKey`) CredentialRef env name via `ctx.credentials.resolve`, then the plugin `auth.loader` (as its API-key method unless `preferAuthMethod: oauth`), before the catalog read and each factory call |
 | streaming | `createXxx()` AI-SDK V3 factory (`doStream`) |
 | session affinity | DSH `GenerateOptions.sessionId` → V3 `headers["x-opencode-session-id"]` |
 | effort variants | plugin `variants` / `effort` → `LlmResolvedModelInfo.reasoning` |
+| model capacity | plugin `limit.context` / `limit.output` → resolved `context.contextWindow` / `defaultMaxTokens`, including effort variants |
 
-The Models list is the `dsh-bridge` settings section (same shape as
-`llm-pi-ai.providers.<id>`). The bridge seeds `dsh-bridge.providers.<route>`
-from the patch so a registered adapter shows as a configured row.
+Settings → Models lists every registered route as a configured row. DSH reads
+live settings from a plugin's own Cordis Config, so `providers` is a volatile
+field and each row addresses `<entry id>.providers[<index>]`. The row's key
+badge follows `apiKeyEnv`. DSH renders third-party adapter rows without curated
+fields, so other edits go to `cordis.patch.yml`. Editing
+`providers` there re-registers the bridge without restarting DSH. The host's `@deepseek-ai/schemastery` is resolved
+through an optional peer; without it the providers still work but are not
+listed.
 
 ## Install
 
@@ -144,6 +152,37 @@ system prompt, and sends just the latest user message as a turn's live text, so
 an instruction message elsewhere in the request would be lost, and one after
 tool results would read as a new user turn. Devin and generic providers keep
 DSH's native user-role messages.
+
+## Token accounting
+
+AI-SDK V3 input totals include cache reads and writes; DSH's `inputTokens`
+bucket excludes them. The bridge forwards disjoint `inputTokens`,
+`cacheReadTokens`, and `cacheWriteTokens`. `totalTokens` includes all input
+and output when aggregate counts or a complete component partition are
+available; otherwise it is omitted. Reasoning remains a subset of output.
+Generic providers retain usage on tool-call finishes. For explicitly selected Cursor packages,
+occupancy-only snapshots carry zero billed usage; terminal raw Run counters
+are billed once.
+
+The bundle disables the stock `token-meter` row and inserts this package's
+`/token-meter` provider through `cordis.patch.yml`. It delegates to DSH's
+stock public meter and projection definitions, and keeps explicit context
+snapshots separate from the durable billed buckets. Cursor checkpoints and
+Devin cached-context snapshots therefore drive compaction and the context
+display without inflating billed usage. Signed history growth and compaction
+deltas still come from the native meter; a different request header falls
+back to native estimation. Providers without a separate snapshot keep native
+metering. Display-only reply echoes preserve the previous context baseline.
+
+Devin's optional accounting integration is selected by its package identity.
+When its cache-read counter exceeds aggregate input, OCP preserves the
+aggregate as billed input, preserves cache writes, and treats the larger cache count as a
+context snapshot, matching the provider's diagnostic convention. Ordinary
+cache partitions and other providers retain generic accounting.
+
+After a local rebuild, sync the profile copy's package manifest and bundle
+patch as well as `dist`; the new `/token-meter` and loader subpath exports
+must be present in the package DSH actually loads.
 
 ## Path bridge
 

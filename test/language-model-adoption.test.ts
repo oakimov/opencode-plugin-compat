@@ -1063,7 +1063,7 @@ export const VERSION = "1.0.0"
     // tool vocabulary — the exact gap this generator previously had.
     expect(src).toContain("toolRolesForHostId")
     expect(src).toContain("const __roles = toolRolesForHostId(__host)")
-    expect(src).toContain("usageIntegrationForHost(__host, process.env)")
+    expect(src).toContain('providerUsageIntegrationForHost(__host, process.env, "cursor-opencode-provider")')
     expect(src).toContain("}, __policy, __roles, __usage)")
   })
 

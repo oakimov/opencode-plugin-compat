@@ -11,6 +11,9 @@ export type OpenCodePluginSpec = {
   providerName?: string
   api?: string
   baseUrl?: string
+  /** CredentialRef env name; Settings → Models stores a typed key under it. */
+  apiKeyEnv?: string
+  /** Alias of `apiKeyEnv` (shared OpenCodePluginSpec spelling). */
   apiKey?: string
   createOptions?: Record<string, unknown>
   disableOAuth?: boolean
