@@ -99,6 +99,11 @@ becomes `` `todowrite` `` / `` `question` ``, for every provider. Prose is left
 alone.
 
 File tools still advertise `filePath` and map `path`/`filePath` → `file_path`.
+The skill catalog reminder moves into the system prompt (latest only), and
+file-tool requests state the home directory because DSH does not expand `~`.
+A bridged call whose `file_path`/`path`/`workdir` does not exist is denied at
+DSH `tools/pre-execute` with the call to make instead (absolute `~` expansion,
+the real home directory, or a `glob` lookup); `write` targets are not checked.
 Bash still drops required `description` and fills it from `command`.
 For Cursor packages, the optional plan integration registers `plan_enter`
 and invokes the calling agent's native `/plan` command at execution. This
@@ -109,6 +114,11 @@ The native `exit_plan_mode` catalog entry is advertised to Cursor as
 `cursor_plan_stage`; its `content` becomes the native `{plan}` argument.
 Calls still execute as `exit_plan_mode` through DSH's normal tool pipeline,
 including its review UI, approval/refinement, cancellation, and next-step exit.
+Every session request (not lifecycle requests such as titles) first runs the
+plugin's OpenCode `chat.params` hook, as OpenCode does, with DSH's plan mode
+as the OpenCode agent: `plan` while the session's plan projection is active,
+`build` otherwise. For Cursor this puts Cursor itself in plan mode however DSH
+plan mode was entered.
 If Cursor ends a plan-mode turn with a titled markdown plan in prose instead
 of calling the advertised tool, OCP submits that completed text to the same
 native review before the turn can finish. This fallback checks the calling
@@ -189,7 +199,7 @@ must be present in the package DSH actually loads.
 On apply, installs `Symbol.for("opencode.host.path-bridge")`:
 
 - `globalDataDir` — `$DSH_HOME` or `~/.dsh`
-- `globalCacheDir` — `$XDG_CACHE_HOME/opencode` or `~/.cache/opencode`
+- `globalCacheDir` — `$DSH_HOME/cache/opencode-providers` (default `~/.dsh/cache/opencode-providers`), separate from a native OpenCode cache
 - `projectConfigDirs` — `<workspace>/.dsh` and `<workspace>/.opencode`
 
 ## License

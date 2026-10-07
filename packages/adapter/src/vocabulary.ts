@@ -414,29 +414,6 @@ function normalizeStatus(value: unknown): TodoStatus {
   return STATUS_FROM_HOST[value] ?? "pending"
 }
 
-function isLiveStatus(status: TodoStatus): boolean {
-  return status === "pending" || status === "in_progress"
-}
-
-/**
- * A snapshot with no live row is finished.
- *
- * MiMo's task sidebar keeps a recent `done` tail and does not render
- * `abandoned`. Abandon every known row so the panel is empty. While any row
- * is still live, `completed` stays `done` so that one finished item remains
- * visible beside open work.
- */
-function abandonSettled(previous: readonly HostTodo[]): Array<Record<string, unknown>> {
-  const transitions: Array<Record<string, unknown>> = []
-  for (const prior of previous) {
-    if (!prior.hostId || prior.status === "cancelled") continue
-    // `abandoned` is the status the sidebar does not render. `event_summary`
-    // marks a successful finish so the prompt the model sees can say done.
-    transitions.push({ action: "abandon", id: prior.hostId, event_summary: "completed" })
-  }
-  return transitions
-}
-
 /** Host action that moves an existing item into `status`. */
 function actionForStatus(status: TodoStatus): "start" | "done" | "abandon" | undefined {
   switch (status) {
@@ -447,9 +424,8 @@ function actionForStatus(status: TodoStatus): "start" | "done" | "abandon" | und
     case "cancelled":
       return "abandon"
     default:
-      // Upstream `pending` is the host's creation state; there is no operation
-      // that moves a started item back, so a regression to pending is a no-op
-      // rather than an invented `unblock`.
+      // A fresh pending row needs only create. Existing active rows are moved
+      // back to open separately in diffTodos using the host's unblock action.
       return undefined
   }
 }
@@ -464,18 +440,22 @@ export type TranslatedCall = {
   input: Record<string, unknown>
 }
 
-/** Suffix marking a host call that OCP fanned out of one canonical call. */
+/**
+ * Suffix marking a host call that OCP fanned out of one canonical call. Hosts
+ * scrub tool-call ids to `[a-zA-Z0-9_-]` before some providers (Claude models
+ * on Kilo and MiMo), so the marker uses only characters that survive that.
+ */
 export function fanoutId(toolCallId: string, index: number): string {
-  return `${toolCallId}#${index}`
+  return `${toolCallId}__ocp${index}`
 }
 
-/** Recover the canonical call id from a fanned-out host call id. */
+/**
+ * Recover the canonical call id from a fanned-out host call id. Stored history
+ * may still carry the earlier `<id>#<n>` form, which is read but never written.
+ */
 export function originalCallId(toolCallId: string): string | undefined {
-  const at = toolCallId.lastIndexOf("#")
-  if (at <= 0) return undefined
-  const suffix = toolCallId.slice(at + 1)
-  if (!/^\d+$/.test(suffix)) return undefined
-  return toolCallId.slice(0, at)
+  const match = /^(.+?)(?:__ocp|#)(\d+)$/.exec(toolCallId)
+  return match ? match[1] : undefined
 }
 
 function subagentCall(
@@ -491,12 +471,14 @@ function subagentCall(
     prompt: input["prompt"],
     subagent_type: input["subagent_type"],
   }
-  // Canonical OpenCode task has no model override field. Do not forward an
-  // unadvertised value into new host calls; legacy history is handled below.
-  // Canonical OpenCode task continuation uses task_id. MiMo's actor operation
-  // names the same opaque identity actor_id; translate it here so unchanged
-  // providers never need to know the fork vocabulary.
-  if (typeof input["task_id"] === "string") operation["actor_id"] = input["task_id"]
+  // Native run/spawn do not accept an actor id. Continuing a child uses send;
+  // the adapter collects its result with wait only after delivery succeeds.
+  if (typeof input["task_id"] === "string" && input["task_id"]) {
+    return {
+      toolCallId: fanoutId(toolCallId, 0), toolName: host,
+      input: { operation: { action: "send", to_actor_id: input["task_id"], content: input["prompt"] } },
+    }
+  }
   for (const key of Object.keys(operation)) {
     if (operation[key] === undefined) delete operation[key]
   }
@@ -535,10 +517,6 @@ function readTodos(input: Record<string, unknown>): TodoItem[] {
  * has landed.
  */
 export function diffTodos(previous: readonly HostTodo[], next: readonly TodoItem[]): Array<Record<string, unknown>> {
-  if (next.every((todo) => !isLiveStatus(todo.status))) {
-    return abandonSettled(previous)
-  }
-
   const creates: Array<Record<string, unknown>> = []
   const renames: Array<Record<string, unknown>> = []
   const transitions: Array<Record<string, unknown>> = []
@@ -567,6 +545,10 @@ export function diffTodos(previous: readonly HostTodo[], next: readonly TodoItem
     }
 
     if (prior.status === todo.status) return
+    if (prior.status === "in_progress" && todo.status === "pending" && prior.hostId) {
+      transitions.push({ action: "unblock", id: prior.hostId })
+      return
+    }
     const action = actionForStatus(todo.status)
     if (!action || !prior.hostId) return
     transitions.push({ action, id: prior.hostId })
@@ -772,6 +754,7 @@ export function reconstructHostTodos(prompt: unknown, vocab: Vocabulary): HostTo
 
   const todos: HostTodo[] = []
   const pendingCreate = new Map<string, number>()
+  const pendingOperations = new Map<string, Array<Record<string, unknown>>>()
 
   for (const message of prompt) {
     if (!isRecord(message)) continue
@@ -789,6 +772,17 @@ export function reconstructHostTodos(prompt: unknown, vocab: Vocabulary): HostTo
         if (!originalCallId(toolCallId)) continue
         const operation = operationOf(part["input"])
         if (!operation) continue
+        const id = operation["id"]
+        // A single assistant batch contains create + start before any create
+        // result reveals the assigned id. Replay that transition once its
+        // exact id is confirmed, rather than losing the initial active state.
+        if (operation["action"] !== "create" && typeof id === "string"
+          && pendingCreate.size > 0 && !todos.some((todo) => todo.hostId === id)) {
+          const pending = pendingOperations.get(id) ?? []
+          pending.push(operation)
+          pendingOperations.set(id, pending)
+          continue
+        }
         applyOperation(todos, operation, toolCallId, pendingCreate)
         continue
       }
@@ -799,7 +793,13 @@ export function reconstructHostTodos(prompt: unknown, vocab: Vocabulary): HostTo
         pendingCreate.delete(toolCallId)
         const hostId = extractHostId(part["output"] ?? part["result"])
         const todo = todos[index]
-        if (todo && hostId) todo.hostId = hostId
+        if (todo && hostId) {
+          todo.hostId = hostId
+          for (const operation of pendingOperations.get(hostId) ?? []) {
+            applyOperation(todos, operation, toolCallId, pendingCreate)
+          }
+          pendingOperations.delete(hostId)
+        }
       }
     }
   }
@@ -816,7 +816,11 @@ export type CompletionClear = {
   callIds: Set<string>
 }
 
-/** Abandons that cleared a finished list, distinct from a real cancellation. */
+/**
+ * Abandons that cleared a finished list, distinct from a real cancellation.
+ * OCP no longer writes these (completed items are `done`); stored sessions
+ * may still carry them, so they are still read back as finished.
+ */
 export function completionClears(prompt: readonly unknown[], hostToolName?: string): CompletionClear {
   const hostIds = new Set<string>()
   const callIds = new Set<string>()
@@ -863,6 +867,29 @@ export function translateSystemToolNames(text: string, renames: ReadonlyMap<stri
   return translatePromptToolNames(text, renames)
 }
 
+/** MiMo's generated checkpoint reminder uses its native work-item vocabulary. */
+function translateCheckpointReminder(text: string, vocab: Vocabulary, renames: ReadonlyMap<string, string>): string {
+  if (vocab.todoReadHost !== "task" || vocab.todoWriteHost !== "task"
+    || !text.startsWith("<system-reminder>")
+    || !text.includes("You are now operating in checkpoint-writer mode.")
+    || text.includes("Checkpoint tool contract: read task state through `todoread`")) return text
+  const newline = text.includes("\\n") ? "\\n" : "\n"
+  return translateSystemToolNames(text, renames)
+    .replace("read, write, edit, glob, grep, and task tools", "read, write, edit, glob, grep, todoread, and todowrite tools")
+    .replace("read, write, edit, apply_patch, glob, grep, task.", "read, write, edit, apply_patch, glob, grep, todoread, todowrite.")
+    .replace(/Call `todowrite` tool with operation=(?:\\*")list(?:\\*")/g, "Call `todoread` with no arguments")
+    .replace(/Use the `todowrite` tool for ALL task state ops \([^)]*\)\./g,
+      "Use `todoread` with {} to read task state; use `todowrite` only for an explicitly requested full-list state update.")
+    .replace("For each of §1..§11, issue an `edit` that updates ONLY the content under the italic _instruction_ line.",
+      "For each section whose body changed, issue an `edit` that updates ONLY the content under the italic _instruction_ line; leave unchanged sections untouched.")
+    + newline + "Checkpoint tool contract: read task state through `todoread` with {}. "
+    + "These are advertised host tools, not native built-ins; discover their schemas and use the complete tool identity from the catalog instead of guessing a namespace. "
+    + "The native operation envelope is not advertised. `todowrite` accepts a complete todos snapshot with content, status, and priority; "
+    + "do not change task state merely to record it. `task` delegates work and is outside the checkpoint writer's allowed actions; do not call it. "
+    + "Continue using read/write/edit for the checkpoint and memory files at the exact supplied paths. "
+    + "Edit only changed bodies; skip unchanged sections and never issue an edit with identical old/new text."
+}
+
 /** Restate host prompt references, calls, and folded results in canonical vocabulary. */
 export function translatePrompt<T>(prompt: readonly T[], vocab: Vocabulary): T[] {
   const cleared = vocab.todoWriteHost
@@ -874,6 +901,16 @@ export function translatePrompt<T>(prompt: readonly T[], vocab: Vocabulary): T[]
     // so the write binding is the fallback and reads are detected per call.
     if (!hostToCanonical.has(binding.host) || binding.role === "todoWrite") {
       hostToCanonical.set(binding.host, binding)
+    }
+  }
+
+  const resumeWaits = new Set<string>()
+  for (const message of prompt) {
+    if (!isRecord(message) || !Array.isArray(message.content)) continue
+    for (const part of message.content) {
+      if (!isRecord(part) || part.type !== "tool-call" || part.toolName !== vocab.subagentHost || typeof part.toolCallId !== "string") continue
+      const original = originalCallId(part.toolCallId)
+      if (original && part.toolCallId === fanoutId(original, 1) && operationOf(part.input)?.action === "wait") resumeWaits.add(original)
     }
   }
 
@@ -896,6 +933,11 @@ export function translatePrompt<T>(prompt: readonly T[], vocab: Vocabulary): T[]
     for (const part of message["content"] as unknown[]) {
       if (!isRecord(part)) {
         out.push(part)
+        continue
+      }
+      if (message["role"] === "user" && part["type"] === "text" && typeof part["text"] === "string") {
+        const text = translateCheckpointReminder(part["text"], vocab, systemRenames)
+        out.push(text === part["text"] ? part : { ...part, text })
         continue
       }
 
@@ -924,6 +966,12 @@ export function translatePrompt<T>(prompt: readonly T[], vocab: Vocabulary): T[]
       }
 
       const original = originalCallId(toolCallId)
+      // Delivery and collection occupy separate host turns but one canonical
+      // task. Keep the send's call and the wait's result, never duplicate ids.
+      if (binding.role === "subagent" && original && resumeWaits.has(original)) {
+        if (active.type === "tool-result" && toolCallId === fanoutId(original, 0)) continue
+        if (active.type === "tool-call" && toolCallId === fanoutId(original, 1)) continue
+      }
       if (!original) {
         out.push(restateSingle(active, binding))
         continue
@@ -944,13 +992,17 @@ export function translatePrompt<T>(prompt: readonly T[], vocab: Vocabulary): T[]
       // was diffed into, and the plugin only needs the call to exist and carry
       // a result. Restating it as an empty snapshot keeps the history
       // well-formed without inventing todos the plugin never sent.
-      if (active["type"] === "tool-call") folded["input"] = { todos: [] }
+      if (active["type"] === "tool-call") {
+        folded["input"] = binding.role === "subagent"
+          ? restateSingle(active, binding)["input"]
+          : { todos: [] }
+      }
       foldedInto.set(original, folded)
       out.push(folded)
     }
 
     return { ...message, content: out } as unknown as T
-  })
+  }).filter(message => !isRecord(message) || !Array.isArray(message.content) || message.content.length > 0)
 }
 
 /** Restate a 1:1 host call/result under its canonical name and shape. */
@@ -966,7 +1018,12 @@ function restateSingle(part: Record<string, unknown>, binding: RoleBinding): Rec
     prompt: operation["prompt"],
     subagent_type: operation["subagent_type"],
   }
-  if (typeof operation["actor_id"] === "string") input["task_id"] = operation["actor_id"]
+  if (operation["action"] === "send") {
+    input["description"] = "Continue delegated task"
+    input["prompt"] = operation["content"]
+    input["subagent_type"] = "general"
+    input["task_id"] = operation["to_actor_id"]
+  } else if (typeof operation["actor_id"] === "string") input["task_id"] = operation["actor_id"]
   // Preserve old stored host calls that carried model even though canonical
   // OpenCode task never advertised it. This is history compatibility only; new
   // outbound calls above never synthesize the field.
@@ -1060,6 +1117,9 @@ function applyOperation(
       return
     case "start":
       todo.status = "in_progress"
+      return
+    case "unblock":
+      todo.status = "pending"
       return
     case "done":
       todo.status = "completed"

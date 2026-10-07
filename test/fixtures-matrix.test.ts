@@ -76,7 +76,7 @@ describe("@opencode-compat/host-promise-v2", () => {
 
   test("loud domain stubs + define validation", () => {
     const ctx = createPluginContext()
-    expect(() => ctx.catalog.register("x")).toThrow(/catalog/)
+    expect(() => ctx.catalog.register!("x")).toThrow(/catalog/)
     expect(isPromisePlugin({ id: "x", setup() {} })).toBe(true)
     expect(isPromisePlugin({ setup() {} })).toBe(false)
     expect(isPromisePlugin({})).toBe(false)

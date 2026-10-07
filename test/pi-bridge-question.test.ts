@@ -11,7 +11,12 @@ import {
   translateHostQuestionCall,
   translateTools,
 } from "../packages/pi-bridge/src/index.ts"
-import { installPiPathBridge } from "../packages/pi-bridge/src/path-bridge.ts"
+import {
+  installPiHostAgentDir,
+  installPiPathBridge,
+  piHostPlansDir,
+  resetPiHostAgentDir,
+} from "../packages/pi-bridge/src/path-bridge.ts"
 
 const ASK_TOOL = {
   name: "ask",
@@ -111,8 +116,10 @@ describe("pi-bridge ask ↔ question", () => {
       undefined,
       question,
     )
-    expect(translated?.toolName).toBe("ask")
-    expect((translated?.input.questions as Array<{ id: string }>)[0]?.id).toBe("q1")
+    expect(Array.isArray(translated)).toBe(false)
+    const call = translated as Exclude<typeof translated, unknown[]>
+    expect(call?.toolName).toBe("ask")
+    expect((call?.input.questions as Array<{ id: string }>)[0]?.id).toBe("q1")
   })
 
   test("host ask history restates as OpenCode question", () => {
@@ -195,5 +202,25 @@ describe("installPiPathBridge", () => {
     expect(bridge.globalCacheDir()).toBe("/tmp/home/.omp/agent/cache/opencode-providers")
     expect((globalThis as Record<PropertyKey, unknown>)[legacy])
       .toBe((globalThis as Record<PropertyKey, unknown>)[key])
+  })
+
+  test("pi follows the host's own getAgentDir() for data and plans dirs", () => {
+    installPiHostAgentDir("pi", () => "/host/agent-dir")
+    try {
+      installPiPathBridge("pi", { HOME: "/tmp/home-pi", PI_CODING_AGENT_DIR: "/env/agent" })
+      const bridge = (globalThis as Record<PropertyKey, unknown>)[Symbol.for("opencode.host.path-bridge")] as {
+        globalDataDir: () => string
+        globalConfigDirs: () => string[]
+      }
+      expect(bridge.globalDataDir()).toBe("/host/agent-dir")
+      expect(bridge.globalConfigDirs()).toEqual(["/host/agent-dir"])
+      expect(piHostPlansDir()).toBe("/host/agent-dir/plans")
+
+      // The injected resolver belongs to pi; omp keeps its own layout.
+      installPiPathBridge("omp", { HOME: "/tmp/home-omp" })
+      expect(piHostPlansDir()).toBe("/tmp/home-omp/.omp/agent/plans")
+    } finally {
+      resetPiHostAgentDir()
+    }
   })
 })

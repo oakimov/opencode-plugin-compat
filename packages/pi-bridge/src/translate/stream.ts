@@ -18,8 +18,10 @@ import type {
 } from "../pi-provider-types.js"
 import {
   asTranslatedCalls,
+  isOpsTodoHostTool,
   todoFanoutId,
   translateCanonicalToolCall,
+  type HostTodoRow,
   type PiSubagentVocabulary,
   type PiTerminalResultVocabulary,
   type PiToolInputVocabulary,
@@ -92,6 +94,8 @@ export async function runV3StreamToPi(options: {
   toolInputs?: PiToolInputVocabulary
   terminalResult?: PiTerminalResultVocabulary
   question?: PiQuestionVocabulary
+  /** Ops-based host todo rows as of this request (see `latestHostTodoRows`). */
+  hostTodos?: readonly HostTodoRow[]
   /** Fail closed if a provider emits a tool that was not in this call's catalog. */
   allowedProviderToolNames?: ReadonlySet<string>
   /** Optional package-selected accounting projection; null means display only. */
@@ -100,6 +104,8 @@ export async function runV3StreamToPi(options: {
   finishContextTokens?: (part: LanguageModelV3StreamPart & { type: "finish" }) => number | undefined
   /** Optional package-selected projection after billable usage and context are known. */
   finishPiUsage?: (part: LanguageModelV3StreamPart & { type: "finish" }, usage: PiUsage) => PiUsage
+  /** The request's abort signal: a stream cut short by it ends as `aborted`, not as an error. */
+  signal?: AbortSignal
 }): Promise<void> {
   const { model, piStream } = options
   const partial: AssistantMessage = {
@@ -114,6 +120,7 @@ export async function runV3StreamToPi(options: {
   }
   piStream.push({ type: "start", partial })
 
+  let hostTodos = options.hostTodos
   const textIndexById = new Map<string, number>()
   const reasoningIndexById = new Map<string, number>()
   const toolCallIndexById = new Map<string, number>()
@@ -203,8 +210,11 @@ export async function runV3StreamToPi(options: {
           }
           const input = parseToolInput(part.input)
           const translated = asTranslatedCalls(
-            translateCanonicalToolCall(part.toolName, input, options.vocabulary, options.toolInputs, options.question),
+            translateCanonicalToolCall(part.toolName, input, options.vocabulary, options.toolInputs, options.question, hostTodos),
           )
+          // A later todo call in this response would diff against rows the
+          // host has already changed; let it reconstruct instead.
+          if (translated.some(call => isOpsTodoHostTool(call.toolName, options.toolInputs))) hostTodos = undefined
           const calls =
             translated.length > 0
               ? translated
@@ -215,7 +225,7 @@ export async function runV3StreamToPi(options: {
           // derived ids so the host executes every op; history folding
           // (translateContextToPrompt) collapses todo fan-outs back for the
           // provider and keeps read fan-outs as separate entries.
-          const fanout = calls.length > 1
+          const fanout = calls.length > 1 || calls.some(call => call.fanout)
           for (let index = 0; index < calls.length; index++) {
             const call = calls[index]!
             const callId = fanout ? todoFanoutId(part.toolCallId, index) : part.toolCallId
@@ -296,12 +306,23 @@ export async function runV3StreamToPi(options: {
           break
       }
     }
-    // Stream closed without a `finish`/`error` part — treat as a protocol error
-    // rather than leaving `piStream.result()` unsettled.
+    // Stream closed without a `finish`/`error` part. A user abort ends it this
+    // way on purpose; anything else is a protocol error. Either way settle
+    // `piStream.result()` rather than leaving it pending.
+    if (options.signal?.aborted) {
+      partial.stopReason = "aborted"
+      piStream.push({ type: "error", reason: "aborted", error: partial })
+      return
+    }
     partial.stopReason = "error"
     partial.errorMessage = "Provider stream ended without a finish event"
     piStream.push({ type: "error", reason: "error", error: partial })
   } catch (err) {
+    if (options.signal?.aborted) {
+      partial.stopReason = "aborted"
+      piStream.push({ type: "error", reason: "aborted", error: partial })
+      return
+    }
     partial.stopReason = "error"
     partial.errorMessage = err instanceof Error ? err.message : String(err)
     piStream.push({ type: "error", reason: "error", error: partial })

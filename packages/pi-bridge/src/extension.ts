@@ -170,6 +170,23 @@ export default async function piBridgeExtension(pi: PiExtensionApi): Promise<voi
         await activateEdit()
       }
       pi.on?.("session_start", installReplaceEdit)
+      // omp's own plan mode is live state on its main session.
+      const { setPiHostPlanReader } = await import("./host-plan-state.js")
+      setPiHostPlanReader(async sessionId => {
+        const host = await bindOmpPlanModeHost({ hostPi: pi.pi })
+        if (!host || host.getSession()?.sessionManager?.getSessionId?.() !== sessionId) return undefined
+        return host.getPlanModeState()?.enabled === true
+      })
+    }
+    if (resolvedHost === "pi" && detectPiPlanModeInstalled()) {
+      // Plain pi plans through `@pify/plan-mode`, which keeps its state in session entries.
+      const { createSessionPlanFlags, setPiHostPlanReader } = await import("./host-plan-state.js")
+      const { trackPifyPlanState } = await import("./pi-plan-mode.js")
+      setPiHostPlanReader(trackPifyPlanState(pi, createSessionPlanFlags()))
+    }
+    if (resolvedHost && pi.on) {
+      const { registerHiddenHostNoteListener } = await import("./host-notes.js")
+      registerHiddenHostNoteListener(pi.on.bind(pi))
     }
     if (resolvedHost) {
       if ((config.providers ?? []).some(entry => isCursorProviderPackage(entry.package ?? ""))) {

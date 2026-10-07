@@ -75,7 +75,7 @@ describe("omp plan-mode host binder", () => {
         MAIN_AGENT_ID: "Main",
         AgentRegistry: {
           global: () => ({
-            get: id => (id === "Main" ? { id: "Main", kind: "main", session } : undefined),
+            get: (id: string) => (id === "Main" ? { id: "Main", kind: "main", session } : undefined),
             list: () => [{ id: "Main", kind: "main", session }],
           }),
         },

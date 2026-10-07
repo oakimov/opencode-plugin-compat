@@ -246,6 +246,13 @@ export type PiRegisterToolDefinition = {
  approval?: "read" | "write" | "exec" | string
  hidden?: boolean
  defaultInactive?: boolean
+ /** MCP-shaped hints; pify's plan-mode gate does not read these. */
+ annotations?: {
+  readOnlyHint?: boolean
+  destructiveHint?: boolean
+  idempotentHint?: boolean
+  openWorldHint?: boolean
+ }
  /** Optional host loadout hook (pi): hide sibling tools / retarget descriptions. */
  prepareLoadout?: (
   loadout: PiToolLoadoutLike,
@@ -257,6 +264,15 @@ export type PiRegisterToolDefinition = {
   onUpdate: unknown,
   ctx: Record<string, unknown> | undefined,
  ) => Promise<unknown>
+ /** pi: custom transcript rendering for the call row (pi-tui Component). */
+ renderCall?: (args: unknown, theme: unknown, context: unknown) => unknown
+ /** pi: custom transcript rendering for partial and final results (pi-tui Component). */
+ renderResult?: (
+  result: unknown,
+  options: { expanded: boolean; isPartial: boolean },
+  theme: unknown,
+  context: unknown,
+ ) => unknown
 }
 
 export type PiExtensionApi = {

@@ -7,7 +7,7 @@
 import { describe, expect, test } from "bun:test"
 import { ompProfile } from "../packages/pi-bridge/src/host/profile.ts"
 import { translateContextToPrompt, translateToolChoice, translateTools } from "../packages/pi-bridge/src/translate/context.ts"
-import { buildPiToolInputVocabulary } from "../packages/pi-bridge/src/translate/subagent.ts"
+import { buildPiToolInputVocabulary, translateCanonicalToolCall, translateHostToolCallInput } from "../packages/pi-bridge/src/translate/subagent.ts"
 import { piProfile } from "../packages/pi-bridge/src/host/profile.ts"
 
 describe("translateContextToPrompt", () => {
@@ -196,6 +196,84 @@ describe("translateContextToPrompt", () => {
 })
 
 describe("translateTools", () => {
+  for (const profile of [ompProfile(), piProfile()]) {
+    test(`${profile.id} write catalog and replay use the canonical fields sent to the provider`, () => {
+      // OMP's normalized model-facing schema adds required intent `i`; its
+      // executor only requires path. Pi's executor requires content as well.
+      const hostSchema = {
+        type: "object",
+        properties: { path: { type: "string" }, content: { type: "string" },
+          ...(profile.id === "omp" ? { i: { type: "string" } } : {}),
+        },
+        required: profile.id === "omp" ? ["path", "i"] : ["path", "content"],
+        additionalProperties: false,
+      }
+      const tools = [{ name: "write", description: "Use path", parameters: hostSchema }]
+      const toSchema = (tool: { parameters: unknown }) => tool.parameters as Record<string, unknown>
+      const inputs = buildPiToolInputVocabulary(tools, profile, toSchema)
+      const advertised = translateTools(tools, toSchema, undefined, inputs)![0]!
+      const schema = advertised.inputSchema as { properties: Record<string, unknown>; required: string[] }
+      expect(Object.keys(schema.properties)).toEqual(["filePath", "content"])
+      expect(schema.required).toEqual(profile.id === "omp" ? ["filePath"] : ["filePath", "content"])
+      expect(hostSchema.required).toEqual(profile.id === "omp" ? ["path", "i"] : ["path", "content"])
+      for (const content of ["hello\n", ""]) {
+        const canonical = { filePath: "/workspace/hello.txt", content }
+        expect(schema.required.filter(key => !Object.hasOwn(canonical, key))).toEqual([])
+        expect(translateCanonicalToolCall("write", canonical, undefined, inputs)).toEqual({
+          toolName: "write", input: { path: canonical.filePath, content },
+        })
+        const replay = translateHostToolCallInput("write", { path: canonical.filePath, content, i: "Write file" }, inputs)
+        expect(replay).toEqual(canonical)
+        expect(schema.required.filter(key => !Object.hasOwn(replay, key))).toEqual([])
+      }
+      if (profile.id === "omp") {
+        expect(translateCanonicalToolCall("write", { filePath: "xd://device" }, undefined, inputs))
+          .toEqual({ toolName: "write", input: { path: "xd://device" } })
+      }
+    })
+  }
+
+  test("Pi read schema matches canonical replay without OMP's inline range conversion", () => {
+    const tools = [{ name: "read", description: "Read", parameters: {
+      type: "object", properties: { path: {}, offset: {}, limit: {} }, required: ["path"],
+    } }]
+    const toSchema = (tool: { parameters: unknown }) => tool.parameters as Record<string, unknown>
+    const inputs = buildPiToolInputVocabulary(tools, piProfile(), toSchema)
+    expect(translateTools(tools, toSchema, undefined, inputs)![0]!.inputSchema).toMatchObject({ required: ["filePath"] })
+    const canonical = { filePath: "/workspace/a.txt", offset: 10, limit: 5 }
+    const host = { path: canonical.filePath, offset: 10, limit: 5 }
+    expect(translateCanonicalToolCall("read", canonical, undefined, inputs)).toEqual({ toolName: "read", input: host })
+    expect(translateHostToolCallInput("read", host, inputs)).toEqual(canonical)
+  })
+
+  test("OMP replace-mode edit advertises canonical keys while retaining native execution", () => {
+    const tools = [{ name: "edit", description: "Use old_string", parameters: {
+      type: "object", properties: { path: {}, old_string: {}, new_string: {}, replace_all: {}, i: {} },
+      required: ["path", "old_string", "new_string", "i"],
+    } }]
+    const toSchema = (tool: { parameters: unknown }) => tool.parameters as Record<string, unknown>
+    const inputs = buildPiToolInputVocabulary(tools, ompProfile(), toSchema)
+    expect(inputs?.edit?.inputShape).toBeUndefined()
+    expect(translateTools(tools, toSchema, undefined, inputs)![0]!.inputSchema).toMatchObject({
+      required: ["filePath", "oldString", "newString"],
+    })
+    const canonical = { filePath: "/workspace/a.txt", oldString: "a", newString: "b", replaceAll: true }
+    const host = { path: canonical.filePath, old_string: "a", new_string: "b", replace_all: true }
+    expect(translateCanonicalToolCall("edit", canonical, undefined, inputs)).toEqual({ toolName: "edit", input: host })
+    expect(translateHostToolCallInput("edit", { ...host, i: "Edit file" }, inputs)).toEqual(canonical)
+  })
+
+  test("OMP canonical grep drops injected intent without altering opaque tool contracts", () => {
+    const parameters = { type: "object", properties: { pattern: {}, path: {}, i: {} }, required: ["pattern", "i"] }
+    const tools = [{ name: "grep", description: "Search", parameters }, { name: "custom", description: "Custom", parameters }]
+    const toSchema = (tool: { parameters: unknown }) => tool.parameters as Record<string, unknown>
+    const inputs = buildPiToolInputVocabulary(tools, ompProfile(), toSchema)
+    const catalog = translateTools(tools, toSchema, undefined, inputs)!
+    expect(catalog.find(tool => tool.name === "grep")!.inputSchema).toEqual({ type: "object", properties: { pattern: {}, path: {}, include: { type: "string", description: "Glob pattern restricting searched files under path." } }, required: ["pattern"] })
+    expect(catalog.find(tool => tool.name === "custom")!.inputSchema).toEqual(parameters)
+    expect(parameters.required).toEqual(["pattern", "i"])
+  })
+
   test("returns undefined for no tools", () => {
     expect(translateTools(undefined, t => t.parameters as Record<string, unknown>)).toBeUndefined()
     expect(translateTools([], t => t.parameters as Record<string, unknown>)).toBeUndefined()
@@ -221,7 +299,7 @@ describe("translateTools", () => {
     const toolInputs = buildPiToolInputVocabulary(hostTools, piProfile())
     const advertised = translateTools(hostTools, t => t.parameters as Record<string, unknown>, undefined, toolInputs)
     const properties = Object.keys(
-      (advertised![0].inputSchema as { properties: Record<string, unknown> }).properties,
+      (advertised![0]!.inputSchema as { properties: Record<string, unknown> }).properties,
     )
 
     const prompt = translateContextToPrompt(
@@ -243,10 +321,10 @@ describe("translateTools", () => {
     )
 
     const call = (prompt[0] as { content: Array<{ input: Record<string, unknown> }> }).content[0]
-    expect(call.input).toEqual({ filePath: "a.ts", oldString: "before", newString: "after" })
+    expect(call!.input).toEqual({ filePath: "a.ts", oldString: "before", newString: "after" })
     // The advertised schema is additionalProperties:false, so every replayed
     // key must be one the model was actually offered.
-    for (const key of Object.keys(call.input)) expect(properties).toContain(key)
+    for (const key of Object.keys(call!.input)) expect(properties).toContain(key)
   })
 
   test("a stored single-edit call with a stray extra key is not replayed with that key", () => {
@@ -268,7 +346,7 @@ describe("translateTools", () => {
       piProfile(),
       toolInputs,
     )
-    expect((prompt[0] as { content: Array<{ input: unknown }> }).content[0].input).toEqual({
+    expect((prompt[0] as { content: Array<{ input: unknown }> }).content[0]!.input).toEqual({
       filePath: "a.ts",
       oldString: "before",
       newString: "after",
@@ -285,7 +363,7 @@ describe("translateTools", () => {
       piProfile(),
       toolInputs,
     )
-    expect((prompt[0] as { content: Array<{ input: unknown }> }).content[0].input).toEqual(args)
+    expect((prompt[0] as { content: Array<{ input: unknown }> }).content[0]!.input).toEqual(args)
   })
 
   test("maps Pi's live find tool to the provider's canonical glob name", () => {
@@ -314,7 +392,7 @@ describe("translateTools", () => {
     const toolInputs = buildPiToolInputVocabulary(hostTools, ompProfile())
     const advertised = translateTools(hostTools, t => t.parameters as Record<string, unknown>, undefined, toolInputs)
     expect(Object.keys(
-      (advertised![0].inputSchema as { properties: Record<string, unknown> }).properties,
+      (advertised![0]!.inputSchema as { properties: Record<string, unknown> }).properties,
     )).toEqual(["command", "workdir", "timeout", "pty", "async"])
   })
 })

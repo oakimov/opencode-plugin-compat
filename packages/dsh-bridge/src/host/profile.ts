@@ -45,6 +45,14 @@ export type DshHostProfile = {
      */
     inputs?: Readonly<Record<string, DshToolInputProfile>>
   }
+  /**
+   * Host tool → argument names that must name an existing path before a
+   * bridged model's call runs (`missing-path.ts`). File creation targets
+   * (`write`) are absent: they may not exist yet.
+   */
+  existingPaths?: Readonly<Record<string, readonly string[]>>
+  /** Whether host file tools expand a leading `~` (`packages/fs/tool-fs/src/session-cwd.ts`). */
+  fileToolsExpandTilde: boolean
 }
 
 /**
@@ -118,6 +126,54 @@ const DSH_ESSENTIAL_TOOL_INPUTS: Readonly<Record<string, DshToolInputProfile>> =
     providerKeys: {},
     providerName: "question",
   },
+  // OpenCode `subagent`/`task` waits for the child unless `background: true`
+  // (`packages/opencode/src/tool/task.ts`), as Cursor Task does. DSH defaults
+  // the other way (`run_in_background ?? continuable`,
+  // `packages/subagent/tool-subagent/src/index.ts:303`): the caller then gets
+  // only "started subagent <id>" and Cursor delegates the same task again.
+  // DSH has no agent choice or resume id on this tool (`send_message`
+  // continues a child), so `agent` and `sessionID` are not host input.
+  subagent: {
+    inputAliases: {},
+    providerKeys: {},
+    providerDescription: "Delegate a self-contained task to a subagent, a separate agent with its own context. "
+      + "Waits for the subagent and returns its result. Set background to true only for independent work "
+      + "you do not need before your next action; you are then notified when it settles.",
+    providerSchema: {
+      type: "object",
+      properties: {
+        background: {
+          type: "boolean",
+          description: "Defaults to false. True starts the subagent and returns at once.",
+        },
+        description: { type: "string", description: "A short (3-5 word) description of the delegated task, for display." },
+        prompt: {
+          type: "string",
+          description: "The complete, self-contained task. The subagent does not share this conversation's context.",
+        },
+      },
+      required: ["description", "prompt"],
+    },
+    toHostInput: ({ agent: _agent, sessionID: _sessionID, background, ...input }) => ({
+      ...input,
+      run_in_background: background === true,
+    }),
+    toProviderInput: ({ run_in_background, ...input }) => ({
+      ...input,
+      ...(run_in_background === true ? { background: true } : {}),
+    }),
+  },
+}
+
+// Host argument names (after ingress aliasing): `packages/fs/tool-fs/src/{read,edit,read-image}.ts`,
+// `packages/fs/tool-fs-search/src/{glob,grep}.ts`, `packages/shell/tool-bash/src/index.ts`.
+const DSH_EXISTING_PATHS: Readonly<Record<string, readonly string[]>> = {
+  read: ["file_path"],
+  read_image: ["file_path"],
+  edit: ["file_path"],
+  glob: ["path"],
+  grep: ["path"],
+  bash: ["workdir"],
 }
 
 const DSH_RESERVED_PROVIDER_IDS = [
@@ -147,6 +203,8 @@ export function dshProfile(): DshHostProfile {
     reservedProviderIds: DSH_RESERVED_PROVIDER_IDS,
     reservedApis: DSH_RESERVED_APIS,
     tools: { inputs: DSH_ESSENTIAL_TOOL_INPUTS },
+    existingPaths: DSH_EXISTING_PATHS,
+    fileToolsExpandTilde: false,
   }
 }
 

@@ -34,6 +34,7 @@ export function canonicalQuestionSchema(): Record<string, unknown> {
     properties: {
       questions: {
         type: "array",
+        minItems: 1,
         description: "Questions to ask",
         items: {
           type: "object",

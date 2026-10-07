@@ -226,8 +226,58 @@ function reifyInstallTree(pkgDir: string, dryRun: boolean): { ok: boolean; error
   }
 }
 
-function stripJsonc(raw: string): string {
-  return raw.replace(/\/\*[\s\S]*?\*\//g, "").replace(/(^|\s)\/\/.*$/gm, "$1")
+/** Index of the quote closing the string literal that opens at `start`. */
+function stringEnd(text: string, start: number): number {
+  let j = start + 1
+  while (j < text.length && text[j] !== '"') j += text[j] === "\\" ? 2 : 1
+  return j
+}
+
+/**
+ * JSONC → JSON: drop comments and trailing commas outside string literals.
+ * Host configs such as `kilo.jsonc` use both; a strict parse would skip the
+ * whole file and silently leave its absolute-path plugins unwired.
+ */
+export function stripJsonc(raw: string): string {
+  let out = ""
+  for (let i = 0; i < raw.length; i++) {
+    const ch = raw[i]!
+    if (ch === '"') {
+      const end = stringEnd(raw, i)
+      out += raw.slice(i, end + 1)
+      i = end
+    } else if (ch === "/" && raw[i + 1] === "/") {
+      out += " "
+      while (i + 1 < raw.length && !/[\r\n]/.test(raw[i + 1]!)) i++
+    } else if (ch === "/" && raw[i + 1] === "*") {
+      const end = raw.indexOf("*/", i + 2)
+      if (end < 0) throw new SyntaxError("Unterminated JSONC block comment")
+      // Comments separate tokens; deleting them can turn invalid `1/**/2`
+      // into a valid but different value. Preserve line breaks for diagnostics.
+      out += raw.slice(i, end + 2).replace(/[^\r\n]/g, " ")
+      i = end + 1
+    } else {
+      out += ch
+    }
+  }
+  // Comments are gone, so a comma followed only by whitespace and a closer is trailing.
+  let json = ""
+  for (let i = 0; i < out.length; i++) {
+    const ch = out[i]!
+    if (ch === '"') {
+      const end = stringEnd(out, i)
+      json += out.slice(i, end + 1)
+      i = end
+      continue
+    }
+    if (ch === ",") {
+      let j = i + 1
+      while (j < out.length && /\s/.test(out[j]!)) j++
+      if (out[j] === "}" || out[j] === "]") continue
+    }
+    json += ch
+  }
+  return json
 }
 
 function packageRootFromEntry(entryPath: string): string | undefined {

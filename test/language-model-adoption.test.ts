@@ -38,7 +38,7 @@ describe("HostProfile stream / bash capabilities", () => {
       streamToolCallEnsure: false,
       bashDescriptionRequired: true,
       clearSettledTodos: true,
-      clearSettledTodoMode: "empty",
+      clearSettledTodoMode: "completed-only",
       collapseOccupancyUsage: false,
     })
   })
@@ -59,6 +59,7 @@ describe("HostProfile stream / bash capabilities", () => {
       clearSettledTodos: true,
       clearSettledTodoMode: "completed-only",
       collapseOccupancyUsage: false,
+      isolatedSessionPrefixes: ["title-"],
     })
     expect(policyForHostId("opencode")).toEqual({
       streamToolCallEnsure: true,
@@ -129,7 +130,7 @@ describe("adoptStreamPart — MiMo vs Kilo", () => {
     ])
   })
 
-  test("MiMo stores an empty list when the todo snapshot is finished", () => {
+  test("MiMo keeps completed rows and drops cancelled ones when the todo snapshot is finished", () => {
     const input = {
       todos: [
         { content: "ocp-sv-a", status: "completed" },
@@ -146,7 +147,7 @@ describe("adoptStreamPart — MiMo vs Kilo", () => {
       type: "tool-call",
       toolCallId: "c1",
       toolName: "todowrite",
-      input: { todos: [] },
+      input: { todos: [{ content: "ocp-sv-a", status: "completed" }] },
     })
   })
 
@@ -320,6 +321,64 @@ describe("adoptStreamPart — MiMo vs Kilo", () => {
       input: { command: "ls" },
     })
     expect(seen.size).toBe(0)
+  })
+})
+
+describe("canonical file catalog before provider validation", () => {
+  test("MiMo exposes canonical required keys, execution and replay use the native schema", async () => {
+    const tools = [
+      { name: "read", inputSchema: { type: "object", properties: { file_path: { type: "string" }, offset: { type: "number" } }, required: ["file_path"], additionalProperties: false } },
+      { name: "edit", inputSchema: { type: "object", properties: { file_path: { type: "string" }, old_string: { type: "string" }, new_string: { type: "string" }, replace_all: { type: "boolean" } }, required: ["file_path", "old_string", "new_string"] } },
+      { name: "write", inputSchema: { type: "object", properties: { file_path: { type: "string" }, content: { type: "string" } }, required: ["file_path", "content"] } },
+    ]
+    const seen: Array<Record<string, unknown>> = []
+    const model = {
+      async doStream(call: Record<string, unknown>) {
+        seen.push(call)
+        const catalog = call.tools as Array<{ name: string; inputSchema: { required: string[] } }>
+        expect(catalog.find(tool => tool.name === "read")?.inputSchema.required).toEqual(["filePath"])
+        expect(catalog.find(tool => tool.name === "edit")?.inputSchema.required).toEqual(["filePath", "oldString", "newString"])
+        expect(catalog.find(tool => tool.name === "write")?.inputSchema.required).toEqual(["filePath", "content"])
+        return { stream: new ReadableStream({ start(controller) {
+          controller.enqueue({ type: "tool-call", toolCallId: "read-1", toolName: "read", input: JSON.stringify({ filePath: "/workspace/a.txt", offset: 2 }) })
+          controller.enqueue({ type: "tool-call", toolCallId: "edit-1", toolName: "edit", input: JSON.stringify({ filePath: "/workspace/a.txt", oldString: "a", newString: "b", replaceAll: true }) })
+          controller.enqueue({ type: "tool-call", toolCallId: "write-1", toolName: "write", input: JSON.stringify({ filePath: "/workspace/b.txt", content: "proof" }) })
+          controller.close()
+        } }) }
+      },
+    }
+    const profile = mimoProfile({ home: "/workspace", env: {} })
+    const adapted = adaptLanguageModel(model, policyFromProfile(profile), profile)
+    const prompt = [
+      { role: "assistant", content: [{ type: "tool-call", toolCallId: "old-read", toolName: "read", input: { file_path: "/workspace/a.txt" } }] },
+      { role: "tool", content: [{ type: "tool-result", toolCallId: "old-read", toolName: "read", output: { type: "text", value: "a" } }] },
+    ]
+    const result = await adapted.doStream({ tools, prompt })
+    const parts = await Array.fromAsync(result.stream)
+    expect(parts.filter(part => part.type === "tool-call").map(part => JSON.parse(part.input))).toEqual([
+      { file_path: "/workspace/a.txt", offset: 2 },
+      { file_path: "/workspace/a.txt", old_string: "a", new_string: "b", replace_all: true },
+      { file_path: "/workspace/b.txt", content: "proof" },
+    ])
+    expect(seen[0]?.prompt).toEqual([
+      { ...prompt[0], content: [{ type: "tool-call", toolCallId: "old-read", toolName: "read", input: { filePath: "/workspace/a.txt" } }] },
+      prompt[1],
+    ])
+    expect(tools[0]?.inputSchema.required).toEqual(["file_path"])
+    expect(prompt[0]?.content[0]).toMatchObject({ input: { file_path: "/workspace/a.txt" } })
+  })
+
+  test.each([opencodeProfile(), kiloProfile(), mimoProfile()])("%s preserves canonical and opaque schemas", async profile => {
+    const tools = [
+      { name: "read", inputSchema: { type: "object", properties: { filePath: { type: "string" } }, required: ["filePath"] } },
+      { name: "custom", inputSchema: { type: "object", properties: { file_path: { type: "string" } }, required: ["file_path"] } },
+    ]
+    const model = { async doGenerate(call: { tools: typeof tools }) {
+      expect(call.tools.find(tool => tool.name === "read")).toBe(tools[0])
+      expect(call.tools.find(tool => tool.name === "custom")).toBe(tools[1])
+      return { content: [] }
+    } }
+    await adaptLanguageModel(model, policyFromProfile(profile), profile).doGenerate({ tools })
   })
 })
 
@@ -575,6 +634,60 @@ describe("adaptLanguageModel / wrapProvider*", () => {
     ])
   })
 
+  test("Kilo's isolated title session reaches the provider without session affinity", async () => {
+    const profile = kiloProfile({ home: "/tmp", env: {} })
+    // The live shim builds its policy from the host id; both must agree.
+    expect(policyForHostId("kilo").isolatedSessionPrefixes).toEqual(profile.http.isolatedSessionPrefixes)
+    expect(policyForHostId("opencode").isolatedSessionPrefixes).toBeUndefined()
+    expect(policyForHostId("mimo").isolatedSessionPrefixes).toBeUndefined()
+
+    for (const policy of [policyFromProfile(profile), policyForHostId("kilo")]) {
+      const streamed: Array<Record<string, unknown>> = []
+      const generated: Array<Record<string, unknown>> = []
+      const model = {
+        async doStream(call: Record<string, unknown>) {
+          streamed.push(call)
+          return { stream: new ReadableStream({ start(controller) { controller.close() } }) }
+        },
+        async doGenerate(call: Record<string, unknown>) {
+          generated.push(call)
+          return { content: [], finishReason: { unified: "stop", raw: "stop" }, usage: {} }
+        },
+      }
+      const adapted = adaptLanguageModel(model, policy, profile)
+      const title = {
+        headers: { "x-session-affinity": "title-ses_1", "X-Session-Id": "title-ses_1", "User-Agent": "kilo" },
+        prompt: [],
+      }
+      await adapted.doStream({ ...title })
+      await adapted.doGenerate({ ...title, tools: [] })
+      // A tool-bearing call keeps its affinity even with the prefix.
+      const tools = [{ name: "read", inputSchema: { type: "object" } }]
+      await adapted.doStream({ ...title, tools })
+      // An ordinary tool-less lifecycle call keeps its own session affinity.
+      const lifecycle = { headers: { "x-session-affinity": "ses_1", "X-Session-Id": "ses_1" }, prompt: [] }
+      await adapted.doStream({ ...lifecycle })
+
+      expect(streamed[0]?.headers).toEqual({ "User-Agent": "kilo" })
+      expect(generated[0]?.headers).toEqual({ "User-Agent": "kilo" })
+      expect(streamed[1]?.headers).toEqual(title.headers)
+      expect(streamed[2]?.headers).toEqual(lifecycle.headers)
+      // The host-owned call object is never mutated.
+      expect(title.headers["x-session-affinity"]).toBe("title-ses_1")
+    }
+
+    // Hosts without the declaration pass the same headers through unchanged.
+    const seen: Array<Record<string, unknown>> = []
+    const opencode = adaptLanguageModel({
+      async doStream(call: Record<string, unknown>) {
+        seen.push(call)
+        return { stream: new ReadableStream({ start(controller) { controller.close() } }) }
+      },
+    }, policyForHostId("opencode"))
+    await opencode.doStream({ headers: { "x-session-affinity": "title-ses_1" }, prompt: [] })
+    expect(seen[0]?.headers).toEqual({ "x-session-affinity": "title-ses_1" })
+  })
+
   test("sorts the initial cacheable prefix once, then appends new tools", async () => {
     const seen: Array<Record<string, unknown>> = []
     const model = {
@@ -615,7 +728,7 @@ describe("adaptLanguageModel / wrapProvider*", () => {
   test("wrapProviderSdk shares one catalog epoch across languageModel() calls", async () => {
     const seen: Array<Record<string, unknown>> = []
     const sdk = {
-      languageModel() {
+      languageModel(_id: string) {
         return {
           async doGenerate(call: Record<string, unknown>) {
             seen.push(call)
@@ -786,8 +899,8 @@ describe("adaptLanguageModel / wrapProvider*", () => {
       ],
     })
     expect(result.content).toHaveLength(2)
-    expect(result.content[0].type).toBe("tool-input-start")
-    expect(result.content[1].input as unknown).toEqual({
+    expect(result.content[0]!.type).toBe("tool-input-start")
+    expect(result.content[1]!.input as unknown).toEqual({
       file_path: "/tmp/a",
       old_string: "a",
       new_string: "b",
@@ -851,9 +964,9 @@ describe("adaptLanguageModel / wrapProvider*", () => {
     const sdk = wrapped.createCursor!({ label: "demo" })
     const model = sdk.languageModel()
     const out = await model.doGenerate()
-    expect(out.content[0].type).toBe("tool-input-start")
+    expect(out.content[0]!.type).toBe("tool-input-start")
     expect(
-      (out.content[1].input as unknown as { description: string }).description,
+      (out.content[1]!.input as unknown as { description: string }).description,
     ).toBe(defaultBashDescription("uname"))
   })
 })

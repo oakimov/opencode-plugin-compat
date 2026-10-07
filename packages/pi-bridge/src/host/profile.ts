@@ -36,6 +36,8 @@ export type PiSubagentToolProfile = {
    * contract. OpenCode's canonical task result is unstructured text.
    */
   unstructuredOutput?: { field: string; value: unknown }
+  /** Native task openness when the canonical caller supplies only the task. */
+  solutionSpace?: string
 }
 
 export type PiTerminalResultToolProfile = {
@@ -57,6 +59,8 @@ export type PiQuestionToolProfile = {
 export type PiToolInputProfile = {
   /** Provider-emitted argument name -> host argument name. */
   inputAliases: Readonly<Record<string, string>>
+  /** Native schema/replay keys renamed in the canonical catalog. */
+  providerKeys?: Readonly<Record<string, string>>
   /**
    * Host argument that must appear in the live tool's advertised schema before
    * `inputAliases` may fire. For hosts whose tool schema varies per configured
@@ -68,7 +72,9 @@ export type PiToolInputProfile = {
   /** Harness-only provider fields that must not reach the host validator. */
   dropInputKeys?: readonly string[]
   /** Structural conversion required after aliases have been applied. */
-  inputShape?: "pi-edit" | "opencode-edit" | "opencode-read" | "opencode-todo" | "opencode-glob" | "opencode-bash"
+  inputShape?: "pi-edit" | "opencode-edit" | "opencode-read" | "opencode-todo" | "opencode-glob" | "opencode-bash" | "opencode-grep"
+  /** Canonical catalog/replay contract, independent of native execution conversion. */
+  providerSchema?: "opencode-read" | "opencode-write" | "opencode-edit"
   /** Provider-facing tool name when the host uses a different name. */
   providerName?: string
   /** Extra provider-facing names for the same host tool (e.g. todoread beside todowrite). */
@@ -91,6 +97,7 @@ const OMP_ESSENTIAL_TOOL_INPUTS: Readonly<Record<string, PiToolInputProfile>> = 
   // `content`. Without these aliases a write arrives as `{path}` only and
   // ArkType rejects — the model retries with `content` (observed live).
   write: {
+    providerSchema: "opencode-write",
     inputAliases: {
       filePath: "path",
       file_path: "path",
@@ -106,6 +113,7 @@ const OMP_ESSENTIAL_TOOL_INPUTS: Readonly<Record<string, PiToolInputProfile>> = 
   // advertises that contract. The edit overlay applies an exact replacement
   // through the active host write tool; hashline patches use the separate tool.
   edit: {
+    providerSchema: "opencode-edit",
     inputAliases: {
       filePath: "path",
       file_path: "path",
@@ -114,11 +122,8 @@ const OMP_ESSENTIAL_TOOL_INPUTS: Readonly<Record<string, PiToolInputProfile>> = 
       replaceAll: "replace_all",
     },
     aliasSchemaKey: "old_string",
-    // `i` is not an OMP argument in any mode: neither hashline's
-    // `{input: string}` schema (edit/hashline/params.ts) nor replace's declares
-    // it, and hashline's executor destructures `input` alone. Observed from
-    // provider-side echo, so it is stripped to keep the host call surface equal
-    // to the schema. Unlike the aliases this is mode-independent.
+    // Intent tracing injects `i` on the provider wire; neither native edit
+    // mode declares it. The canonical edit contract omits that harness field.
     dropInputKeys: ["i"],
   },
   // Advertise OpenCode `workdir` (Cursor/provider dialect) with a tight
@@ -131,6 +136,10 @@ const OMP_ESSENTIAL_TOOL_INPUTS: Readonly<Record<string, PiToolInputProfile>> = 
     inputAliases: { workdir: "cwd", working_directory: "cwd" },
     inputShape: "opencode-bash",
   },
+  // OMP injects `i` into model-facing schemas for intent tracing, then strips
+  // it before native execution (pi-agent-core/agent-loop.ts). Canonical grep
+  // arguments do not carry that harness-only requirement.
+  grep: { inputAliases: { caseSensitive: "case" }, providerKeys: { case: "caseSensitive" }, inputShape: "opencode-grep", dropInputKeys: ["i"] },
   // OMP's `glob` takes a single `path` that is itself the glob/file/dir
   // (`src/**/*.ts`). OpenCode/Cursor emit `{pattern, path}` where `path` is
   // only the search root — without a fold, ArkType drops `pattern` and the
@@ -168,8 +177,9 @@ const PI_ESSENTIAL_TOOL_INPUTS: Readonly<Record<string, PiToolInputProfile>> = {
   // `filePath` → `path` alias. omp, by contrast, embeds ranges inline as
   // `path:raw:150-229` and drops the separate args, hence its own `opencode-read`.
   // (`raw:` disables omp's +1/+3 ranged-read context padding.)
-  read: { inputAliases: { filePath: "path", file_path: "path" } },
+  read: { inputAliases: { filePath: "path", file_path: "path" }, providerSchema: "opencode-read" },
   write: {
+    providerSchema: "opencode-write",
     inputAliases: {
       filePath: "path",
       file_path: "path",
@@ -185,6 +195,7 @@ const PI_ESSENTIAL_TOOL_INPUTS: Readonly<Record<string, PiToolInputProfile>> = {
   // Pi calls OpenCode's glob operation `find`; expose the canonical name to
   // the provider while the host-side validator still receives `find`.
   find: { inputAliases: {}, providerName: "glob" },
+  grep: { inputAliases: { include: "glob" }, providerKeys: { glob: "include" } },
 }
 
 export type PiHostProfile = {
@@ -342,10 +353,11 @@ export function ompProfile(): PiHostProfile {
         // OMP's scout/reviewer definitions impose structured schemas, while
         // OpenCode's task contract returns plain text to the parent.
         unstructuredOutput: { field: "outputSchema", value: true },
+        solutionSpace: "Follow the task’s stated fix or design; otherwise causes and designs remain open.",
       },
       // OMP subagents do not settle on a plain assistant response. `yield`
-      // with an empty typed result tells the host to use that response text.
-      terminalResult: { name: "yield", input: { type: "result", result: {} } },
+      // with a terminal type and omitted data uses that response text.
+      terminalResult: { name: "yield", input: { type: "result" } },
       // OpenCode plugins expect `question`; omp advertises the same role as `ask`.
       question: { name: "ask" },
       toolInputs: OMP_ESSENTIAL_TOOL_INPUTS,

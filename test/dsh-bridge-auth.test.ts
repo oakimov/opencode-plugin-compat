@@ -5,6 +5,11 @@ import { registerDshPlugin } from "../packages/dsh-bridge/src/register.ts"
 import { factoryKeys, loaderKeys } from "./fixtures/dsh-auth-provider.ts"
 import { offered, seenAuth } from "./fixtures/dsh-auth-methods-provider.ts"
 
+/** DSH's registerAdapter result: dispose, or swap the provider names it serves. */
+function adapterDisposer(): { (): void; replace: (next: string[]) => void } {
+  return Object.assign(() => {}, { replace: (_next: string[]) => {} })
+}
+
 const FIXTURE = path.join(import.meta.dir, "fixtures", "dsh-auth-provider.ts")
 
 describe("dsh provider authentication", () => {
@@ -27,7 +32,7 @@ describe("dsh provider authentication", () => {
   test("a resolved credential runs auth.loader before the catalog is read", async () => {
     const registered: unknown[] = []
     const result = await registerDshPlugin({
-      llm: { registerAdapter: (_names, adapter) => { registered.push(adapter); return () => {} } },
+      llm: { registerAdapter: (_names, adapter) => { registered.push(adapter); return adapterDisposer() } },
       credentials: { resolve: async () => ({ value: "durable-key" }) },
     }, { package: FIXTURE, apiKey: "DSH_AUTH_KEY" })
 
@@ -40,7 +45,7 @@ describe("dsh provider authentication", () => {
   test("each generate prepares the credential again and passes it to the factory", async () => {
     let adapter: { stream: (options: { model: string; messages: [] }) => AsyncIterable<unknown> } | undefined
     await registerDshPlugin({
-      llm: { registerAdapter: (_names, next) => { adapter = next as typeof adapter; return () => {} } },
+      llm: { registerAdapter: (_names, next) => { adapter = next as typeof adapter; return adapterDisposer() } },
       credentials: { resolve: async () => ({ value: "durable-key" }) },
     }, { package: FIXTURE, apiKey: "DSH_AUTH_KEY", createOptions: { apiKey: "$apiKey" } })
 
@@ -54,7 +59,7 @@ describe("dsh provider authentication", () => {
 
   test("without a credential the loader does not invent one and the catalog stays empty", async () => {
     const result = await registerDshPlugin({
-      llm: { registerAdapter: () => () => {} },
+      llm: { registerAdapter: () => adapterDisposer() },
       credentials: { resolve: async () => undefined },
     }, { package: FIXTURE, apiKey: "DSH_AUTH_KEY" })
     expect(result.modelCount).toBe(0)
@@ -64,7 +69,7 @@ describe("dsh provider authentication", () => {
   describe("a resolved CredentialRef is an API key, not an OAuth session", () => {
     const METHODS = path.join(import.meta.dir, "fixtures", "dsh-auth-methods-provider.ts")
     const register = (spec: Record<string, unknown>) => registerDshPlugin({
-      llm: { registerAdapter: () => () => {} },
+      llm: { registerAdapter: () => adapterDisposer() },
       credentials: { resolve: async () => ({ value: "crsr_raw" }) },
     }, { package: METHODS, apiKeyEnv: "CURSOR_API_KEY", ...spec } as never)
     beforeEach(() => { seenAuth.length = 0; offered.methods = ["oauth", "api"] })

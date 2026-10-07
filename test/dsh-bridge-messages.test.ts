@@ -66,7 +66,7 @@ describe("dsh-bridge message translation", () => {
       provider: "cursor-opencode",
       model: "composer-2",
       messages: [
-        { role: "assistant", content: [{ type: "tool-call", id: "c1", name: "bash", arguments: "{}" }] },
+        { role: "assistant", content: [{ type: "tool-call", id: "c1", name: "bash", arguments: "{}" }], source: { kind: "model", provider: "cursor-opencode", model: "composer-2" } },
         {
           role: "user",
           content: [
@@ -227,6 +227,42 @@ describe("dsh-bridge message translation", () => {
     })
   })
 
+  test("subagent advertises OpenCode foreground semantics and replays DSH background calls", () => {
+    const [tool] = translateTools([{
+      name: "subagent",
+      description: "It runs in the background by default and returns a subagent id.",
+      parameters: {
+        type: "object",
+        properties: {
+          description: { type: "string" },
+          prompt: { type: "string" },
+          run_in_background: { type: "boolean", description: "Defaults to true." },
+        },
+        required: ["description", "prompt"],
+      },
+    }]) ?? []
+    expect(tool?.description).toContain("Waits for the subagent and returns its result")
+    expect(Object.keys((tool?.inputSchema as { properties: object }).properties).sort()).toEqual(["background", "description", "prompt"])
+    const prompt = translateGenerateOptionsToPrompt({
+      provider: "cursor-opencode",
+      model: "default",
+      messages: [{
+        role: "assistant",
+        source: { kind: "model" },
+        content: [{
+          type: "tool-call",
+          id: "c1",
+          name: "subagent",
+          arguments: JSON.stringify({ description: "Scan", prompt: "Scan repo", run_in_background: true }),
+        }],
+      }],
+    })
+    expect(prompt).toEqual([{
+      role: "assistant",
+      content: [{ type: "tool-call", toolCallId: "c1", toolName: "subagent", input: { description: "Scan", prompt: "Scan repo", background: true } }],
+    }])
+  })
+
   test("todo_write and ask_user_question advertise OpenCode names", () => {
     const tools = translateTools([
       {
@@ -258,6 +294,7 @@ describe("dsh-bridge message translation", () => {
       properties: {
         questions: {
           type: "array",
+          minItems: 1,
           description: "Questions to ask",
           items: {
             type: "object",
@@ -389,6 +426,51 @@ describe("dsh-bridge message translation", () => {
         },
       }],
     }])
+  })
+
+  test("DSH tool-role ask_user_question JSON becomes OpenCode question prose", () => {
+    const prompt = translateGenerateOptionsToPrompt({
+      provider: "cursor-opencode",
+      model: "composer-2",
+      messages: [
+        {
+          role: "assistant",
+          content: [{
+            type: "tool-call",
+            id: "c1",
+            name: "ask_user_question",
+            arguments: JSON.stringify({
+              questions: [{
+                id: "q1",
+                question: "Which scratch label should I use?",
+                header: "Label",
+                options: [{ label: "alpha" }, { label: "beta" }],
+              }],
+            }),
+          }],
+          source: { kind: "model", provider: "cursor-opencode", model: "composer-2" },
+        },
+        {
+          role: "tool",
+          toolCallId: "c1",
+          content: [{ type: "text", text: "{\"answers\":[{\"id\":\"q1\",\"selected\":[\"alpha\"]}]}" }],
+          source: { kind: "tool", callId: "c1" },
+        },
+      ],
+    })
+    expect(prompt.find(m => m.role === "tool")).toEqual({
+      role: "tool",
+      content: [{
+        type: "tool-result",
+        toolCallId: "c1",
+        toolName: "question",
+        output: {
+          type: "text",
+          value:
+            'User has answered your questions: "Which scratch label should I use?"="alpha". You can now continue with the user\'s answers in mind.',
+        },
+      }],
+    })
   })
 
   test("DSH ask_user_question JSON result becomes OpenCode question prose", () => {
@@ -785,6 +867,24 @@ describe("dsh-bridge stream translation", () => {
     } as never]), undefined, {
       allowedProviderToolNames: new Set(["read"]),
     })).rejects.toThrow('Provider emitted unadvertised tool call "exit_plan_mode"')
+  })
+
+  test("canonical subagent waits for the DSH child unless background is requested", async () => {
+    const call = async (input: Record<string, unknown>) => {
+      const chunks = await collectV3ToDsh(parts([
+        { type: "tool-call", toolCallId: "t1", toolName: "subagent", input } as never,
+        { type: "finish", finishReason: "tool-calls" } as never,
+      ]))
+      const end = chunks.find(c => c.type === "block-end")
+      if (end?.type !== "block-end") throw new Error("no block-end")
+      expect(end.block).toMatchObject({ type: "tool-call", name: "subagent" })
+      return JSON.parse(String(end.block.arguments))
+    }
+    // Shape the provider emits for a Cursor Task (agent + optional sessionID).
+    expect(await call({ agent: "explore", description: "Read hello", prompt: "Read hello.txt", sessionID: "child-1" }))
+      .toEqual({ description: "Read hello", prompt: "Read hello.txt", run_in_background: false })
+    expect(await call({ agent: "general", description: "Scan", prompt: "Scan repo", background: true }))
+      .toEqual({ description: "Scan", prompt: "Scan repo", run_in_background: true })
   })
 
   test("todowrite becomes todo_write", async () => {

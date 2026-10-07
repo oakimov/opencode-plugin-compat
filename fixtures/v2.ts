@@ -58,7 +58,7 @@ export const v2UnsupportedDomain: Fixture = {
     // when promiseV2 is false, still verify the kit's stub behavior in-process.
     const pluginCtx = createPluginContext({}, { id: "loud" })
     try {
-      pluginCtx.catalog.register("x")
+      pluginCtx.catalog.register!("x")
       return fail(this, ctx.host, "expected catalog.register to throw")
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err)

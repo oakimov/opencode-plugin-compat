@@ -13,6 +13,28 @@ import { translateToHostTodoInput } from "./todo.js"
 
 export type DshToolInputVocabulary = Readonly<Record<string, DshToolInputProfile>>
 
+/** Bind dynamic native fields to the schema advertised for this call. */
+export function toolInputsForSchemas(
+  tools: readonly { name: string; parameters: Record<string, unknown> }[] | undefined,
+  base: DshToolInputVocabulary = dshToolInputs(),
+): DshToolInputVocabulary {
+  const out = { ...base }
+  for (const tool of tools ?? []) {
+    const profile = base[tool.name]
+    const properties = tool.parameters.properties as Record<string, unknown> | undefined
+    if (profile?.providerName === "question" && properties?.timeout) {
+      out[tool.name] = { ...profile, toHostInput: input => translateToHostQuestionInput({ timeout: -1, ...input }) }
+    } else if (tool.name === "subagent" && profile?.toHostInput && !properties?.run_in_background) {
+      out[tool.name] = { ...profile, toHostInput: input => {
+        const native = profile.toHostInput!(input)
+        delete native.run_in_background
+        return native
+      } }
+    }
+  }
+  return out
+}
+
 /** Host catalog name → advertised OpenCode name. */
 export function canonicalToolName(
   hostName: string,
@@ -161,7 +183,14 @@ export function providerToolSchema(
 ): Record<string, unknown> {
   const profile = toolInputs[toolName]
   if (!profile) return parameters
-  if (profile.providerSchema) return profile.providerSchema
+  if (profile.providerSchema) {
+    const nativeProperties = parameters.properties as Record<string, unknown> | undefined
+    const declared = { ...profile.providerSchema.properties as Record<string, unknown> }
+    if (!nativeProperties?.run_in_background) delete declared.background
+    const extra = Object.fromEntries(Object.entries(nativeProperties ?? {})
+      .filter(([key]) => key !== "run_in_background" && key !== "agent" && key !== "sessionID"))
+    return { ...parameters, ...profile.providerSchema, properties: { ...extra, ...declared } }
+  }
   const properties = parameters.properties
   const hasProps = properties !== undefined && typeof properties === "object" && !Array.isArray(properties)
   const nextProperties: Record<string, unknown> = {}

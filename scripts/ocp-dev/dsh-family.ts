@@ -205,6 +205,24 @@ export function formatDshBridgePatch(rows: readonly DshProviderRow[], header = "
   return `${header}- id: ocp-dsh-bridge\n  config:\n    providers:\n${providers}\n`
 }
 
+/**
+ * Replace only the `ocp-dsh-bridge` item of a profile patch. Other rows belong
+ * to DSH or the user: Web saves the selected model as `agent-default-model`
+ * there, and dropping it puts new sessions back on the bundle default.
+ */
+export function mergeDshBridgePatch(existing: string | undefined, rows: readonly DshProviderRow[]): string {
+  const bridge = formatDshBridgePatch(rows)
+  if (!existing?.trim()) return bridge
+  const lines = existing.replace(/\n*$/, "\n").split("\n").slice(0, -1)
+  const start = lines.findIndex(line => /^- id:\s*['"]?ocp-dsh-bridge['"]?\s*$/.test(line))
+  if (start < 0) return `${lines.join("\n")}\n${bridge}`
+  let end = start + 1
+  while (end < lines.length && !/^\S/.test(lines[end]!)) end++
+  const before = lines.slice(0, start).join("\n")
+  const after = lines.slice(end).join("\n")
+  return `${before ? `${before}\n` : ""}${bridge}${after ? `${after}\n` : ""}`
+}
+
 export function localDshProviderRows(): DshProviderRow[] {
   const rows: DshProviderRow[] = [{
     package: resolve(join(defaultProviderPath(), "dist", "index.js")),
@@ -242,7 +260,7 @@ function persistentPatchPath(): string {
   return join(configDir("dsh"), "cordis.patch.yml")
 }
 
-export async function runDsh(host: DshHost, mode: WireMode): Promise<void> {
+export async function runDsh(_host: DshHost, mode: WireMode): Promise<void> {
   const provider = defaultProviderPath()
   const plugin = pluginName()
   const harness = dshHarnessRoot()
@@ -296,7 +314,7 @@ export async function runDsh(host: DshHost, mode: WireMode): Promise<void> {
     const rows = localDshProviderRows()
     const persistent = persistentPatchPath()
     mkdirSync(join(persistent, ".."), { recursive: true })
-    writeAtomic(persistent, formatDshBridgePatch(rows))
+    writeAtomic(persistent, mergeDshBridgePatch(existsSync(persistent) ? readFileSync(persistent, "utf8") : undefined, rows))
     const patch = writeDevPatch(rows)
     console.log(`\nocp-dev: dsh is on LOCAL dsh-bridge + LOCAL ${rows.map((row) => row.package).join(" + ")}`)
     console.log(`  bridge: ${dshBridgePath()}/dist/index.js`)
@@ -354,7 +372,7 @@ export async function runDsh(host: DshHost, mode: WireMode): Promise<void> {
   }
 }
 
-export async function unshimDsh(host: DshHost): Promise<void> {
+export async function unshimDsh(_host: DshHost): Promise<void> {
   const patch = devPatchPath()
   try {
     const { rmSync } = await import("node:fs")

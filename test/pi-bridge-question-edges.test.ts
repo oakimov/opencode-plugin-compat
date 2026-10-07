@@ -15,6 +15,7 @@ import {
   type PiQuestionVocabulary,
 } from "../packages/pi-bridge/src/index.ts"
 import { installPiPathBridge } from "../packages/pi-bridge/src/path-bridge.ts"
+import { asTranslatedCalls } from "../packages/pi-bridge/src/translate/subagent.ts"
 
 const ASK_TOOL = {
   name: "ask",
@@ -92,8 +93,8 @@ describe("translateCanonicalQuestionCall edges", () => {
       question,
     )
     const qs = translated!.input.questions as Array<{ id: string }>
-    expect(qs[0].id).toBe("keep")
-    expect(qs[1].id).toBe("q2")
+    expect(qs[0]!.id).toBe("keep")
+    expect(qs[1]!.id).toBe("q2")
   })
 
   test("multiple → multi only when multi absent; both flags keep multi", () => {
@@ -116,7 +117,7 @@ describe("translateCanonicalQuestionCall edges", () => {
       multi: true,
     })
     expect(
-      Object.hasOwn((onlyMultiple!.input.questions as Array<Record<string, unknown>>)[0], "multiple"),
+      Object.hasOwn((onlyMultiple!.input.questions as Array<Record<string, unknown>>)[0]!, "multiple"),
     ).toBe(false)
 
     const both = translateCanonicalQuestionCall(
@@ -134,7 +135,7 @@ describe("translateCanonicalQuestionCall edges", () => {
       },
       question,
     )
-    const entry = (both!.input.questions as Array<Record<string, unknown>>)[0]
+    const entry = (both!.input.questions as Array<Record<string, unknown>>)[0]!
     expect(entry["multi"]).toBe(false)
     expect(entry["multiple"]).toBe(true)
   })
@@ -177,7 +178,7 @@ describe("translateHostQuestionCall edges", () => {
       question,
     )
     expect(translated?.toolName).toBe(CANONICAL_QUESTION_TOOL)
-    const q = (translated!.input.questions as Array<Record<string, unknown>>)[0]
+    const q = (translated!.input.questions as Array<Record<string, unknown>>)[0]!
     expect(q["header"]).toBe("This is a very long question…")
     expect((q["header"] as string).length).toBeLessThanOrEqual(30)
     expect(q["multiple"]).toBe(true)
@@ -205,7 +206,7 @@ describe("translateHostQuestionCall edges", () => {
       },
       question,
     )
-    expect((translated!.input.questions as Array<{ header: string }>)[0].header).toBe("Custom")
+    expect((translated!.input.questions as Array<{ header: string }>)[0]!.header).toBe("Custom")
 
     expect(translateHostQuestionCall("question", { questions: [] }, question)).toBeUndefined()
     expect(translateHostQuestionCall("ask", { questions: [] }, undefined)).toBeUndefined()
@@ -217,7 +218,7 @@ describe("translateHostQuestionCall edges", () => {
       { questions: [{ id: "q1", question: "   ", options: [] }] },
       question,
     )
-    expect((translated!.input.questions as Array<{ header: string }>)[0].header).toBe("Question")
+    expect((translated!.input.questions as Array<{ header: string }>)[0]!.header).toBe("Question")
   })
 })
 
@@ -322,7 +323,7 @@ describe("catalog / toolChoice / history integration", () => {
     }
     const call = assistant.content.find((p) => p.type === "tool-call")
     expect(call?.toolName).toBe("question")
-    const q = (call?.input as { questions: Array<Record<string, unknown>> }).questions[0]
+    const q = (call?.input as { questions: Array<Record<string, unknown>> }).questions[0]!
     expect(q["multiple"]).toBe(true)
     expect(q["header"]).toBe("Continue?")
     expect(Object.hasOwn(q, "id")).toBe(false)
@@ -346,8 +347,9 @@ describe("catalog / toolChoice / history integration", () => {
       undefined,
       question,
     )
-    expect(translated?.toolName).toBe("ask")
-    expect((translated?.input.questions as Array<Record<string, unknown>> | undefined)?.[0]).toEqual({
+    const [call] = asTranslatedCalls(translated)
+    expect(call?.toolName).toBe("ask")
+    expect((call?.input.questions as Array<Record<string, unknown>> | undefined)?.[0]).toEqual({
       question: "Go?",
       header: "Go",
       options: [{ label: "Y", description: "" }],

@@ -1,0 +1,11 @@
+{
+  "extends": "./tsconfig.base.json",
+  "compilerOptions": {
+    "noEmit": true,
+    "declaration": false,
+    "declarationMap": false,
+    "sourceMap": false,
+    "allowImportingTsExtensions": true
+  },
+  "include": ["test", "fixtures", "scripts", "packages/*/src"]
+}

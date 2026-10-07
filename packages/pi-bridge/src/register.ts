@@ -16,6 +16,7 @@
 import { registerAiSdkProvider } from "./bridge.js"
 import { isCursorProviderPackage } from "./cursor-package.js"
 import { takeCursorHistoryRewrite } from "./cursor-history-rewrite.js"
+import { piHostAgent } from "./host-plan-state.js"
 import { avoidProviderIdCollision, type PiHostProfile } from "./host/profile.js"
 import { loadPiRuntime } from "./host/runtime.js"
 import { loadModuleThroughHost } from "./host-module-loader.js"
@@ -26,6 +27,7 @@ import {
   createPluginInputStub,
   derivePackageName,
   extractModelsFromConfigHook,
+  hasChatParamsHook,
   inspectOpenCodePluginModule,
   instantiateHooks,
   loadOpenCodePluginModule,
@@ -34,6 +36,7 @@ import {
   openCodeAuthFromResolvedKey,
   optionsForLevel,
   providerPackageMatches,
+  runChatParamsHook,
   type ModelCallData,
   type OpenCodeHooks,
   type PiModelConfig,
@@ -111,7 +114,9 @@ export async function registerOpenCodePlugin(
     : await loadOpenCodePluginModule(loadSpec)
   const cursorImageSave = cursorModules?.imageSave
 
-  const stub = createPluginInputStub({ directory: spec.directory ?? process.cwd() })
+  // `session` stays absent: Pi has no OpenCode session API, so optional
+  // plugin calls into it (agent switches, session reads) are skipped, not thrown.
+  const stub = createPluginInputStub({ directory: spec.directory ?? process.cwd(), absentClientKeys: ["session"] })
 
   // The classic plugin factory is optional: without it we still have a working
   // streaming provider, just no plugin-supplied auth or model catalog.
@@ -242,13 +247,24 @@ export async function registerOpenCodePlugin(
       const call = callData.get(modelId)
       return provider.languageModel(call?.variant.baseId ?? modelId)
     },
-    buildCallOptions: ({ model, options, base }) => {
+    buildCallOptions: async ({ model, options, base }) => {
       const call = callData.get(model.id)
       // Entry options first (e.g. a long-context entry's wire model id), then
       // the selected variant's own options object, verbatim.
-      const merged = call
+      let merged = call
         ? { ...call.entryOptions, ...optionsForLevel(call.variant, options?.reasoning) }
         : {} as Record<string, unknown>
+      // OpenCode runs the plugin's `chat.params` before every request, with the
+      // agent of the turn; the host's plan mode is that agent here.
+      if (hasChatParamsHook(hooks) && options?.sessionId) {
+        merged = await runChatParamsHook(hooks, {
+          sessionID: options.sessionId,
+          agent: await piHostAgent(options.sessionId),
+          providerID: providerOptionsKey,
+          modelID: call?.variant.baseId ?? model.id,
+          options: merged,
+        })
+      }
       if (cursorIntegration && takeCursorHistoryRewrite(
         options?.sessionId,
         (base.tools?.length ?? 0) > 0 && base.toolChoice?.type !== "none",

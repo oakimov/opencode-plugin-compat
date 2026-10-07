@@ -90,7 +90,8 @@ describe("host prompts follow the canonical catalog", () => {
       tools: [tool("todo_write"), tool("read")],
       messages: [{ role: "system", source: { kind: "system" }, content: [{ type: "text", text: "Ask with `ask_user_question`." }] }],
     }) as Array<{ content: unknown }>
-    expect(prompt[0]!.content).toBe("Record work with `todowrite`.")
+    // A file tool is offered, so DSH's home-directory note follows the system text.
+    expect(prompt[0]!.content).toStartWith("Record work with `todowrite`.\n\nHost file tools do not expand \"~\".")
     // ask_user_question is not advertised in this call, so it is not renamed.
     expect(prompt[1]!.content).toBe("Ask with `ask_user_question`.")
   })

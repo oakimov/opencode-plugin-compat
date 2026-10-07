@@ -208,6 +208,26 @@ That inserts one slot in the existing host config. The provider checkout stays
 stock; the instrumented copy lives under `~/.cache/ocp-dev/<host>/provider`.
 Full loop: [**TESTING.md**](../../TESTING.md).
 
+### 2.8 Plan mode
+
+Neither host has a `plan_enter` tool (Kilo never shipped one; MiMo removed
+it), so there is nothing for OCP to rename on the way in. Plan mode is the
+host's own `plan` primary agent: Tab / the agent picker, or a Cursor
+SwitchMode to plan. For SwitchMode, the Cursor provider's classic entrypoint
+starts the host `plan` agent turn once the Cursor Run ends; a CreatePlan
+raised before then waits for that turn. Either way, Cursor's own mode follows
+the host agent (the provider sends Cursor plan mode on every turn under
+`plan`, as Cursor CLI does after Shift+Tab), so CreatePlan is available to the
+model. Inside the `plan` agent the host owns
+the plan: OCP's path bridge (`planFile`) gives the provider the host's own plan
+file (`.kilo/plans/` or `.mimocode/plans/` in a git project, else the host data
+`plans/`, named `<created>-<slug>.md`), Cursor's CreatePlan writes the plan
+there, and the host's `plan_exit` review asks — Kilo's "Ready to implement?"
+follow-up, MiMo's Yes/No question. Refining stays in
+`plan`; approving returns to the host's build agent (`code` on Kilo).
+`plan_exit` passes through under its canonical name; `cursor_plan_stage` is
+not advertised on clones.
+
 ---
 
 ## 3. MiMo Code (`mimo`)
@@ -240,7 +260,7 @@ some OpenCode providers emit `filePath`.
 |------------|-------|--------------|
 | `streamToolCallEnsure` | `false` | Emit `tool-input-start` before bare `tool-call` |
 | `bashDescriptionRequired` | `true` | Fill missing `bash.description` only (never swap host tool catalogs) |
-| `clearSettledTodos` | `true` | A todo snapshot with no live row abandons known `task` rows |
+| `clearSettledTodos` | `true` | A finished todo snapshot marks open `task` rows `done`; only dropped live rows are abandoned |
 
 Argument spelling is **not** a MiMo-specific policy table. The shim reads the
 tools advertised on every LanguageModel call and maps only unique
@@ -433,6 +453,7 @@ once OCP Layer A is installed.
 | `clearSettledTodos` | `true` | A finished `todowrite` snapshot keeps `completed` rows and drops `cancelled` |
 | `clearSettledTodoMode` | `completed-only` | Named finish stays visible; sidebar hides once every remaining row is completed |
 | `collapseOccupancyUsage` | `false` | Assistant messages keep declared checkpoint occupancy; OCP estimates interim step accounting and settles the step sum to declared exact turn counters |
+| `http.isolatedSessionPrefixes` | `["title-"]` | Kilo streams titles under session id `title-<sessionID>` with no tools. OCP sends that call without session-affinity headers, as the standalone request Kilo intends; no tool catalog ever exists under the derived id |
 
 `ocp setup --host kilo` still writes the same in-place entry shim layout as MiMo
 (classic plugins often load `file://…/dist/index.js` directly). At runtime the

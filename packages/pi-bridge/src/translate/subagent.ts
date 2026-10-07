@@ -34,6 +34,7 @@ export type PiSubagentVocabulary = {
   hostToolAliases: Readonly<Record<string, string>>
   /** Host argument that preserves OpenCode's unstructured task result. */
   unstructuredOutput?: { field: string; value: unknown }
+  solutionSpace?: string
 }
 
 /**
@@ -51,6 +52,12 @@ export type PiTerminalResultVocabulary = {
 export type TranslatedSubagentCall = {
   toolName: string
   input: Record<string, unknown>
+  /**
+   * Execute under a derived fan-out id even when this is the only host call:
+   * a todo status diff is not a snapshot by itself, so history must fold it
+   * back with the host state it was computed from.
+   */
+  fanout?: true
 }
 
 /** Normalize a translate result to a (possibly empty) call list. */
@@ -65,8 +72,11 @@ function todoCallsForHost(
   hostToolName: string,
   input: Record<string, unknown>,
   shape: PiToolInputProfile["inputShape"],
+  hostTodos?: readonly HostTodoRow[],
 ): TranslatedSubagentCall | TranslatedSubagentCall[] {
   if (shape === "opencode-todo") {
+    const diff = hostTodos ? diffTodoSnapshotToHostOps(input, hostTodos) : undefined
+    if (diff) return diff.map(op => ({ toolName: hostToolName, input: op, fanout: true }))
     const ops = expandTodoSnapshotToHostOps(input)
     if (!ops) return { toolName: hostToolName, input }
     if (ops.length === 1) return { toolName: hostToolName, input: ops[0]! }
@@ -161,8 +171,10 @@ function agentNamesFromDescription(description: string): { names: string[]; comp
     }
     if (!inAgents) continue
     if (/^#{1,2}\s+/.test(line.trim())) break
-    const heading = line.trim().match(/^###\s+`?([A-Za-z0-9_-]+)`?(?:\s|$)/)
-    if (heading?.[1] && !names.includes(heading[1])) names.push(heading[1])
+    // One agent per `### name` heading, or per `` - `name`: … `` list item
+    // (omp ≥18.6 renders its agent list as bullets).
+    const entry = line.trim().match(/^(?:###\s+`?|[-*]\s+`)([A-Za-z0-9_-]+)`?(?:[\s:(]|$)/)
+    if (entry?.[1] && !names.includes(entry[1])) names.push(entry[1])
   }
 
   return { names, complete }
@@ -212,6 +224,7 @@ export function buildPiSubagentVocabulary(
         ? configured.coordinationTool.name
         : undefined,
     unstructuredOutput: configured.unstructuredOutput,
+    solutionSpace: configured.solutionSpace,
   }
 }
 
@@ -274,9 +287,20 @@ export function buildPiToolInputVocabulary(
 export function buildPiTerminalResultVocabulary(
   tools: readonly PiTool[] | undefined,
   profile: PiHostProfile,
+  toSchema: SubagentToolSchemaFn,
 ): PiTerminalResultVocabulary | undefined {
   const configured = profile.tools?.terminalResult
-  if (!configured || !tools?.some(tool => tool.name === configured.name)) return undefined
+  const tool = tools?.find(tool => tool.name === configured?.name)
+  if (!configured || !tool) return undefined
+  const schema = toSchema(tool)
+  const properties = schema.properties as Record<string, unknown> | undefined
+  // Work-pool results need an explicit key/outcome; structured results need
+  // data. Keep those tools advertised so the model submits their actual schema.
+  if (!properties || !Object.hasOwn(properties, "type") || Object.hasOwn(properties, "key")) return undefined
+  if (Array.isArray(schema.required) && schema.required.length > 0) return undefined
+  const data = properties.data as Record<string, unknown> | undefined
+  if (!data || Object.keys(data).some(key => key !== "description")) return undefined
+  if (Object.keys(configured.input).some(key => !Object.hasOwn(properties, key))) return undefined
   return { hostToolName: configured.name, input: configured.input }
 }
 
@@ -357,6 +381,14 @@ export function translateCanonicalSubagentCall(
   if (typeof agent === "string" && agent) hostInput["agent"] = agent
   if (vocabulary.unstructuredOutput) {
     hostInput[vocabulary.unstructuredOutput.field] = vocabulary.unstructuredOutput.value
+  }
+  if (vocabulary.solutionSpace !== undefined) hostInput.solutionSpace = vocabulary.solutionSpace
+  const properties = vocabulary.hostSchema.properties as Record<string, unknown> | undefined
+  const required = vocabulary.hostSchema.required
+  if (properties?.tasks && Array.isArray(required) && required.includes("context") && required.includes("tasks")) {
+    const description = typeof input.description === "string" ? input.description.trim() : ""
+    const context = description || (typeof input.prompt === "string" ? input.prompt : "")
+    return { toolName: vocabulary.hostToolName, input: { context, tasks: [hostInput] } }
   }
   return { toolName: vocabulary.hostToolName, input: hostInput }
 }
@@ -616,6 +648,116 @@ export function expandTodoSnapshotToHostOps(
   return ops
 }
 
+/** One row of the ops-based host todo list, in OpenCode status vocabulary. */
+export type HostTodoRow = { content: string; status: OpenCodeTodoStatus }
+
+const HOST_TODO_STATUS: Readonly<Record<string, OpenCodeTodoStatus>> = {
+  pending: "pending",
+  in_progress: "in_progress",
+  completed: "completed",
+  abandoned: "cancelled",
+}
+
+/**
+ * Current rows of the ops-based host todo list: the `details.phases` the host
+ * attached to its latest successful todo result. `undefined` when no such
+ * result exists or a row has a status without an OpenCode equivalent
+ * (`blocked`), so callers fall back to a full reconstruct.
+ */
+export function latestHostTodoRows(
+  messages: readonly { role: string; [key: string]: unknown }[],
+  toolInputs: PiToolInputVocabulary | undefined,
+): HostTodoRow[] | undefined {
+  for (let index = messages.length - 1; index >= 0; index--) {
+    const rows = hostTodoRowsFromResult(messages[index]!, toolInputs)
+    if (rows !== null) return rows
+  }
+  return undefined
+}
+
+/**
+ * Rows carried by one host todo result; `null` when the message is not one
+ * (keep searching), `undefined` when it is but its state is not expressible.
+ */
+export function hostTodoRowsFromResult(
+  message: { role: string; [key: string]: unknown },
+  toolInputs: PiToolInputVocabulary | undefined,
+): HostTodoRow[] | undefined | null {
+  if (message.role !== "toolResult" || message["isError"] === true) return null
+  if (typeof message["toolName"] !== "string" || !isOpsTodoHostTool(message["toolName"], toolInputs)) return null
+  const details = message["details"]
+  if (!details || typeof details !== "object") return null
+  const phases = (details as { phases?: unknown }).phases
+  if (!Array.isArray(phases)) return null
+  const rows: HostTodoRow[] = []
+  for (const phase of phases) {
+    const tasks = phase && typeof phase === "object" ? (phase as { tasks?: unknown }).tasks : undefined
+    if (!Array.isArray(tasks)) return undefined
+    for (const task of tasks) {
+      const record = task && typeof task === "object" ? task as Record<string, unknown> : undefined
+      const content = typeof record?.["content"] === "string" ? record["content"].trim() : ""
+      const status = typeof record?.["status"] === "string" ? HOST_TODO_STATUS[record["status"]] : undefined
+      if (!content || !status) return undefined
+      rows.push({ content, status })
+    }
+  }
+  return rows
+}
+
+/**
+ * Realise a snapshot as status ops against the host's current list instead of
+ * a fresh `init`. The ops host treats every `init` as a replan (session
+ * retitling, repeated completion transitions) and auto-activates its first
+ * row, so re-initialising for a status change both costs host work and
+ * reorders the list.
+ *
+ * Only exact cases diff: the snapshot keeps the current rows in order (rows
+ * may be dropped), contents are unique, at most one row is active, and no row
+ * reopens or goes idle without another row taking over. Replaying the ops on
+ * the same current rows ({@link reconstructTodoSnapshotFromHostOps}) then
+ * yields the snapshot back. Anything else returns `undefined`.
+ */
+export function diffTodoSnapshotToHostOps(
+  input: Record<string, unknown>,
+  current: readonly HostTodoRow[],
+): Record<string, unknown>[] | undefined {
+  if (typeof input["op"] === "string" || !Object.hasOwn(input, "todos")) return undefined
+  const rows = readSnapshotTodoRows(input["todos"])
+  if (!rows || rows.length === 0 || current.length === 0) return undefined
+  if (new Set(rows.map(row => row.content)).size !== rows.length) return undefined
+  if (new Set(current.map(row => row.content)).size !== current.length) return undefined
+  if (rows.filter(row => row.status === "in_progress").length > 1) return undefined
+
+  // Kept rows must appear in their current order.
+  let cursor = 0
+  for (const row of rows) {
+    while (cursor < current.length && current[cursor]!.content !== row.content) cursor++
+    if (cursor === current.length) return undefined
+    cursor++
+  }
+
+  const kept = new Set(rows.map(row => row.content))
+  const before = new Map(current.map(row => [row.content, row.status]))
+  const active = rows.find(row => row.status === "in_progress")
+  const ops: Record<string, unknown>[] = []
+  for (const row of current) {
+    if (!kept.has(row.content)) ops.push({ op: "rm", task: row.content })
+  }
+  for (const row of rows) {
+    const previous = before.get(row.content)!
+    if (row.status === previous) continue
+    if (row.status === "completed") ops.push({ op: "done", task: row.content })
+    else if (row.status === "cancelled") ops.push({ op: "drop", task: row.content })
+    else if (row.status === "pending") {
+      // `start` demotes the previous active row; nothing reopens a finished one.
+      if (previous !== "in_progress" || !active) return undefined
+    }
+  }
+  if (active && before.get(active.content) !== "in_progress") ops.push({ op: "start", task: active.content })
+  // An unchanged snapshot still needs a host call to answer the tool call.
+  return ops.length > 0 ? ops : [{ op: "view" }]
+}
+
 /**
  * Fold an OpenCode/Cursor todo snapshot into ops-based host `todo` op(s).
  *
@@ -707,11 +849,15 @@ function peelGlobPath(hostPath: string): { pattern: string; path?: string } {
 
 function applyInputShape(
   input: Record<string, unknown>,
-  shape: "pi-edit" | "opencode-edit" | "opencode-read" | "opencode-todo" | "opencode-glob" | "opencode-bash" | undefined,
+  shape: "pi-edit" | "opencode-edit" | "opencode-read" | "opencode-todo" | "opencode-glob" | "opencode-bash" | "opencode-grep" | undefined,
 ): Record<string, unknown> {
   if (shape === "opencode-read") return applyReadShape(input)
   if (shape === "opencode-todo") return applyTodoShape(input)
   if (shape === "opencode-glob") return applyGlobShape(input)
+  if (shape === "opencode-grep" && typeof input.include === "string") {
+    const { include, ...rest } = input
+    return { ...rest, path: joinOpenCodeGlobPath(typeof input.path === "string" ? input.path : undefined, include) }
+  }
   if (shape === "opencode-bash" && typeof input.timeout === "number" && Number.isFinite(input.timeout)) {
     // OpenCode sends milliseconds; OMP's native bash executor takes seconds.
     return { ...input, timeout: input.timeout / 1000 }
@@ -743,6 +889,8 @@ export function translateCanonicalToolCall(
   vocabulary: PiSubagentVocabulary | undefined,
   toolInputs?: PiToolInputVocabulary,
   question?: PiQuestionVocabulary,
+  /** Current ops-based host todo rows; enables status diffs instead of re-init. */
+  hostTodos?: readonly HostTodoRow[],
 ): TranslatedSubagentCall | TranslatedSubagentCall[] | undefined {
   const subagent = translateCanonicalSubagentCall(toolName, input, vocabulary)
   if (subagent) return subagent
@@ -761,7 +909,7 @@ export function translateCanonicalToolCall(
     const [hostToolName, profile] = renamedProfile
     const source = toolName === "todoread" ? { op: "view", ...input } : input
     const translated = rewriteInputKeys(source, profile.inputAliases, profile.dropInputKeys)
-    return todoCallsForHost(hostToolName, translated, profile.inputShape)
+    return todoCallsForHost(hostToolName, translated, profile.inputShape, hostTodos)
   }
 
   const inputProfile = toolInputs?.[toolName]
@@ -773,11 +921,11 @@ export function translateCanonicalToolCall(
     dropInputKeys?.some(name => Object.hasOwn(input, name)) === true
   if (rewrites) {
     const translated = rewriteInputKeys(input, inputAliases, dropInputKeys)
-    return todoCallsForHost(toolName, translated, inputShape)
+    return todoCallsForHost(toolName, translated, inputShape, hostTodos)
   }
   if (inputShape) {
     if (inputShape === "opencode-todo" || inputShape === "opencode-read") {
-      return todoCallsForHost(toolName, input, inputShape)
+      return todoCallsForHost(toolName, input, inputShape, hostTodos)
     }
     const translated = applyInputShape(input, inputShape)
     if (translated !== input || Array.isArray(input.edits)) return { toolName, input: translated }
@@ -801,18 +949,40 @@ export function translateHostToolCallInput(
   input: Record<string, unknown>,
   toolInputs: PiToolInputVocabulary | undefined,
 ): Record<string, unknown> {
-  const shape = toolInputs?.[toolName]?.inputShape
+  const schema = toolInputs?.[toolName]?.providerSchema
+  if (schema === "opencode-write" || schema === "opencode-read") {
+    const path = input["filePath"] ?? input["path"]
+    if (typeof path !== "string") return input
+    const rest: Record<string, unknown> = { filePath: path }
+    for (const key of schema === "opencode-write" ? ["content"] : ["offset", "limit"]) {
+      if (Object.hasOwn(input, key)) rest[key] = input[key]
+    }
+    return rest
+  }
+  const profile = toolInputs?.[toolName]
+  if (profile?.providerKeys) input = rewriteInputKeys(input, profile.providerKeys)
+  const shape = profile?.inputShape
+  if (shape === "opencode-grep" && typeof input.path === "string" && hasGlobPathChars(input.path)) {
+    const { path, ...rest } = input
+    const peeled = peelGlobPath(path)
+    return { ...rest, ...(peeled.path ? { path: peeled.path } : {}), include: peeled.pattern }
+  }
   if (shape === "opencode-read") {
     const path = input["path"]
     if (typeof path !== "string") return input
     return peelReadSelector(path) ?? { filePath: path }
   }
-  if (shape === "opencode-edit") {
+  if (schema === "opencode-edit" || shape === "opencode-edit") {
     const path = input["path"]
     const oldString = firstString(input, PI_EDIT_OLD_KEYS)
     const newString = firstString(input, PI_EDIT_NEW_KEYS)
     if (typeof path !== "string" || oldString === undefined || newString === undefined) return input
-    return { filePath: path, oldString, newString }
+    return {
+      filePath: path,
+      oldString,
+      newString,
+      ...(typeof input.replace_all === "boolean" ? { replaceAll: input.replace_all } : {}),
+    }
   }
   if (shape === "opencode-todo") {
     return hostTodoToOpenCodeSnapshot(input)
@@ -892,8 +1062,11 @@ function hostTodoToOpenCodeSnapshot(input: Record<string, unknown>): Record<stri
 /** Reconstruct the canonical snapshot represented by one fanned-out host op sequence. */
 export function reconstructTodoSnapshotFromHostOps(
   operations: readonly Record<string, unknown>[],
+  current?: readonly HostTodoRow[],
 ): Record<string, unknown> | undefined {
-  let rows: Array<{ content: string; status: OpenCodeTodoStatus }> | undefined
+  // A status diff starts from the host rows it was computed against.
+  let rows: Array<{ content: string; status: OpenCodeTodoStatus }> | undefined =
+    current ? current.map(row => ({ ...row })) : undefined
   for (const operation of operations) {
     const op = operation["op"]
     if (op === "init") {
@@ -905,13 +1078,17 @@ export function reconstructTodoSnapshotFromHostOps(
         .map(row => ({ content: row.content, status: normalizeOpenCodeTodoStatus(row.status) }))
       continue
     }
-    if (op === "rm") {
+    if (op === "rm" && typeof operation["task"] !== "string") {
       rows = []
       continue
     }
-    if (!rows) continue
+    if (!rows || op === "view") continue
     const task = typeof operation["task"] === "string" ? operation["task"].trim() : ""
     if (!task) continue
+    if (op === "rm") {
+      rows = rows.filter(item => item.content !== task)
+      continue
+    }
     let row = rows.find(item => item.content === task)
     if (!row) {
       row = { content: task, status: "pending" }
@@ -935,7 +1112,12 @@ export function translateHostSubagentCall(
   input: Record<string, unknown>,
   vocabulary: PiSubagentVocabulary | undefined,
 ): TranslatedSubagentCall | undefined {
-  if (!vocabulary || toolName !== vocabulary.hostToolName || typeof input["task"] !== "string") {
+  if (!vocabulary || toolName !== vocabulary.hostToolName) return undefined
+  if (Array.isArray(input.tasks) && input.tasks.length === 1 && input.tasks[0] && typeof input.tasks[0] === "object") {
+    const item = input.tasks[0] as Record<string, unknown>
+    input = { ...item, task: typeof input.context === "string" && input.context ? `${input.context}\n\n${item.task}` : item.task }
+  }
+  if (typeof input["task"] !== "string") {
     return undefined
   }
   const subagentType = canonicalAgentFor(input["agent"], vocabulary)

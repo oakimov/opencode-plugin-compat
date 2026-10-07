@@ -6,7 +6,7 @@ import { assertManaged, defaultProviderPath, hostStateDir, manifestPath, pluginN
 import { assertSafeProvider, assertStockClean, ensureStockBuild } from "./stock.ts"
 import { buildWrapper } from "./wrapper.ts"
 
-export type CloneHost = Exclude<HostId, "pi" | "omp">
+export type CloneHost = Exclude<HostId, "pi" | "omp" | "dsh">
 
 function assertPackagesDir(dir: string): void {
   if (!dir || dir === "/" || dir === process.env.HOME) {

@@ -29,8 +29,9 @@ export type HostCapabilities = {
   clearSettledTodos: boolean
   /**
    * How to clear a finished todo snapshot when `clearSettledTodos` is true.
-   * - `empty` (MiMo): store `[]` so the rotated `task` fan-out abandons rows.
-   * - `completed-only` (Kilo): keep `completed` rows and drop `cancelled`.
+   * - `empty`: store `[]` (no current host uses it).
+   * - `completed-only` (Kilo, MiMo): keep `completed` rows and drop `cancelled`.
+   *   On MiMo the rotated `task` fan-out then marks finished items `done`.
    *   Kilo's sidebar already hides when every remaining row is `completed`,
    *   and emptying the finish call erased the named snapshot the model (and
    *   self-verify T4f) needs to see.
@@ -112,6 +113,13 @@ export type HostHttp = {
   directoryHeader: string
   /** Experimental workspace header. */
   workspaceHeader: string
+  /**
+   * Session-affinity id prefixes the host gives tool-less lifecycle calls to
+   * keep them isolated from the agent task (Kilo titles: `title-<sessionID>`).
+   * No catalog ever exists under such an id, so OCP sends those calls without
+   * session affinity. Omit when the host keys lifecycle calls by the session.
+   */
+  isolatedSessionPrefixes?: readonly string[]
 }
 
 export type HostProfile = {

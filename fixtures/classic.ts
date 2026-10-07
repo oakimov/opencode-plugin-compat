@@ -1,4 +1,4 @@
-import type { Hooks, PluginInput } from "@opencode-compat/facade-plugin"
+import type { Hooks, Plugin, PluginInput } from "@opencode-compat/facade-plugin"
 import { fail, pass, skip, type Fixture } from "./types.ts"
 
 function fakeInput(): PluginInput {
@@ -13,7 +13,7 @@ function fakeInput(): PluginInput {
     worktree: "/tmp/proj",
     experimental_workspace: { register() {} },
     serverUrl: new URL("http://127.0.0.1:4096"),
-    $: Object.assign(() => ({}), {}) as PluginInput["$"],
+    $: Object.assign(() => ({}), {}) as unknown as PluginInput["$"],
   }
 }
 
@@ -25,7 +25,7 @@ export const classicAuthOauthShape: Fixture = {
     if (!ctx.profile.capabilities.classicHooks) {
       return skip(this, ctx.host, "host lacks classicHooks")
     }
-    const plugin = async (): Promise<Hooks> => ({
+    const plugin: Plugin = async (): Promise<Hooks> => ({
       auth: {
         provider: "ocp-fixture",
         methods: [
@@ -76,7 +76,7 @@ export const classicConfigMutate: Fixture = {
     if (!ctx.profile.capabilities.classicHooks) {
       return skip(this, ctx.host, "host lacks classicHooks")
     }
-    const plugin = async (): Promise<Hooks> => ({
+    const plugin: Plugin = async (): Promise<Hooks> => ({
       async config(input) {
         ;(input as { fixtureFlag?: boolean }).fixtureFlag = true
       },
@@ -100,7 +100,7 @@ export const classicToolBeforeAfter: Fixture = {
       return skip(this, ctx.host, "host lacks classicHooks")
     }
     const seen: string[] = []
-    const plugin = async (): Promise<Hooks> => ({
+    const plugin: Plugin = async (): Promise<Hooks> => ({
       async "tool.execute.before"(_input, output) {
         seen.push("before")
         output.args = { ...(output.args as object), tagged: true }
@@ -134,7 +134,7 @@ export const classicChatParams: Fixture = {
     if (!ctx.profile.capabilities.classicHooks) {
       return skip(this, ctx.host, "host lacks classicHooks")
     }
-    const plugin = async (): Promise<Hooks> => ({
+    const plugin: Plugin = async (): Promise<Hooks> => ({
       async "chat.params"(_input, output) {
         output.options = { ...output.options, fixture: true }
         output.temperature = 0.2

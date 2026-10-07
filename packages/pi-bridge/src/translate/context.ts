@@ -6,6 +6,7 @@
  * Host-neutral: `systemPrompt` is `string[]` on oh-my-pi but a plain `string`
  * on pi, so both are accepted.
  */
+import { isHiddenHostNote } from "../host-notes.js"
 import type {
   JSONSchema7,
   LanguageModelV3FunctionTool,
@@ -29,11 +30,13 @@ import {
   canonicalSubagentDescription,
   canonicalSubagentSchema,
   canonicalToolName,
+  hostTodoRowsFromResult,
   isOpsTodoHostTool,
   originalTodoFanoutId,
   reconstructTodoSnapshotFromHostOps,
   translateHostSubagentCall,
   translateHostToolCallInput,
+  type HostTodoRow,
   type PiSubagentVocabulary,
   type PiTerminalResultVocabulary,
   type PiToolInputVocabulary,
@@ -64,7 +67,7 @@ const OPENCODE_EDIT_SCHEMA: Record<string, unknown> = {
   type: "object",
   properties: {
     filePath: { type: "string", description: "Path to the file to edit (relative or absolute)" },
-    oldString: { type: "string", description: "Exact text to replace. Must match exactly once in the file." },
+    oldString: { type: "string", minLength: 1, description: "Exact text to replace. Must match exactly once in the file." },
     newString: { type: "string", description: "Replacement text" },
   },
   required: ["filePath", "oldString", "newString"],
@@ -90,6 +93,18 @@ const OPENCODE_READ_SCHEMA: Record<string, unknown> = {
     offset: { type: "integer", minimum: 1, description: "1-indexed line number to start reading from" },
     limit: { type: "integer", minimum: 1, description: "Maximum number of lines to read" },
   },
+  required: ["filePath"],
+  additionalProperties: false,
+}
+
+const OPENCODE_WRITE_SCHEMA: Record<string, unknown> = {
+  type: "object",
+  properties: {
+    filePath: { type: "string", description: "Path to the file or writable device (relative or absolute)" },
+    content: { type: "string", description: "Complete content to write; an empty string writes an empty file" },
+  },
+  // OMP permits content-less device writes; regular files need content.
+  // Preserve that capability instead of making device writes invalid here.
   required: ["filePath"],
   additionalProperties: false,
 }
@@ -195,6 +210,18 @@ function providerToolSchema(
   toSchema: ToolSchemaFn,
   toolInputs: PiToolInputVocabulary | undefined,
 ): Record<string, unknown> {
+  const profile = toolInputs?.[tool.name]
+  if (profile?.providerSchema === "opencode-write") {
+    const hostRequired = toSchema(tool).required
+    return {
+      ...OPENCODE_WRITE_SCHEMA,
+      required: Array.isArray(hostRequired) && hostRequired.includes("content")
+        ? ["filePath", "content"]
+        : ["filePath"],
+    }
+  }
+  if (profile?.providerSchema === "opencode-read") return OPENCODE_READ_SCHEMA
+  if (profile?.providerSchema === "opencode-edit") return OPENCODE_REPLACE_EDIT_SCHEMA
   const shape = toolInputs?.[tool.name]?.inputShape
   if (shape === "opencode-edit") return OPENCODE_REPLACE_EDIT_SCHEMA
   if (shape === "pi-edit") return OPENCODE_EDIT_SCHEMA
@@ -209,14 +236,37 @@ function providerToolSchema(
     const properties: Record<string, unknown> = {
       ...(OPENCODE_BASH_SCHEMA.properties as Record<string, unknown>),
     }
-    if (hostProps.pty !== undefined) properties.pty = hostProps.pty
-    if (hostProps.async !== undefined) properties.async = hostProps.async
+    for (const key of ["pty", "async", ...Object.keys(hostProps).sort()]) {
+      if (Object.hasOwn(hostProps, key) && !["command", "cwd", "timeout", "i"].includes(key) && !Object.hasOwn(properties, key)) properties[key] = hostProps[key]
+    }
     return {
       ...OPENCODE_BASH_SCHEMA,
       properties,
     }
   }
-  return toSchema(tool)
+  const native = toSchema(tool)
+  const keys = profile?.providerKeys ?? {}
+  const host = Object.keys(keys).length > 0 ? {
+    ...native,
+    properties: Object.fromEntries(Object.entries(native.properties as Record<string, unknown> ?? {}).map(([key, value]) => [keys[key] ?? key, value])),
+    ...(Array.isArray(native.required) ? { required: native.required.map(key => typeof key === "string" ? keys[key] ?? key : key) } : {}),
+  } : native
+  if (shape === "opencode-grep") {
+    const properties = { ...host.properties as Record<string, unknown> }
+    delete properties.i
+    properties.include = { type: "string", description: "Glob pattern restricting searched files under path." }
+    return { ...host, properties, ...(Array.isArray(host.required) ? { required: host.required.filter(key => key !== "i") } : {}) }
+  }
+  if (!profile?.dropInputKeys?.length) return host
+  const properties = { ...(host.properties as Record<string, unknown> | undefined) }
+  for (const key of profile.dropInputKeys) delete properties[key]
+  return {
+    ...host,
+    properties,
+    ...(Array.isArray(host.required)
+      ? { required: host.required.filter(key => typeof key !== "string" || !profile.dropInputKeys!.includes(key)) }
+      : {}),
+  }
 }
 
 function flattenTextAndImages(
@@ -263,6 +313,14 @@ function toolResultOutputFromPi(result: PiToolResultMessage): LanguageModelV3Too
   }
 }
 
+/** Host todo rows around one assistant message, for folding status diffs. */
+type TodoReplayState = {
+  /** Rows from the latest host todo result before the message. */
+  current: readonly HostTodoRow[] | undefined
+  /** Rows reported by each fanned-out group's final result, by canonical id. */
+  after: ReadonlyMap<string, HostTodoRow[]>
+}
+
 function assistantMessageToV3(
   message: PiAssistantMessage,
   vocabulary: PiSubagentVocabulary | undefined,
@@ -270,6 +328,7 @@ function assistantMessageToV3(
   question?: PiQuestionVocabulary,
   excludedToolNames?: ReadonlySet<string>,
   excludedToolCallIds?: Set<string>,
+  todoState?: TodoReplayState,
 ) {
   const content: Array<
     | { type: "text"; text: string }
@@ -303,9 +362,16 @@ function assistantMessageToV3(
       if (fanoutOriginal && isOpsTodoHostTool(block.name, toolInputs)) {
         if (foldedTodoFanouts.has(fanoutOriginal)) continue
         foldedTodoFanouts.add(fanoutOriginal)
-        const snapshot = reconstructTodoSnapshotFromHostOps(
-          todoOpsByOriginal.get(fanoutOriginal) ?? [],
-        ) ?? { todos: [] }
+        const operations = todoOpsByOriginal.get(fanoutOriginal) ?? []
+        // A status diff (no `init`) folds onto the host rows it was computed
+        // against; if those left history, its own result's rows stand in.
+        const snapshot = (operations.some(operation => operation["op"] === "init")
+          ? reconstructTodoSnapshotFromHostOps(operations)
+          : todoState?.current
+            ? reconstructTodoSnapshotFromHostOps(operations, todoState.current)
+            : todoState?.after.has(fanoutOriginal)
+              ? { todos: todoState.after.get(fanoutOriginal)!.map(row => ({ ...row })) }
+              : undefined) ?? { todos: [] }
         content.push({
           type: "tool-call",
           toolCallId: fanoutOriginal,
@@ -414,6 +480,18 @@ export function resolvePiProviderContext(context: PiContextLike): PiContextLike 
 }
 
 /** Translate a host Context into an AI-SDK V3 `prompt` array (system + history). */
+/** The prompt so far ends with a tool step, including an unanswered tool call. */
+function followsToolStep(prompt: LanguageModelV3Prompt): boolean {
+  for (let i = prompt.length - 1; i >= 0; i--) {
+    const message = prompt[i]!
+    if (message.role === "system") continue
+    if (message.role === "tool") return true
+    if (message.role !== "assistant") return false
+    return message.content.some(part => part.type === "tool-call")
+  }
+  return false
+}
+
 export function translateContextToPrompt(
   context: PiContextLike,
   vocabulary?: PiSubagentVocabulary,
@@ -445,8 +523,30 @@ export function translateContextToPrompt(
     { toolName: string; texts: string[]; isError: boolean; promptIndex: number }
   >()
 
+  // Host todo state for folding status diffs: the rows before each assistant
+  // message, and each fanned-out group's final reported rows.
+  let currentTodos: HostTodoRow[] | undefined
+  const todosAfter = new Map<string, HostTodoRow[]>()
+  for (const message of context.messages) {
+    if (message.role !== "toolResult") continue
+    const original = originalTodoFanoutId(message.toolCallId)
+    const rows = original ? hostTodoRowsFromResult(message, toolInputs) : null
+    if (original && rows) todosAfter.set(original, rows)
+  }
+
   for (const message of context.messages) {
     if (message.role === "user") {
+      // Hidden extension context pi converted to `user` mid-tool is a host
+      // note on that tool step, not a new turn. `/plan open` injects its
+      // reminder before the stage result exists, so this must also match an
+      // unanswered assistant tool call. A hidden message that starts a turn
+      // stays `user`: as `system` it would leave the original request as the
+      // latest user message and get it executed again.
+      if (isHiddenHostNote(message) && followsToolStep(prompt)) {
+        const text = flattenToPlainText(message.content)
+        if (text.length > 0) prompt.push({ role: "system", content: hostText(text) })
+        continue
+      }
       prompt.push({ role: "user", content: flattenTextAndImages(message.content) })
     } else if (message.role === "developer") {
       // OMP converts custom messages to `developer` because Pi's message union
@@ -479,9 +579,12 @@ export function translateContextToPrompt(
         question,
         excludedToolNames,
         excludedToolCallIds,
+        { current: currentTodos, after: todosAfter },
       )
       if (translated.content.length > 0) prompt.push(translated)
     } else if (message.role === "toolResult") {
+      const todoRows = hostTodoRowsFromResult(message, toolInputs)
+      if (todoRows !== null) currentTodos = todoRows
       if (excludedToolNames?.has(message.toolName) || excludedToolCallIds.has(message.toolCallId)) continue
       const fanoutOriginal = originalTodoFanoutId(message.toolCallId)
       if (fanoutOriginal && isOpsTodoHostTool(message.toolName, toolInputs)) {
@@ -583,7 +686,8 @@ export function translateTools(
       })
       continue
     }
-    const shape = toolInputs?.[tool.name]?.inputShape
+    const profile = toolInputs?.[tool.name]
+    const shape = profile?.providerSchema ?? profile?.inputShape
     // When we rewrite the schema to OpenCode, rewrite the description too —
     // leaving host prose (ops-based todo, buried cwd bullets) beside a different
     // schema confuses models into the wrong call shape.
@@ -592,11 +696,15 @@ export function translateTools(
         ? OPENCODE_TODO_WRITE_DESCRIPTION
         : shape === "opencode-bash"
           ? OPENCODE_BASH_DESCRIPTION
-          : shape === "opencode-read"
-            ? OPENCODE_READ_DESCRIPTION
-            : shape === "opencode-glob"
-              ? OPENCODE_GLOB_DESCRIPTION
-              : tool.description
+          : shape === "opencode-write"
+            ? "Write complete file contents with filePath and content. For writable devices only, content may be omitted if the device accepts a content-less write."
+            : shape === "opencode-edit"
+              ? "Replace exact text in a file using filePath, oldString and newString. Set replaceAll to replace every occurrence."
+              : shape === "opencode-read"
+                ? OPENCODE_READ_DESCRIPTION
+                : shape === "opencode-glob"
+                  ? OPENCODE_GLOB_DESCRIPTION
+                  : tool.description
     translated.push({
       type: "function",
       name: canonicalToolName(tool.name, vocabulary, toolInputs),

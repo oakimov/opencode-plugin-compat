@@ -35,6 +35,8 @@ The dependency direction is one-way: **OCP may know consumer providers; consumer
   - **DSH family** (`dsh` / DeepSeek Harness) is **not** an OpenCode fork and not Pi → `@opencode-compat/dsh-bridge` is a Cordis plugin that registers `ctx.llm.registerAdapter(...)`, translating AI-SDK `doStream` ↔ DSH `StreamChunk`. The `ocp` CLI and clone adapter are not involved. `packages/adapter` must not contain DSH ids.
 - **Neutral path contract:** install `Symbol.for("opencode.host.path-bridge")` with structural cache/data/config/project paths. Legacy symbols may be emitted only as time-bounded backward compatibility; new provider code must not import OCP or name the installer. Generic bridge paths and cache namespaces must not be named after Cursor or another consumer.
 - **Capability/catalog integrity:** preserve every enabled tool and the cacheable prefix through translation. Sort the **first nonempty catalog once** by canonical name in UTF-16 code-unit order; never re-sort that established prefix. When new names appear, sort only that newcomer batch and append it at the tail (so initial `z`, then newly discovered `a`, remains `z, a`). Keep equal-name descriptors and order frozen, and never embed live host state (for example agent rosters) in descriptions or schemas. A lifecycle call with no tools remains a lifecycle signal; session affinity and cancellation must reach the downstream provider so it can correlate a sibling full-catalog call. Never invent/filter a catalog to accommodate one provider.
+- **Current tool vocabulary:** [docs/tool-vocabulary.md](docs/tool-vocabulary.md) is the single latest reference. Before tool/validator work, harness diagnosis, or a host upgrade, compare host declarations and the active catalog; update it in the same change. Source/catalog drift blocks validation; no old schemas or fallback calls. Keep definitions out of AGENTS.md and lessons.
+- **Validation gate:** downstream call repairs cannot satisfy upstream required-key checks. Check catalog → arguments → validation → execution → replay across all three families; build OCP’s adapter bundle plus the provider, refresh/restart the affected stock hosts, and verify loaded runtime and side effects.
 - **Functionality relocation gate:** before removing a compatibility branch from a consumer provider, add OCP tests proving equivalent catalog, call, result, resume-id, schema, and prompt-history behavior. Refactoring the boundary must not delete working compatibility.
 - **Architecture checks:** tests must cover at least one generic fake/Acme provider on clone and Pi paths, explicit optional Cursor activation, no Pi/DSH logic in clone runtime, no mandatory/static Cursor import in generic Pi or DSH code, and no Pi logic in `packages/dsh-bridge` clone-facing runtime (DSH must not import Pi host packages).
 
@@ -64,6 +66,14 @@ docs/guides/       # companion privacy / ZCode import notes (non-OCP runtime)
 
 ## Build rules
 
+- **MiMo upstream follow-up:** whenever working on MiMo, check the current
+  status, discussion, and merge outcome of the issues and PRs linked in
+  `tasks/lessons.md` under "MiMo completed-task checkboxes can remain stale".
+  Recheck at least daily during ongoing MiMo work and after a host upgrade.
+  If a fix merges, verify which release includes it and whether the stock
+  installed binary contains it; exercise live completion and row reordering
+  before marking the limitation resolved. Do not assume a merged PR is shipped.
+
 - Prefer Bun workspaces; TypeScript strict; ESM only.
 - Facades / universal adapter must not hardcode a single fork’s XDG paths — use `HostProfile` + autodetection.
 - MiMo extension hooks (`actor.*`, `session.*`) are **non-portable** — never require them for T1 plugins.
@@ -75,6 +85,8 @@ docs/guides/       # companion privacy / ZCode import notes (non-OCP runtime)
 - Privacy companions: Kilo/MiMo document **in-app** telemetry opt-out; ZCode telemetry is **docs-only** firewall/DNS — never claim an OCP plugin kill.
 
 ## Docs source of truth
+
+Tool calls and source drift: [docs/tool-vocabulary.md](docs/tool-vocabulary.md), maintained in place.
 
 1. `docs/ocp/0.1.md` — protocol contract for the OpenCode-clone facade path
 2. `packages/pi-bridge/README.md` — contract + config reference for the Pi family

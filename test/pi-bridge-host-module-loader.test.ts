@@ -72,7 +72,7 @@ test("a failed host graph load can be retried", async () => {
   try {
     const broken: PiExtensionApi = {
       registerProvider() {},
-      pi: { loadExtensions: async () => ({ errors: [{ error: "temporary load failure" }] }) },
+      pi: { loadExtensions: async () => ({ errors: [{ path: "broken", error: "temporary load failure" }] }) },
     }
     await expect(loadModuleThroughHost(broken, f.dir)).rejects.toThrow("temporary load failure")
     const recovered = await loadModuleThroughHost(f.host(), f.dir)

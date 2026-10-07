@@ -20,6 +20,9 @@ import {
   translateHostToolCallInput,
 } from "../packages/pi-bridge/src/translate/subagent.ts"
 
+const solutionSpace = "Follow the task’s stated fix or design; otherwise causes and designs remain open."
+const OMP_YIELD = { name: "yield", description: "Submit result", parameters: { type: "object", properties: { type: { type: "string" }, data: {}, error: { type: "string" } }, required: [], additionalProperties: false } }
+
 const toSchema = (tool: { parameters: unknown }) => tool.parameters as Record<string, unknown>
 
 const OMP_TASK = {
@@ -39,9 +42,29 @@ Review changes.`,
       name: { type: "string" },
       agent: { type: "string", default: "task" },
       task: { type: "string" },
+      solutionSpace: { type: "string" },
+      outputSchema: {},
     },
-    required: ["task"],
+    required: ["task", "solutionSpace"],
   },
+}
+
+/** omp ≥18.6 renders its agent list as bullets under `# Available Agents`. */
+const OMP_TASK_LIST = {
+  ...OMP_TASK,
+  description: `Run one agent synchronously.
+
+# Format
+\`task\`: self-contained.
+
+# Available Agents
+\`m<N>\` = user-tagged model, not specialist; spawn only when user names it.
+- \`scout\` (READ-ONLY; investigation only, no edits): Fast codebase research.
+- \`reviewer\` (READ-ONLY; investigation only, no edits): Review changes.
+- \`security-reviewer\` (READ-ONLY; investigation only, no edits): Security review.
+- \`task\`: General-purpose worker.
+- \`sonic\` (BLOCKING; inline result): Quick answers.
+`,
 }
 
 const PI_SUBAGENT = {
@@ -109,7 +132,7 @@ describe("Pi-family subagent vocabulary", () => {
 
     const schema = canonicalSubagentSchema(vocabulary!)
     expect(schema.required).toEqual(["description", "prompt", "subagent_type"])
-    expect((schema.properties as Record<string, { enum: string[] }>).subagent_type.enum).toEqual([
+    expect((schema.properties as Record<string, { enum: string[] }>).subagent_type!.enum).toEqual([
       "explore",
       "general",
       "reviewer",
@@ -123,14 +146,14 @@ describe("Pi-family subagent vocabulary", () => {
   })
 
   test("omp terminal result support activates only for a live yield tool", () => {
-    expect(buildPiTerminalResultVocabulary([OMP_TASK] as never, ompProfile())).toBeUndefined()
+    expect(buildPiTerminalResultVocabulary([OMP_TASK] as never, ompProfile(), toSchema as never)).toBeUndefined()
     expect(
-      buildPiTerminalResultVocabulary([OMP_TASK, { name: "yield" }] as never, ompProfile()),
+      buildPiTerminalResultVocabulary([OMP_TASK, OMP_YIELD] as never, ompProfile(), toSchema as never),
     ).toEqual({
       hostToolName: "yield",
-      input: { type: "result", result: {} },
+      input: { type: "result" },
     })
-    expect(buildPiTerminalResultVocabulary([{ name: "yield" }] as never, piProfile())).toBeUndefined()
+    expect(buildPiTerminalResultVocabulary([OMP_YIELD] as never, piProfile(), toSchema as never)).toBeUndefined()
   })
 
   test("omp maps generic agents through its live spawn policy and explore to scout", () => {
@@ -141,7 +164,7 @@ describe("Pi-family subagent vocabulary", () => {
         { description: "Investigate", prompt: "Trace auth", subagent_type: "general" },
         vocabulary,
       ),
-    ).toEqual({ toolName: "task", input: { task: "Trace auth", outputSchema: true } })
+    ).toEqual({ toolName: "task", input: { task: "Trace auth", outputSchema: true, solutionSpace } })
     expect(
       translateCanonicalSubagentCall(
         "task",
@@ -150,7 +173,7 @@ describe("Pi-family subagent vocabulary", () => {
       ),
     ).toEqual({
       toolName: "task",
-      input: { task: "Trace auth", agent: "scout", outputSchema: true },
+      input: { task: "Trace auth", agent: "scout", outputSchema: true, solutionSpace },
     })
   })
 
@@ -531,7 +554,7 @@ describe("Pi-family subagent vocabulary", () => {
         type: "object",
         properties: {
           filePath: { type: "string", description: "Path to the file to edit (relative or absolute)" },
-          oldString: { type: "string", description: "Exact text to replace. Must match exactly once in the file." },
+        oldString: { type: "string", minLength: 1, description: "Exact text to replace. Must match exactly once in the file." },
           newString: { type: "string", description: "Replacement text" },
         },
         required: ["filePath", "oldString", "newString"],
@@ -875,7 +898,7 @@ describe("Pi-family subagent vocabulary", () => {
     })
 
     const done = piStream.events.at(-1) as {
-      message: { content: Array<{ id: string; name: string; arguments: Record<string, unknown> }> }
+      message: { content: Array<{ type: string; id: string; name: string; arguments: Record<string, unknown> }> }
     }
     expect(done.message.content).toEqual([
       { type: "toolCall", id: "call_r#0", name: "read", arguments: { path: "/tmp/a.txt" } },
@@ -1122,7 +1145,7 @@ describe("subagent call and result round trip", () => {
     })
 
     const done = piStream.events.at(-1) as {
-      message: { content: Array<{ id: string; name: string; arguments: Record<string, unknown> }> }
+      message: { content: Array<{ type: string; id: string; name: string; arguments: Record<string, unknown> }> }
     }
     expect(done.message.content[0]).toMatchObject({
       id: "call_subagent_1",
@@ -1152,7 +1175,7 @@ describe("subagent call and result round trip", () => {
     })
 
     const done = piStream.events.at(-1) as {
-      message: { content: Array<{ id: string; name: string; arguments: Record<string, unknown> }> }
+      message: { content: Array<{ type: string; id: string; name: string; arguments: Record<string, unknown> }> }
     }
     expect(done.message.content[0]).toMatchObject({
       id: "call_hub_1",
@@ -1162,7 +1185,7 @@ describe("subagent call and result round trip", () => {
   })
 
   test("omp subagent final text becomes the host-required terminal yield call", async () => {
-    const terminalResult = buildPiTerminalResultVocabulary([{ name: "yield" }] as never, ompProfile())!
+    const terminalResult = buildPiTerminalResultVocabulary([OMP_YIELD] as never, ompProfile(), toSchema as never)!
     const piStream = new FakeAssistantMessageEventStream()
     await runV3StreamToPi({
       model: MODEL,
@@ -1190,12 +1213,12 @@ describe("subagent call and result round trip", () => {
     expect(done.message.content[1]).toMatchObject({
       type: "toolCall",
       name: "yield",
-      arguments: { type: "result", result: {} },
+      arguments: { type: "result" },
     })
   })
 
   test("terminal yield fallback does not replace real calls or empty stops", async () => {
-    const terminalResult = buildPiTerminalResultVocabulary([{ name: "yield" }] as never, ompProfile())!
+    const terminalResult = buildPiTerminalResultVocabulary([OMP_YIELD] as never, ompProfile(), toSchema as never)!
 
     for (const parts of [
       [
@@ -1234,5 +1257,22 @@ describe("subagent call and result round trip", () => {
       const done = piStream.events.at(-1) as { message: { content: Array<{ name?: string }> } }
       expect(done.message.content.some(block => block.name === "yield")).toBe(false)
     }
+  })
+})
+
+describe("omp agent list as bullets", () => {
+  test("advertises the live agents as the canonical subagent_type enum", () => {
+    const vocabulary = buildPiSubagentVocabulary([OMP_TASK_LIST as never], toSchema as never, ompProfile())!
+    expect(vocabulary.availableAgents).toEqual(["scout", "reviewer", "security-reviewer", "task", "sonic"])
+    expect(vocabulary.agentCatalogComplete).toBe(true)
+    const schema = canonicalSubagentSchema(vocabulary) as { properties: { subagent_type: { enum?: string[] } } }
+    expect(schema.properties.subagent_type.enum).toEqual([
+      "explore", "general", "reviewer", "scout", "security-reviewer", "sonic", "task",
+    ])
+    // `general` is omp's default worker; `explore` is its read-only scout.
+    expect(translateCanonicalSubagentCall("task", { description: "d", prompt: "p", subagent_type: "general" }, vocabulary))
+      .toEqual({ toolName: "task", input: { task: "p", outputSchema: true, solutionSpace } })
+    expect(translateCanonicalSubagentCall("task", { description: "d", prompt: "p", subagent_type: "explore" }, vocabulary))
+      .toEqual({ toolName: "task", input: { task: "p", agent: "scout", outputSchema: true, solutionSpace } })
   })
 })

@@ -70,9 +70,9 @@ evidence.
 
 - Do not edit omp source, installed omp binaries, the OCP repo, or the
   provider checkout.
-- Work only under a scratch directory you create, e.g.
-  `/tmp/omp-tool-shape-$USER/`. Delete it at the end if every write you made
-  is inside it.
+- Work only under a new, empty scratch directory you create with
+  `mktemp -d /tmp/omp-tool-shape-XXXXXX`; never reuse an existing one. Delete
+  it at the end if every write you made is inside it.
 - Prefer the **OpenCode / Cursor** argument shapes when a tool advertises
   them (`filePath`, `offset`/`limit`, `oldString`/`newString`,
   `glob` + `{pattern,path}`). Do not “help” the host by inventing omp-native

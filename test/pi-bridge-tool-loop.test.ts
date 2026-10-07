@@ -28,10 +28,10 @@ class FakeAssistantMessageEventStream {
   end() {}
   fail() {}
   async result() {
-    return (this.events.find((e: never) => (e as { type: string }).type === "done") as { message: unknown } | undefined)?.message
+    return (this.events.find((e: unknown) => (e as { type: string }).type === "done") as { message: unknown } | undefined)?.message
   }
   async *[Symbol.asyncIterator]() {
-    yield* this.events as never
+    yield* this.events
   }
 }
 

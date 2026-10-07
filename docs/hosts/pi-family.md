@@ -236,8 +236,9 @@ mapping `multiple` ↔ `multi`. Plain pi has no question role by default.
 
 On load, pi-bridge installs `Symbol.for("opencode.host.path-bridge")` so an
 unmodified provider resolves project/global config, durable **data**, and
-**cache** under `.omp` / `.pi` (and agent roots via `PI_CODING_AGENT_DIR` /
-`PI_CONFIG_DIR`) instead of inventing `.opencode`. The bridge exposes
+**cache** under `.omp` / `.pi` instead of inventing `.opencode`. On pi the
+agent root is the host's own `getAgentDir()`; on omp it comes from
+`PI_CODING_AGENT_DIR` / `PI_CONFIG_DIR` or `~/.omp/agent`. The bridge exposes
 `globalConfigDirs`, `globalDataDir`, `globalCacheDir`, `projectConfigDirs`, and
 `configFileNames`; provider auth, plan files, conversation snapshots, and model
 caches follow those roots. A legacy `opencode.compat.path-bridge` key is set to
@@ -250,20 +251,44 @@ the tools that provider already bridges on:
 
 | Tool | Host | Behavior |
 |---|---|---|
-| `plan_enter` / `plan_exit` | **omp only** | Drive native omp plan mode (ACP-shaped `setPlanModeState` + proposal handler via `AgentRegistry`) |
-| `cursor_plan_stage` | **omp only** | Stage the Cursor plan into omp's session-local artifact, then wait on omp's plan-review overlay |
+| `plan_enter` / `plan_exit` | **omp**; **pi** with `@pify/plan-mode` | omp: native plan mode (ACP-shaped `setPlanModeState` + proposal handler via `AgentRegistry`). pi: pify `enter_plan_mode` / `/plan off` |
+| `cursor_plan_stage` | **omp**; **pi** with `@pify/plan-mode` | omp: session-local artifact + plan-review overlay. pi: `<agentDir>/plans` file, shown in the transcript, then pify's approval UI |
 | `cursor_image_save` | **omp and pi** | Commit staged Cursor image bytes (`image_id` only) |
 
 The host registry is shared, but these Cursor bridge tools are filtered out of
 every non-Cursor provider call. This keeps a simultaneously configured Devin
 provider on its own tool and prompt contract.
 
-`cursor_plan_stage` writes `local://<slug>-plan.md` and waits on omp's
-plan-review overlay. It succeeds only when the user approves execution.
-Refine or dismiss is an error, so the model stays in plan mode. Returning
-before the overlay let the model call `plan_exit` and skip the review.
+On pi, extensions inject hidden context for the model (`display: false`, such
+as pify's plan-mode reminders), which pi hands to providers as user messages.
+pi-bridge passes those as host notes (`system`), the way omp's `developer`
+messages already are, so a reminder after a tool result does not start a new
+turn. pify's approval queues the implementation as the next message; the stage
+result tells the model to end its turn so the plan is implemented once.
+pify still asks "Allow this while planning?" the first time `cursor_plan_stage`
+runs in a session: pify confirms every tool it does not ship itself.
 
-Plain **pi** has no plan mode, so SwitchMode stays refused there. Image save
+omp ≥18.6 lists its agents as bullets in the `task` description; pi-bridge
+reads that list, so canonical `task` advertises the live agents as its
+`subagent_type` enum (`general` → omp's default worker, `explore` → `scout`).
+
+Every provider request runs the plugin's OpenCode `chat.params` hook first, with
+the host's mode as the OpenCode agent (`plan` in omp plan mode or pify plan
+mode, otherwise `build`). Plan mode entered with the host's own `/plan` thus
+reaches the provider; for Cursor it switches Cursor itself into plan mode, so
+CreatePlan goes straight to `cursor_plan_stage`.
+
+On omp, `cursor_plan_stage` writes `local://<slug>-plan.md` and waits on omp's
+plan-review overlay. On pi, it writes `<slug>-plan.md` into the host plans
+directory (`<getAgentDir()>/plans`, e.g. `~/.pi/agent/plans`), renders the plan
+in its tool row, registers the file with pify (`/plan open <path>`), and then
+waits on pify's approval UI. pify's reopen reminder from that `/plan open` never
+reaches the model. On both hosts it succeeds only when the user
+approves execution. Refine or dismiss is an error, so the model stays in plan
+mode. Returning before the review let the model call `plan_exit` and skip it.
+
+Without `@pify/plan-mode`, plain **pi** advertises the plan tools but refuses
+them, so SwitchMode stays refused there. Image save
 works on both hosts when the Cursor provider is loaded in-process. The save
 export and the model come from the same configured provider installation, so
 staged image ids resolve in the same module instance. Cursor's billed totals

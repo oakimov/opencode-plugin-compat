@@ -2,6 +2,7 @@ import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync, sym
 import { cpSync } from "node:fs"
 import { dirname, join } from "node:path"
 import { assertManaged, repoRoot, wrapperDir } from "./paths.ts"
+import { wireAbsolutePluginFacades } from "../../packages/cli/src/setup.ts"
 
 function walkJs(dir: string): string[] {
   const out: string[] = []
@@ -67,6 +68,14 @@ export async function buildWrapper(host: string, stock: string, wrapper = wrappe
   linkWrapperDeps(wrapper, stock)
 
   const root = repoRoot()
+  // Recreating a wrapper removes its facade links. Restore them here so
+  // additional-provider refreshes also support dynamically imported helpers.
+  const facades = wireAbsolutePluginFacades({
+    pluginRoot: wrapper,
+    facadePlugin: join(root, "packages/facade-plugin"),
+    facadeSdk: join(root, "packages/facade-sdk"),
+  })
+  if (facades.error) throw new Error(`wrapper facade wiring failed: ${facades.error}`)
   const src = join(root, "packages/cli/src/provider-shim.ts")
   const dist = join(root, "packages/cli/dist/provider-shim.js")
   const url = existsSync(src) ? src : dist

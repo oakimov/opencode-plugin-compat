@@ -19,7 +19,7 @@
   ],
   "scripts": {
     "build": "bunx tsc -b && bun run --cwd packages/adapter build:runtime",
-    "typecheck": "bunx tsc -b --pretty false",
+    "typecheck": "bunx tsc -b --pretty false && bunx tsc -p tsconfig.test.json --pretty false",
     "test": "bun test ./test",
     "matrix": "bun packages/cli/bin/compat.ts matrix",
     "doctor": "bun packages/cli/bin/compat.ts doctor",

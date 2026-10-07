@@ -97,6 +97,20 @@ vocabulary (same rule as pi-bridge `providerName`):
 | `todo_write` | `todowrite` | strip `id`/`priority`/`merge`; omit `cancelled` |
 | `ask_user_question` | `question` | synthesize missing `id`; `multiple` ↔ `multi_select`; JSON `{answers}` → OpenCode `"<prompt>"="<answer>"` prose |
 
+DSH's skill catalog (a user-role `<system-reminder>`) reaches every bridged
+provider in the system prompt, as OpenCode and Pi place `<available_skills>`;
+only the latest catalog is kept. A request that offers file tools also states
+the home directory, because DSH file tools do not expand `~`.
+
+Before a bridged provider's `read`, `read_image`, `edit`, `glob`, `grep`, or
+`bash` call runs, OCP checks its path argument (`file_path`, `path`, or
+`workdir`) on DSH's public `tools/pre-execute` gate. A path that does not exist
+is denied with the call to make instead: the absolute form of an unexpanded
+`~/…`, the real home directory in place of a guessed one, or a `glob` lookup
+from the nearest existing directory. `write` targets, nested dispatches, other
+providers, and sessions whose workspace is not on the local disk are not
+checked.
+
 The canonical `question` tool is the visible, host-native way to collect a
 choice, confirmation, or missing detail during a turn. A request that needs a
 new user turn stays a standalone final reply, which DSH displays outside its
@@ -105,11 +119,16 @@ collapsed activity.
 Cursor's optional OCP integration supplies `plan_enter` through the public
 DSH `/plan` command, which reaches the calling agent's plan service even when
 the service is isolated inside an agent preset. The host commits that selection at
-its next step boundary. Cursor sees native `exit_plan_mode` as
+its next step boundary, inside the same turn; the `plan_enter` result tells the
+model to keep planning and submit before ending the turn. Cursor sees native `exit_plan_mode` as
 `cursor_plan_stage`: the complete markdown `content` becomes DSH's `{plan}`,
 starting with `#`. DSH executes its original tool, displays the native review,
 and owns approval, feedback, cancellation, and exit. The transcript retains
 the submitted plan; no extra filesystem plan artifact is required.
+
+Each session request runs the plugin's OpenCode `chat.params` hook with DSH's
+plan mode as the OpenCode agent (`plan` or `build`), so a provider follows plan
+mode however DSH entered it.
 When Cursor ends in titled markdown plan prose without a tool call, OCP
 submits that plan through the same native review while the calling agent's
 logged plan state is active. The host transcript records a
@@ -148,5 +167,5 @@ tool results. Other providers receive DSH's messages unchanged.
 On load, `dsh-bridge` installs `Symbol.for("opencode.host.path-bridge")`:
 
 - `globalDataDir` — `$DSH_HOME` or `~/.dsh`
-- `globalCacheDir` — `$XDG_CACHE_HOME/opencode` or `~/.cache/opencode`
+- `globalCacheDir` — `$DSH_HOME/cache/opencode-providers` (default `~/.dsh/cache/opencode-providers`), separate from a native OpenCode cache
 - `projectConfigDirs` — `<workspace>/.dsh` and `<workspace>/.opencode`

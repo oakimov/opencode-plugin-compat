@@ -97,8 +97,10 @@ shell for the explicit shell check or only when no dedicated capability
 exists. Copy argument names from the chosen tool's own schema. Never call a
 tool name merely because this guide, Cursor, or another harness mentions it.
 
-Stay under an identity-free scratch directory you create (for example
-`/tmp/ocp-devin-self-verify/`, with a random non-identifying suffix if needed).
+Stay under a new, empty scratch directory you create with
+`mktemp -d /tmp/ocp-devin-self-verify-XXXXXX`. Never pick the suffix yourself
+or reuse an existing directory: files left by an earlier run would read as this
+run's.
 Do not edit this repo, the host source,
 or the provider checkout. When an interactive tool needs a human choice, call
 it and stop — then resume the **next unfinished** step without restarting prior
@@ -169,7 +171,9 @@ filter in step 10 is required and allowed — it is not a rule violation.
 5. **Task list** — If you have a tool that updates a full task list shaped
    like `{ "todos": [ { "content", "status" } ] }` (often `todowrite` /
    `todo_write`), run 5a→5f **once** with that same tool. Labels: `ocp-dv-a`,
-   `ocp-dv-b`, `ocp-dv-c`. Use only status values the schema allows. Always
+   `ocp-dv-b`, `ocp-dv-c`. Use only status values the schema allows. The
+   examples show only `content` and `status`; add every other field the tool's
+   schema requires (for example an `id`). Always
    send the **entire** list. **5b is a private check, not a tool call.**
    **5a, 5c, 5d, 5e, 5f are five separate tool calls** — do not merge 5e
    into 5d or 5f into 5e. If you already finished 5f earlier in this

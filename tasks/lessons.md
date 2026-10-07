@@ -1,6 +1,226 @@
 # Lessons learned
 
-Corrections and durable takeaways for this repo.
+- Build the scoring failure inventory from native discovery and interaction results as well as host tools. A working guard or later successful review does not erase an earlier invalid call; an empty MCP-error search cannot prove a clean run.
+- Dynamic-call identity failures can originate in Cursor before OCP receives an executable call. Inspect persisted outer arguments and discovery definitions; preserve exact identity at discovery instead of inventing a host-specific repair or concealing scoring failures.
+
+- A compound shell call can return zero after an earlier command failed. Score the complete output and stderr, not just the tool status or final exit; shell headings use a literal `%s` format so leading hyphens cannot become options.
+
+Corrections and durable takeaways for this repo. Current tool definitions live in [the tool vocabulary](../docs/tool-vocabulary.md).
+
+- A source audit must follow re-exports, schema spreads/getters, registration gates, and executor constraints. Resolved file references and parsable JSON examples alone do not validate compatibility.
+
+## 2026-10-07 — A self-verify "pass" needs the transcript, not the run's end
+
+- Read every host's final report and session store before accepting a run: one run stalled after `plan_enter`, two reported `fail`, and Kilo titles never completed although each run "finished". Session titles, host replan/title events, and lifecycle Runs that never reach `outbound Run:` are evidence too.
+- A host-derived lifecycle session id (Kilo `title-<id>`) never gets a tool catalog; drop that affinity rather than letting the provider wait for one. Headless `kilo run` exits before Kilo's deferred title; verify with `kilo serve` + `kilo run --attach` after a tool-using turn.
+- OMP treats every todo `init` as a replan (session retitle, repeated completion events). Status updates must be diffs against the latest todo result's `details.phases`; replay folds a diff onto those same rows.
+- Rebuilding packages is not enough for clone hosts: `bun run build` regenerates the adapter runtime bundle, and only then does `ocp-dev.sh run` copy it into the wrapper.
+
+## 2026-10-06 — Validate every clone catalog and generated helper prompt
+
+- Native file-key adoption after a provider emits calls is too late for provider-side validation. Normalize built-in file schemas and replay before invoking the provider; retain the original schemas for execution. Preserve canonical and opaque tool schemas.
+- MiMo's checkpoint reminder arrives as a user text part, so translating only system messages leaves its native work-item `task` instruction pointing at canonical delegation. Normalize that generated reminder to `todoread` and the canonical checkpoint whitelist; preserve ordinary user text and other host contracts.
+- TypeScript build output is not the shim's bundled runtime. Run the full OCP build before refreshing a clone wrapper, then inspect the copied bundle and use a fresh stock process. A headless permission rejection is not acceptance; use an already permitted harmless command for focused checks.
+
+## 2026-10-06 — Score absence separately from invalid execution
+
+- Cursor-native definitions do not prove a host question/helper executor exists. One unavailable native request followed by a skip is absence evidence, not a guessed host name or T7 failure. Prevent further attempts from the canonical catalog and retain unrelated command failures, including scoring errors.
+- A debug file can contain successive hosts. Correlate this run before scoring; its initial cold conversation and another session's cold Run are not a remint. Extract ordinary AskQuestion rejection events as well as lifecycle refusal labels, then inspect compact summaries rather than repeatedly returning most of the extract.
+
+## 2026-10-06 — Validate the canonical catalog before adding argument checks
+
+- Translation must cover advertisement and replay as well as execution. The provider normalized a write to `filePath/content`, but OCP still advertised OMP's native `path` plus injected intent `i`; a generic required-key check then refused every write before OCP could translate it. Keep canonical file schemas independent of execution-mode detection and test required keys against forward calls and reconstructed history on both Pi hosts. Native intent injection belongs entirely in OCP; opaque custom schemas retain their own fields.
+
+## 2026-10-06 — Preserve rejected-call evidence
+
+- A successful recovery does not erase a prior invalid call. Inspect the saved Cursor arguments and advertised schema before blaming translation, then retain argument rejections from every step in scoring. Tool-less title attempts belong to their own lifecycle row rather than a main-session capability pass.
+
+## 2026-10-06 — Verify intermediate task state
+
+- A successful full-list update does not prove every row changed. The harness moved activity from task A to B, but the task history retained both as active. Translate the existing active-to-pending transition through MiMo's public `unblock`, and replay it when reconstructing history.
+- Fan-out history places create and start calls before their results. Defer transitions targeting an unresolved newly created row until the create result confirms its id; otherwise replay loses the first active state and later diffs remain wrong.
+- Cursor's server-side todo display is not native host task state. Require the advertised host tool and its state/readback before scoring the task-list lifecycle.
+
+## 2026-10-06 — Map host defaults, not only host names
+
+- DSH `subagent` defaults to background (`run_in_background ?? continuable`);
+  OpenCode `subagent`/`task` and Cursor Task wait for the child. Passing the
+  canonical call through unchanged kept the name right but flipped the
+  semantics: Cursor got "started subagent <id>", spawned the helper again,
+  and the helper's notices then raced the second tool result. Translate the
+  default explicitly (`run_in_background: background === true`) and drop
+  canonical fields the host tool does not define (`agent`, `sessionID`).
+- DSH appends host-formed user messages (`source.form` set: time-context
+  snapshots, the plan-mode notice, child notices) after tool results. The
+  provider only continues a held Run when the prompt ends on tool results,
+  so each note cancelled Cursor mid-answer (`drain outcome=busy`,
+  `superseded-by-new-run`) and sent the note as the user's turn. Lower them
+  to OpenCode's `<system-update>` shape for Cursor
+  (`cursor-host-notes.ts`).
+
+- Cursor CreatePlan ends the Cursor turn after its answer; the client starts
+  the build. DSH `exit_plan_mode` approves with "carry out the plan starting
+  with your next step" and expects the same model to continue, and the
+  provider's own kickoff covers only its emulated review through a host
+  prompt DSH lacks. Result: an empty step and a completed turn. Steer one
+  build instruction from `agent/turn-stopping` when an approved review is
+  followed by nothing but the todo mirror (`cursor-plan-kickoff.ts`).
+
+- A self-verify scratch "random suffix" chosen by the model is not random:
+  it picked `k4m9`, `mkdir -p` reused a leftover directory, and a stale
+  `note.txt` looked like this run's output. The guides now require
+  `mktemp -d`.
+
+- DSH `grep` text is not OpenCode's: bare path header, unindented
+  `Line N:` previews, `Found 1 match`, `Found K of N matches`. The provider
+  parses OpenCode's shape only, fell back to a file list, and the model kept
+  re-running the search through bash. Normalize the result text
+  (`translate/grep.ts`); check every host tool result the provider parses,
+  not just tool names and inputs.
+
+## 2026-10-05 — Gate DSH hooks on the step's route, not `AgentOptions`
+
+- The child-notice hold gated on `agent.options.provider`. DSH Web creates the
+  agent on the profile default (`agent-default-model`) and applies the model
+  picked in the session as a session-local `model/selection`; `options` never
+  changes. Live run: `ocp-dev.sh run dsh` had rewritten `cordis.patch.yml`
+  without `agent-default-model`, so the session started on
+  `deepseek-official`, Cursor came from seq 3 `model/selection`, the hold
+  passed through, and an empty step folded `Reply continue…` into thinking.
+- Resolve the route from the log as DSH does: a `model/selection` after the
+  last `request/header` is pending, else the header's provider
+  (`loggedDshRouteProvider`). Held notices are released when the route leaves
+  Cursor or the log cannot be read.
+- A unit-level replay of real events proved the predicate but not the gate.
+  Reproduce in the real `web` tree: `runProfile` with a temp `DSH_HOME`, a
+  scripted provider at a `…/cursor-opencode-provider/dist/index.js` path, the
+  `standard` preset, and agent options that differ from the session selection.
+- `ocp-dev.sh run dsh` must merge into the profile patch
+  (`mergeDshBridgePatch`); DSH Web saves user rows there.
+
+## 2026-10-05 — A rewritten hidden note must stay recognizable
+
+- pi converts hidden extension messages to `user` turns; pi-bridge recognizes
+  them by timestamp + text recorded on `context`. Any later `context` handler
+  that rewrites such a note (e.g. pify's `write_plan` / `exit_plan_mode` →
+  `cursor_plan_stage`) must record the rewritten copy too, or the converted
+  note becomes a real user turn.
+- A shared plans directory needs per-plan names: `<created>-<name>.md`, as
+  OpenCode names session plans, or same-title plans overwrite each other.
+
+## 2026-10-05 — MiMo completed-task checkboxes can remain stale
+
+- A task can be stored as `done` while its native sidebar row still shows
+  `[ ]`. MiMo's `TaskItem` computes `glyph` once at mount, and the sidebar's
+  `Index` reuses rows as their status and order change. This is a rendering
+  defect, not evidence that OCP failed to complete the task. Upstream
+  [issue #926](https://github.com/XiaomiMiMo/MiMo-Code/issues/926) describes
+  this exact symptom; reopening the session displays the correct `[✓]`.
+- Track [issue #1281](https://github.com/XiaomiMiMo/MiMo-Code/issues/1281),
+  [PR #1306](https://github.com/XiaomiMiMo/MiMo-Code/pull/1306) (reactive glyph
+  plus rendering regression coverage), and
+  [PR #1435](https://github.com/XiaomiMiMo/MiMo-Code/pull/1435) (reactive glyph).
+  On 2026-10-05, both issues and both PRs were open; neither PR was merged.
+  This is a dated observation, not a permanent status or a shipped fix.
+- Validate stored task status separately from live checkbox rendering,
+  including completion after row reordering. Preserve completion as `done`;
+  abandoning a completed task to hide the stale checkbox loses its meaning.
+- A request to correct a host display does not authorize disabling or replacing
+  its native UI plugin. Keep the native sidebar enabled; establish a supported
+  corrective extension seam before implementing an OCP rendering fix. The
+  proposed OCP sidebar replacement was withdrawn and was never installed.
+
+## Installer facade links
+
+- Recreating a local provider wrapper removes its dynamically resolved
+  plugin/SDK facade links. Restore those links in wrapper creation, including
+  additional-provider refreshes, and verify tool schema conversion in the stock
+  host; successful factory imports alone do not prove plugin tools can load.
+
+## 2026-10-05 — DSH tool-role question results need OpenCode prose
+
+- Live DSH stores `ask_user_question` results as `role: "tool"` text JSON
+  `{answers:[{id,selected}]}`. Formatting that to OpenCode
+  `User has answered…` only on user-role `tool-result` blocks left the held
+  Cursor AskQuestion with empty `selected_option_ids`. The model then said
+  the ask-user tool completed without a chosen option.
+- Apply `formatOpenCodeQuestionResult` on the tool-role path too
+  (`test/dsh-bridge-messages.test.ts`).
+
+## 2026-10-04 — A returned result still needs model processing
+
+- Child-notice suppression requires a completed assistant reply. Skip when
+  that reply already has text and every tool-call on it is answered. An
+  unanswered spawn, or a tool-call-only assistant with no reply text yet,
+  must still generate so the model can process the result
+  (`test/dsh-bridge-adapter.test.ts`).
+- Treat JSONC comments as whitespace, preserving token boundaries. Reject an
+  unterminated block comment instead of accepting only the valid prefix of
+  the configuration (`test/setup-absolute-plugins.test.ts`).
+
+## 2026-10-04 — Hosts own their dialogs
+
+- Neither a provider nor OCP may hardcode a user-facing question or review
+  (titles, options, Yes/No wording) for a host. Route to the host's own review
+  (OpenCode `plan_exit`, DSH `exit_plan_mode`, omp `write xd://propose`,
+  pify's dialog) or leave the decision to the user's own host action (agent
+  switch). Copying a host's prompt text is still hardcoding it.
+- Exception: omp plan review (next entry).
+
+## 2026-10-04 — Why omp plan review is drawn by OCP
+
+- OCP must enter omp plan mode when Cursor asks (`plan_enter`); plan mode is
+  non-negotiable.
+- omp's own review only serves plan mode its interactive UI entered (Tab,
+  `/plan`, startup default, session restore). No tool or extension seam can
+  enter it, so a bridge-entered plan mode is refused ("Plan mode is not
+  active."). omp's built-in providers have no plan mode: its Cursor provider
+  rejects SwitchMode and CreatePlan.
+- Hence `cursor_plan_stage` shows omp's `PlanReviewOverlay` with OCP options.
+- Rejected: redefining `plan_exit`; refusing Cursor plan entry;
+  `AgentSession.reload()` to re-enter natively (aborts the turn, unverified).
+- Revisit when omp exposes plan entry or review to extensions.
+- Approve on that overlay queues `followUp` and still returns success into the
+  held Cursor Run. A short “execution queued” result is not enough: the model
+  implements in that Run, then implements again when followUp fires. Same as
+  pify: tell the model to end the turn and wait for the queued user message.
+
+## 2026-10-04 — pify `/plan open` reminder is before the tool result
+
+- Staging calls `/plan open` during `cursor_plan_stage`, which injects a hidden
+  reopen reminder (full plan markdown, “it is the plan to follow now”) before
+  the tool result exists. pi converts that to a `user` turn after the held Run
+  stops, so the model implements once from the reminder and again from pify's
+  approval follow-up. Drop that reminder from the stage call onward, and treat
+  hidden notes after an unanswered tool call as host notes.
+
+## 2026-10-04 — pify does not honor tool annotations
+
+- `@pify/plan-mode` allowlists only its own tool names. OpenCode `cursor_plan_stage`
+  is a custom tool, so pify prompts `not known to be read-only`. Pi gives each
+  extension its own `pi.on`, so wrapping ours never sees pify. Rewrite the
+  shared `tool_call` event name to a pify-allowlisted alias; execution still
+  uses the registered OpenCode tool.
+- `/plan open` during stage still caused a second implement: pify injects a
+  hidden reopen reminder with the full plan, and after the held Run stops pi
+  starts a 20k-char user turn from it, then the approval follow-up runs again.
+  Stop opening the file in pify. Write it to the host plans dir, show it, and
+  only call `exit_plan_mode` for the review.
+
+## 2026-10-04 — Never restart the user's host service from the agent shell
+
+- `opencode service restart` run from the agent shell started OpenCode 2 with
+  the agent's environment: no `OPENCODE_CONFIG_DIR`, so it read the 1.x config
+  (file plugin path, refused) and Cursor did not load. Stop the service and let
+  the user start the host from their own environment.
+
+## 2026-10-04 — Self-verify must not make plan mode optional
+
+- The guide let the model skip step 8 when no plan tool was in the host
+  catalog. On OpenCode 2 the model looked for SwitchMode in the `cursor`
+  GetMcpTools namespace, did not find it (it never is listed there), and
+  skipped plan mode. Every host except plain Pi has plan mode; the guide must
+  route each one explicitly and never gate plan mode on catalog listings.
 
 ## 2026-10-04 — Review accounting against every host consumer
 
@@ -544,7 +764,22 @@ Consequences worth remembering:
   seq 161 is a *second* helper `agent-message` → “Still waiting on your short
   follow-up…”. Settled skip did not apply (different child, last user was
   relay not settled). Skip every child notice after a **text-only** stop;
-  keep generating when the last assistant still has a tool-call.
+  keep generating when the last assistant still has an *unanswered*
+  tool-call. An answered spawn plus a later `agent-message` is not that:
+  the parent already stopped, and reopening Cursor repeats the wrap-up.
+  Skip when that assistant already has reply text, even if it still lists
+  an answered spawn tool-call (DSH may keep the call on the completed
+  Turn). Do not print that reply again. DSH Chat's finalized answer is only
+  the last step, and only when that step has text and no tool call
+  (`turn-process.ts` `latestAnswer`). A later step with the same text shows
+  another copy (interleaved child notices keep the process open, so earlier
+  copies stay on screen too). A later step with no text clears the answer
+  and Compact/Standard fold the reply into thinking. `agent/pre-step`
+  entering with no messages does not open that step
+  (`agent.ts`: a completed turn breaks; a new turn with no messages spends
+  no model call). Hold the notices until the next real user step so the
+  model still sees them once. Strip any already-recorded display copies
+  before that call.
 - **Step-8 plan review asked twice.** Session `session-e000bd48` turn 2: seq
   141 `exit_plan_mode` (scratch-hello-append) → user approved; seq 150–151
   helper `agent-message` + `subagent-settled` claimed on the next step →
@@ -614,3 +849,15 @@ Consequences worth remembering:
 - **Bare `import("@oh-my-pi/pi-coding-agent")` from pi-bridge fails.** Coding-agent is not a pi-bridge dependency, so the dynamic import returns nothing / throws and the binder returns `undefined` — which surfaces as that exact error string.
 - **`createRequire(cli).resolve(packageName)` also fails** — the CLI cannot self-resolve its own package name. Walk from `process.argv[1]` (omp → `…/pi-coding-agent/dist/cli.js`) to the package root whose `package.json` `name` matches, then `import(pathToFileURL(…/src/registry/agent-registry.ts))`. Relative, absolute file-URL, and package-main imports of that module share one `AgentRegistry.global()`.
 - **Rebuild `packages/pi-bridge/dist` before live omp retests** — omp loads `./dist/extension-omp.js` via the checkout symlink under `~/.omp/plugins/node_modules/@opencode-compat/pi-bridge`. Source-only fixes do not take effect until `bun run build`.
+
+## 2026-10-06 — Plan prerequisites and cancellation belong in the host adapter
+
+- Advertise active-plan prerequisites before staging; an execution error is too late to teach the model the contract.
+- A dismissed OMP review must cancel the native turn through ExtensionContext.abort while retaining the unapproved plan and plan mode. Returning an error alone lets native settle enforcement reopen review. Refinement continues planning; approval queues execution. Verify all three choices, including a stock TTY dismissal.
+- Read persisted Cursor results when native transcripts lack a failed call. Missing dynamic identities are wrapper errors, not native grep failures. Internal tool-result spills are transport artifacts; avoid broad scoring output and keep them distinct from scratch exercise files.
+
+- Fix every verified source/bridge disagreement in OCP with catalog, call, result, and replay coverage. The current vocabulary contains only the source-defined contract, never an unresolved discrepancy list.
+
+- Follow native post-tool lifecycle before renaming a capability. A native completion can trigger review before the next model call; changing its advertised identity can create a second approval flow. Verify the full stock interaction.
+
+- Schema validation alone cannot prove a tool contract: inspect executor guards and post-return lifecycle, then exercise the stock runtime.

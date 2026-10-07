@@ -56,16 +56,28 @@ export async function apply(ctx: ApplyContext, config: DshBridgeConfig): Promise
     })
   }
   const cursorProviders = new Set<string>()
+  // Every provider this bridge registers, for host-neutral call guards.
+  const bridgedProviders = new Set<string>()
+  const { installMissingPathGuard } = await import("./missing-path.js")
+  installMissingPathGuard(ctx.on, bridgedProviders)
   const hasCursor = validated.providers.some(spec => isCursorProviderPackage(spec.package))
+  // DSH plan mode per session: the OpenCode agent every plugin's `chat.params` sees.
   let isPlanActive: ((sessionId: string) => boolean) | undefined
+  const planState = ctx.inject?.(["agents", "sessionProjections"], stateCtx => {
+    isPlanActive = sessionId => {
+      const agent = stateCtx.agents.get(sessionId)
+      return agent !== undefined && stateCtx.sessionProjections.stateOf(agent.session, "plan")?.active === true
+    }
+  })
+  void Promise.resolve(planState).catch(error => console.error("dsh-bridge: plan state injection failed", error))
   if (hasCursor) {
+    const { installCursorChildNoticeHold } = await import("./cursor-child-notice.js")
+    installCursorChildNoticeHold(ctx.on, cursorProviders)
+    const { installCursorPlanKickoff } = await import("./cursor-plan-kickoff.js")
+    installCursorPlanKickoff(ctx.on, cursorProviders)
     const { registerCursorPlanEntry } = await import("./cursor-plan-tools.js")
     const activation = ctx.inject?.(["tools", "commands", "agents", "sessionProjections"], planCtx => {
       registerCursorPlanEntry(planCtx, cursorProviders)
-      isPlanActive = sessionId => {
-        const agent = planCtx.agents.get(sessionId)
-        return agent !== undefined && planCtx.sessionProjections.stateOf(agent.session, "plan")?.active === true
-      }
     })
     void Promise.resolve(activation).catch(error => console.error("dsh-bridge: plan entry injection failed", error))
   }
@@ -73,6 +85,7 @@ export async function apply(ctx: ApplyContext, config: DshBridgeConfig): Promise
     try {
       const result = await registerDshPlugin(ctx as never, spec as never, hasCursor, sessionId => isPlanActive?.(sessionId) === true,
         settingsAddress(entryId, index))
+      bridgedProviders.add(result.providerName)
       if (isCursorProviderPackage(spec.package)) {
         cursorProviders.add(result.providerName)
         const { loadCursorImageSave, registerCursorImageTool } = await import("./cursor-image-tool.js")

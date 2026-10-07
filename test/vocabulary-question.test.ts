@@ -159,11 +159,11 @@ describe("translateCatalog — question / plan", () => {
     const names = out.map((t) => (t as { name: string }).name).sort()
     expect(names).toEqual(["plan_enter", "plan_exit"])
 
-    const enter = out.find((t) => (t as { name: string }).name === "plan_enter") as {
+    const enter = out.find((t) => (t as { name: string }).name === "plan_enter") as unknown as {
       description: string
       inputSchema: { properties: Record<string, unknown> }
     }
-    const exit = out.find((t) => (t as { name: string }).name === "plan_exit") as {
+    const exit = out.find((t) => (t as { name: string }).name === "plan_exit") as unknown as {
       description: string
       inputSchema: { properties: Record<string, unknown> }
     }
@@ -240,10 +240,10 @@ describe("translateCall — questionCallInput edge cases", () => {
       ompVocab(),
     )
     const q = (translated?.[0]?.input.questions as Array<Record<string, unknown>>)[0]
-    expect(q["id"]).toBe("custom")
+    expect(q!["id"]).toBe("custom")
     // multiple→multi only when multi is absent; existing multi wins.
-    expect(q["multi"]).toBe(false)
-    expect(q["multiple"]).toBe(true)
+    expect(q!["multi"]).toBe(false)
+    expect(q!["multiple"]).toBe(true)
   })
 
   test("empty string id is treated as missing and synthesized", () => {
@@ -255,7 +255,7 @@ describe("translateCall — questionCallInput edge cases", () => {
       },
       ompVocab(),
     )
-    expect((translated?.[0]?.input.questions as Array<{ id: string }>)[0].id).toBe("q1")
+    expect((translated?.[0]?.input.questions as Array<{ id: string }>)[0]!.id).toBe("q1")
   })
 
   test("non-array questions pass through unchanged (no crash)", () => {
@@ -335,10 +335,10 @@ describe("translatePrompt — question / plan history restatement", () => {
     const out = translatePrompt(prompt, ompVocab())
     const call = (out[0] as { content: Array<{ toolName: string; input: unknown }> }).content[0]
     const result = (out[1] as { content: Array<{ toolName: string }> }).content[0]
-    expect(call.toolName).toBe("question")
-    expect(result.toolName).toBe("question")
+    expect(call!.toolName).toBe("question")
+    expect(result!.toolName).toBe("question")
     // Adapter prompt restatement renames only; schema reshape is provider→host on call.
-    expect(call.input).toEqual({
+    expect(call!.input).toEqual({
       questions: [
         {
           id: "q1",

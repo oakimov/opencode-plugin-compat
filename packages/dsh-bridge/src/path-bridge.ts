@@ -39,9 +39,10 @@ export function installDshPathBridge(
   env: Record<string, string | undefined> = process.env,
 ): void {
   const globalRoot = dshRoot(env)
-  const cacheRoot = env.XDG_CACHE_HOME
-    ? path.join(path.resolve(env.XDG_CACHE_HOME), "opencode")
-    : path.join(homeDir(env), ".cache", "opencode")
+  // Under the DSH root, like Pi's `<agent>/cache/opencode-providers`: OpenCode's
+  // own cache would share project folders, generated assets, and persisted
+  // provider conversations with a native OpenCode install in the same workspace.
+  const cacheRoot = path.join(globalRoot, "cache", "opencode-providers")
   const fallbackCwd = process.cwd()
   const bridge = {
     globalDataDir() {

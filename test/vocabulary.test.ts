@@ -209,7 +209,7 @@ describe("translateCall", () => {
     )
     expect(calls?.[0]).toMatchObject({
       toolName: "actor",
-      input: { operation: { action: "run", actor_id: "actor_previous" } },
+      input: { operation: { action: "send", to_actor_id: "actor_previous", content: "Continue" } },
     })
   })
 
@@ -246,7 +246,7 @@ describe("translateCall", () => {
       },
       mimoVocab(),
     )
-    expect(calls?.map((call) => call.toolCallId)).toEqual(["c3#0", "c3#1"])
+    expect(calls?.map((call) => call.toolCallId)).toEqual(["c3__ocp0", "c3__ocp1"])
     expect(calls?.map((call) => call.input.operation)).toEqual([
       { action: "create", summary: "First" },
       { action: "create", summary: "Second" },
@@ -284,6 +284,44 @@ describe("diffTodos", () => {
       { content: "First", status: "pending" },
       { content: "Second", status: "pending" },
     ])).toEqual([])
+  })
+
+  test("moving the active item restores the previous item to pending", () => {
+    const previous: HostTodo[] = [
+      { content: "First", status: "in_progress", hostId: "T1" },
+      { content: "Second", status: "pending", hostId: "T2" },
+    ]
+    const next = [
+      { content: "First", status: "pending" as const },
+      { content: "Second", status: "in_progress" as const },
+    ]
+    const calls = translateCall("progress", "todowrite", { todos: next }, mimoVocab(), previous)!
+    expect(calls.map((call) => call.input.operation)).toEqual([
+      { action: "unblock", id: "T1" },
+      { action: "start", id: "T2" },
+    ])
+    const prompt = [
+      { role: "assistant", content: [...previous.map((todo, index) => ({
+        type: "tool-call", toolCallId: `create__ocp${index}`, toolName: "task",
+        input: { operation: { action: "create", summary: todo.content } },
+      })),
+        { type: "tool-call", toolCallId: "create__ocp2", toolName: "task", input: { operation: { action: "start", id: "T1" } } },
+      ] },
+      { role: "tool", content: previous.map((todo, index) => ({
+        type: "tool-result", toolCallId: `create__ocp${index}`, toolName: "task",
+        output: `Created ${todo.hostId}: ${todo.content}`,
+      })) },
+      { role: "assistant", content: [
+        ...calls.map((call) => ({ type: "tool-call", ...call })),
+      ] },
+    ]
+    expect(reconstructHostTodos(prompt.slice(0, 2), mimoVocab())).toEqual(previous)
+    const restored = reconstructHostTodos(prompt, mimoVocab())
+    expect(restored).toEqual([
+      { content: "First", status: "pending", hostId: "T1" },
+      { content: "Second", status: "in_progress", hostId: "T2" },
+    ])
+    expect(diffTodos(restored, next)).toEqual([])
   })
 
   test("creates precede transitions so ids exist when referenced", () => {
@@ -356,29 +394,40 @@ describe("diffTodos", () => {
     expect(diffTodos(done, [{ content: "First", status: "pending" }])).toEqual([])
   })
 
-  test("a finished snapshot abandons completed rows so the sidebar clears", () => {
+  test("a finished snapshot marks finished work done, never abandoned", () => {
     const known: HostTodo[] = [
       { content: "First", status: "completed", hostId: "T1" },
       { content: "Second", status: "in_progress", hostId: "T2" },
+      { content: "Third", status: "cancelled", hostId: "T3" },
     ]
     expect(
       diffTodos(known, [
         { content: "First", status: "completed" },
         { content: "Second", status: "completed" },
       ]),
-    ).toEqual([
-      { action: "abandon", id: "T1", event_summary: "completed" },
-      { action: "abandon", id: "T2", event_summary: "completed" },
-    ])
-    expect(diffTodos(known, [])).toEqual([
-      { action: "abandon", id: "T1", event_summary: "completed" },
-      { action: "abandon", id: "T2", event_summary: "completed" },
-    ])
+    ).toEqual([{ action: "done", id: "T2" }])
+    // An explicit empty list drops only live work; finished items stay done.
+    expect(diffTodos(known, [])).toEqual([{ action: "abandon", id: "T2" }])
     expect(diffTodos([{ content: "First", status: "cancelled", hostId: "T1" }], [])).toEqual([])
   })
 })
 
 describe("reconstructHostTodos", () => {
+  test("deferred create transitions require the exact id returned by the host", () => {
+    const prompt = [
+      { role: "assistant", content: [
+        { type: "tool-call", toolCallId: "batch__ocp0", toolName: "task", input: { operation: { action: "create", summary: "First" } } },
+        { type: "tool-call", toolCallId: "batch__ocp1", toolName: "task", input: { operation: { action: "start", id: "T1" } } },
+      ] },
+      { role: "tool", content: [
+        { type: "tool-result", toolCallId: "batch__ocp0", toolName: "task", output: "Created T9: First" },
+      ] },
+    ]
+    expect(reconstructHostTodos(prompt, mimoVocab())).toEqual([
+      { content: "First", status: "pending", hostId: "T9" },
+    ])
+  })
+
   test("replays emitted operations and learns host ids from create results", () => {
     const prompt = [
       {
@@ -460,6 +509,47 @@ describe("reconstructHostTodos", () => {
 })
 
 describe("translatePrompt", () => {
+  test.each(["\n", "\\n"])("MiMo checkpoint reminders use canonical task reads with %s separators", newline => {
+    const text = [
+      "<system-reminder>",
+      "You are now operating in checkpoint-writer mode.",
+      "The read, write, edit, glob, grep, and task tools are available; do not invoke others.",
+      'Call `task` tool with operation="list" — this is the authoritative source of truth.',
+      "Available tools: read, write, edit, apply_patch, glob, grep, task.",
+      "For each of §1..§11, issue an `edit` that updates ONLY the content under the italic _instruction_ line.",
+      "</system-reminder>",
+      "Use the `task` tool for ALL task state ops (create / start / done).",
+      "Use `write` for the checkpoint at /workspace/checkpoint.md.",
+    ].join(newline)
+    const prompt = [{ role: "user", content: [{ type: "text", text }] }]
+    const translated = translatePrompt(prompt, mimoVocab())[0]!.content[0]!.text
+    expect(translated).toContain("Call `todoread` with no arguments")
+    expect(translated).not.toContain('operation="list"')
+    expect(translated).not.toContain("ALL task state ops")
+    expect(translated).toContain("glob, grep, todoread, and todowrite tools")
+    expect(translated).toContain("`task` delegates work")
+    expect(translated).toContain("complete tool identity from the catalog")
+    expect(translated).toContain("For each section whose body changed")
+    expect(translated).not.toContain("For each of §1..§11, issue")
+    expect(translated).toContain("/workspace/checkpoint.md")
+    expect(translateCall("list-1", "todoread", {}, mimoVocab())).toEqual([
+      { toolCallId: "list-1", toolName: "task", input: { operation: { action: "list", include_terminal: true } } },
+    ])
+    expect(prompt[0]!.content[0]!.text).toBe(text)
+    const once = translatePrompt(prompt, mimoVocab())
+    expect(translatePrompt(once, mimoVocab())).toEqual(once)
+  })
+
+  test("checkpoint rewriting leaves ordinary user text and other host contracts alone", () => {
+    const ordinary = { role: "user", content: [{ type: "text", text: 'Use `task` with operation="list".' }] }
+    expect(translatePrompt([ordinary], mimoVocab())[0]!.content).toEqual(ordinary.content)
+    const reminder = { role: "user", content: [{ type: "text", text: "<system-reminder>\nYou are now operating in checkpoint-writer mode.\nUse `task`." }] }
+    const unrotated: Vocabulary = { bindings: [], toHost: new Map() }
+    expect(translatePrompt([reminder], unrotated)[0]!.content).toEqual(reminder.content)
+    const assistant = { ...reminder, role: "assistant" }
+    expect(translatePrompt([assistant], mimoVocab())[0]!.content).toEqual(assistant.content)
+  })
+
   test("completion-clear normalization leaves file reads and unrelated tools untouched", () => {
     const prompt = [
       { role: "assistant", content: [
@@ -474,7 +564,39 @@ describe("translatePrompt", () => {
     ]
     const out = translatePrompt(prompt, mimoVocab())
     expect(out[1]!.content.slice(0, 2)).toEqual(prompt[1]!.content.slice(0, 2))
-    expect(out[1]!.content[2]!.output).toEqual({ type: "text", value: "T1 done\nT2 abandoned" })
+    expect((out[1]!.content[2] as { output?: unknown }).output).toEqual({ type: "text", value: "T1 done\nT2 abandoned" })
+  })
+
+  test("fan-out ids survive host tool-call id scrubbing and still fold back", () => {
+    // Kilo and MiMo scrub ids to [a-zA-Z0-9_-] before Claude models.
+    const scrub = (id: string) => id.replace(/[^a-zA-Z0-9_-]/g, "_")
+    const calls = translateCall(
+      "cursor_run-1_900000",
+      "todowrite",
+      { todos: [{ content: "First", status: "pending" }, { content: "Second", status: "pending" }] },
+      mimoVocab(),
+    )!
+    const ids = calls.map((call) => scrub(call.toolCallId))
+    expect(ids).toEqual(calls.map((call) => call.toolCallId))
+    const prompt = [
+      {
+        role: "assistant",
+        content: ids.map((toolCallId) => ({ type: "tool-call", toolCallId, toolName: "task", input: { operation: {} } })),
+      },
+      {
+        role: "tool",
+        content: ids.map((toolCallId, index) => ({
+          type: "tool-result",
+          toolCallId,
+          toolName: "task",
+          output: `Created T${index + 1}`,
+        })),
+      },
+    ]
+    const out = translatePrompt(prompt, mimoVocab()) as Array<{ content: Array<Record<string, unknown>> }>
+    expect(out[0]?.content.map((part) => part["toolCallId"])).toEqual(["cursor_run-1_900000"])
+    expect(out[1]?.content.map((part) => part["toolCallId"])).toEqual(["cursor_run-1_900000"])
+    expect(out[1]?.content[0]?.output).toBe("Created T1\nCreated T2")
   })
 
   test("fanned-out calls and results fold back into the single canonical call", () => {
@@ -769,15 +891,15 @@ describe("adoptStreamPart with a vocabulary", () => {
     )
 
     expect(parts.map((part) => [part.type, part.toolCallId ?? part.id])).toEqual([
-      ["tool-input-start", "c3#0"],
-      ["tool-call", "c3#0"],
-      ["tool-input-start", "c3#1"],
-      ["tool-call", "c3#1"],
+      ["tool-input-start", "c3__ocp0"],
+      ["tool-call", "c3__ocp0"],
+      ["tool-input-start", "c3__ocp1"],
+      ["tool-call", "c3__ocp1"],
     ])
     expect(parts.every((part) => part.toolName === "task")).toBe(true)
   })
 
-  test("a finished todowrite snapshot abandons known MiMo tasks", () => {
+  test("a finished todowrite snapshot marks open MiMo tasks done", () => {
     const parts = adoptStreamPart(
       {
         type: "tool-call",
@@ -802,8 +924,7 @@ describe("adoptStreamPart with a vocabulary", () => {
       },
     )
     expect(parts.filter((part) => part.type === "tool-call").map((part) => part.input)).toEqual([
-      { operation: { action: "abandon", id: "T1", event_summary: "completed" } },
-      { operation: { action: "abandon", id: "T2", event_summary: "completed" } },
+      { operation: { action: "done", id: "T2" } },
     ])
   })
 

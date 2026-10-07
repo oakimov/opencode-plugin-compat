@@ -1,7 +1,8 @@
 /**
  * Advertise Cursor-provider bridge tools on Pi-family hosts:
  *   - omp: `plan_enter` / `plan_exit` / `cursor_plan_stage` (native plan mode)
- *   - pi + `@pify/plan-mode`: same three names, driven through that extension
+ *   - pi + `@pify/plan-mode`: same three names, driven through that extension;
+ *     staged plans land in the host plans directory and render in the transcript
  *   - pi without the package: same three names, but execute refuses (so Cursor
  *     SwitchMode cannot soft-approve into an unenforceable plan mode)
  *   - omp + pi: `cursor_image_save` (commit staged Cursor image bytes)
@@ -20,14 +21,22 @@ import {
 } from "./plan-mode-host.js"
 import {
  createPiPlanModeCapture,
+ createPiPlanReopenSuppression,
  enterPiPlanMode,
  leavePiPlanMode,
  PI_PLAN_MISSING_REASON,
+ PI_PLAN_QUEUED_HANDOFF,
  preparePiPlanModeLoadout,
  refusePiPlanMode,
  stagePiPlan,
+ allowOpencodePlanToolsInPifyPlanMode,
+ canonicalPifyReminders,
  type PiPlanModeCapture,
+ type StagePiPlanOptions,
 } from "./pi-plan-mode.js"
+import { piHostPlansDir } from "./path-bridge.js"
+import { rememberHiddenHostNotes } from "./host-notes.js"
+import { piPlanStageRenderers } from "./pi-plan-render.js"
 import { mkdir, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import path from "node:path"
@@ -51,7 +60,7 @@ const EMPTY_OBJECT_SCHEMA = {
 const PLAN_STAGE_SCHEMA = {
  type: "object",
  properties: {
-  plan_uri: { type: "string", description: "Session-local omp plan URI" },
+  plan_uri: { type: "string", description: "Plan URI: local://<name>.md" },
   content: { type: "string", description: "Complete plan markdown" },
   title: { type: "string", description: "Plan slug/title" },
  },
@@ -152,6 +161,8 @@ export type RegisterCursorHostToolsOptions = {
   installed: boolean
   capture: PiPlanModeCapture
  }
+ /** Override the pi host plans directory (tests). Default: path bridge `globalDataDir()/plans`. */
+ piPlansDir?: () => string
 }
 
 function cwdFromContext(ctx: Record<string, unknown> | undefined): string {
@@ -305,7 +316,11 @@ async function stageNativeOmpPlan(
   throw new Error("cursor_plan_stage requires plan_uri, content, and title")
  }
  const state = host.getPlanModeState()
- if (!state?.enabled) throw new Error("omp plan mode is not active")
+ if (!state?.enabled) {
+  throw new Error(
+   `omp plan mode is not active. Call ${PLAN_ENTER_TOOL} first, then stage the plan again with ${CURSOR_PLAN_STAGE_TOOL}.`,
+  )
+ }
 
  // The file is only the artifact. The caller waits on the host review
  // before this tool returns, so the model cannot skip it with plan_exit.
@@ -340,7 +355,7 @@ export function registerCursorHostTools(
   : IMAGE_ID_SCHEMA
  const planStageParams = z
   ? z.object({
-   plan_uri: z.string().describe("Session-local omp plan URI"),
+   plan_uri: z.string().describe("Plan URI: local://<name>.md"),
    content: z.string().describe("Complete plan markdown"),
    title: z.string().describe("Plan slug/title"),
   })
@@ -387,6 +402,7 @@ export function registerCursorHostTools(
    name: CURSOR_PLAN_STAGE_TOOL,
    label: "Stage Cursor plan",
    description:
+    "Requires active plan mode: call plan_enter first and wait for its result before staging. " +
     "Stage Cursor CreatePlan markdown in omp's session-local plan artifact and " +
     "wait for the host plan review. Do not call plan_exit to submit or skip that review.",
    parameters: planStageParams,
@@ -401,6 +417,12 @@ export function registerCursorHostTools(
      const choice = options.reviewPlan
       ? await options.reviewPlan({ content, title: staged.title, planUri: staged.planUri })
       : await presentHostPlanReview(ctx, content, staged.title)
+     if (choice === undefined) {
+      // Cancellation must also stop the native agent loop. Otherwise its
+      // plan-mode settle enforcement opens another review after dismissal.
+      const context = ctx as { abort?: () => void } | undefined
+      context?.abort?.()
+     }
      assertPlanReviewChoice(choice, staged.planUri)
      const session = host.getSession()
      session?.setPlanReferencePath?.(staged.planUri)
@@ -408,12 +430,17 @@ export function registerCursorHostTools(
      await session?.followUp?.(
       `The user approved the plan at ${staged.planUri}. Execute the approved plan now.`,
      )
-     return textResult(`Plan approved at ${staged.planUri}. Plan mode exited; execution queued.`, {
-      action: "plan_approved",
-      planFilePath: staged.planUri,
-      title: staged.title,
-      planExists: true,
-     })
+     // followUp is the implementation turn. Returning success while the Cursor
+     // Run is still held lets the model implement now and again after followUp.
+     return textResult(
+      `Plan approved at ${staged.planUri}. Plan mode exited; execution queued.\n\n${PI_PLAN_QUEUED_HANDOFF}`,
+      {
+       action: "plan_approved",
+       planFilePath: staged.planUri,
+       title: staged.title,
+       planExists: true,
+      },
+     )
     } catch (error) {
      mapPlanModeError(error)
     }
@@ -431,6 +458,20 @@ export function registerCursorHostTools(
   const installed = piPlan?.installed === true
   const capture = piPlan?.capture
   const planCapture = capture ?? createPiPlanModeCapture()
+  const reopenSuppression = createPiPlanReopenSuppression(CURSOR_PLAN_STAGE_TOOL)
+  if (installed) allowOpencodePlanToolsInPifyPlanMode(pi)
+  if (installed && typeof pi.on === "function") {
+   pi.on("context", (event: unknown) => {
+    const messages = (event as { messages?: unknown } | undefined)?.messages
+    if (!Array.isArray(messages)) return undefined
+    const kept = reopenSuppression.filter(messages)
+    const named = canonicalPifyReminders(kept ?? messages, CURSOR_PLAN_STAGE_TOOL)
+    // Hidden notes are recognized by their text once pi converts them; the
+    // renamed copies are what it converts now.
+    if (named) rememberHiddenHostNotes(named)
+    return kept || named ? { messages: named ?? kept } : undefined
+   })
+  }
   const planLoadout = {
    prepareLoadout: preparePiPlanModeLoadout,
   }
@@ -440,16 +481,21 @@ export function registerCursorHostTools(
    description:
     "Enter read-only plan mode via `@pify/plan-mode`. " +
     "OpenCode / Cursor SwitchMode maps plan/spec targets here. " +
-    "After drafting, submit with cursor_plan_stage so the host shows the plan approval UI — " +
-    "do not call write_plan / exit_plan_mode directly.",
+    "After drafting, submit with cursor_plan_stage so the host shows the plan approval UI.",
    parameters: emptyParams,
    loadMode: "essential",
    approval: "read",
+   annotations: { readOnlyHint: true, destructiveHint: false },
    ...planLoadout,
    async execute(_toolCallId, _params, _signal, _onUpdate, ctx) {
     try {
      if (!installed) refusePiPlanMode(PI_PLAN_MISSING_REASON)
-     const result = await enterPiPlanMode(planCapture, ctx as Record<string, unknown> | undefined, pi)
+     const result = await enterPiPlanMode(
+      planCapture,
+      ctx as Record<string, unknown> | undefined,
+      pi,
+      CURSOR_PLAN_STAGE_TOOL,
+     )
      // Mirror omp: drop plan_enter from the active set once planning.
      if (pi.getActiveTools && pi.setActiveTools) {
       const next = pi.getActiveTools().filter(name => name !== PLAN_ENTER_TOOL)
@@ -471,6 +517,7 @@ export function registerCursorHostTools(
    parameters: emptyParams,
    loadMode: "essential",
    approval: "read",
+   annotations: { readOnlyHint: true, destructiveHint: false },
    ...planLoadout,
    async execute(_toolCallId, _params, _signal, _onUpdate, ctx) {
     try {
@@ -485,21 +532,31 @@ export function registerCursorHostTools(
    name: CURSOR_PLAN_STAGE_TOOL,
    label: "Stage Cursor plan",
    description:
-    "Write the complete plan markdown and open `@pify/plan-mode`'s approval UI " +
-    "(write_plan + exit_plan_mode under the hood). Wait for this tool's result: " +
+    "Write the complete plan markdown to the host plans directory, show it, and open " +
+    "`@pify/plan-mode`'s approval UI. Wait for this tool's result: " +
     "success means the user approved; an error keeps planning. " +
     "Do not call plan_exit to submit or skip that review.",
    parameters: planStageParams,
    loadMode: "essential",
    approval: "read",
+   annotations: { readOnlyHint: true, destructiveHint: false },
    ...planLoadout,
-   async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
+   ...piPlanStageRenderers(),
+   async execute(_toolCallId, params, _signal, onUpdate, ctx) {
     try {
      if (!installed) refusePiPlanMode(PI_PLAN_MISSING_REASON)
      return await stagePiPlan(
       planCapture,
       params as { plan_uri?: unknown; content?: unknown; title?: unknown },
       ctx as Record<string, unknown> | undefined,
+      {
+       plansDir: (options.piPlansDir ?? piHostPlansDir)(),
+       pi,
+       reopenSuppression,
+       ...(typeof onUpdate === "function"
+        ? { onUpdate: onUpdate as NonNullable<StagePiPlanOptions["onUpdate"]> }
+        : {}),
+      },
      )
     } catch (error) {
      if (error instanceof PlanNotApprovedError) throw error

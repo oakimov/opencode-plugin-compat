@@ -148,6 +148,20 @@ export function installPathBridge(id: string, env: Record<string, string | undef
       return unique([globalRoot])
     },
     configFileNames: hostConfigFiles(id),
+    /**
+     * The host's own plan file for a session (its `Session.plan` rule):
+     * `<worktree>/<project dir>/plans` in a VCS project, else `<data>/plans`,
+     * named `<created>-<slug>.md`. Undefined for a slug that is not one name.
+     */
+    planFile(input: { worktree: string; vcs: boolean; created: number; slug: string }) {
+      const slug = typeof input.slug === "string" ? input.slug.trim() : ""
+      if (!slug || slug.includes("/") || slug.includes("\\") || slug.startsWith(".")) return undefined
+      if (!Number.isSafeInteger(input.created) || input.created <= 0) return undefined
+      const base = input.vcs
+        ? path.join(path.resolve(input.worktree || fallbackCwd), hostProjectNames(id)[0]!, "plans")
+        : path.join(dataRoot, "plans")
+      return path.join(base, `${input.created}-${slug}.md`)
+    },
   }
   ;(globalThis as typeof globalThis & Record<typeof PATH_BRIDGE_KEY, unknown>)[PATH_BRIDGE_KEY] = bridge
   // Transitional compatibility for unchanged providers published before the

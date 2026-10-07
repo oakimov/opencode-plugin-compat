@@ -5,9 +5,8 @@
  * - streamToolCallEnsure=false (MiMo): emit tool-input-start before bare tool-call
  * - bashDescriptionRequired=true (MiMo): fill missing bash.description only
  * - clearSettledTodos=true (MiMo, Kilo): a todo snapshot with no live row
- *   is cleared. MiMo stores `[]` (abandon fan-out). Kilo keeps `completed`
- *   rows and drops `cancelled` so the sidebar can hide without erasing the
- *   named finish snapshot.
+ *   keeps its `completed` rows and drops `cancelled`, so the sidebar can hide
+ *   without erasing the named finish snapshot (MiMo marks them `done`).
  * - Provider-declared occupancy finishes keep checkpoint context on each
  *   assistant message. Kilo reconciles its separately persisted step records
  *   without counting cumulative occupancy as usage.
@@ -26,6 +25,8 @@ import type { HostId, HostProfile } from "@opencode-compat/profile"
 import { normalizeV3Usage } from "@opencode-compat/opencode-loader"
 import {
   buildVocabulary,
+  fanoutId,
+  originalCallId,
   compareCanonicalKeys,
   reconstructHostTodos,
   translateCall,
@@ -41,6 +42,8 @@ export type StreamAdoptionPolicy = {
   clearSettledTodos: boolean
   clearSettledTodoMode: "empty" | "completed-only"
   collapseOccupancyUsage: boolean
+  /** See `HostHttp.isolatedSessionPrefixes`. */
+  isolatedSessionPrefixes?: readonly string[]
 }
 
 export type StreamPartLike = {
@@ -76,6 +79,9 @@ export function policyFromProfile(profile: HostProfile): StreamAdoptionPolicy {
     clearSettledTodos: profile.capabilities.clearSettledTodos,
     clearSettledTodoMode: profile.capabilities.clearSettledTodoMode,
     collapseOccupancyUsage: profile.capabilities.collapseOccupancyUsage,
+    ...(profile.http.isolatedSessionPrefixes?.length
+      ? { isolatedSessionPrefixes: profile.http.isolatedSessionPrefixes }
+      : {}),
   }
 }
 
@@ -86,7 +92,7 @@ export function policyForHostId(id: HostId | string): StreamAdoptionPolicy {
         streamToolCallEnsure: false,
         bashDescriptionRequired: true,
         clearSettledTodos: true,
-        clearSettledTodoMode: "empty",
+        clearSettledTodoMode: "completed-only",
         collapseOccupancyUsage: false,
       }
     case "kilo":
@@ -96,6 +102,7 @@ export function policyForHostId(id: HostId | string): StreamAdoptionPolicy {
         clearSettledTodos: true,
         clearSettledTodoMode: "completed-only",
         collapseOccupancyUsage: false,
+        isolatedSessionPrefixes: ["title-"],
       }
     case "opencode":
       return {
@@ -161,12 +168,11 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 
 /**
  * Kilo's sidebar stays open while any stored row is not `completed`, so a
- * finished snapshot that still names `cancelled` would linger. MiMo's rotated
- * `task` fan-out needs an empty snapshot to abandon known rows.
+ * finished snapshot that still names `cancelled` would linger.
  *
  * Clearing modes:
- * - empty (MiMo): replace the finished snapshot with `[]`
- * - completed-only (Kilo): keep `completed` rows, drop `cancelled`. The
+ * - empty: replace the finished snapshot with `[]` (no current host)
+ * - completed-only (Kilo, MiMo): keep `completed` rows, drop `cancelled`. The
  *   sidebar hides once every remaining row is completed, and the named finish
  *   stays in the transcript (emptying it made self-verify T4f fail and the
  *   model report "5f returned an empty list").
@@ -342,6 +348,57 @@ function normalizeValueForSchema(value: unknown, schema: unknown, root: SchemaLi
 export function normalizeToolInputForSchema(input: unknown, schema: unknown): unknown {
   if (!isRecord(schema)) return input
   return normalizeValueForSchema(input, schema, schema)
+}
+
+/** File schemas must use OpenCode keys before a provider validates its own calls. */
+function canonicalFileToolCatalog(tools: readonly unknown[]): unknown[] {
+  const fields: Readonly<Record<string, readonly string[]>> = {
+    read: ["filePath"],
+    write: ["filePath"],
+    edit: ["filePath", "oldString", "newString", "replaceAll"],
+    apply_patch: ["patchText"],
+  }
+  return tools.map(tool => {
+    if (!isRecord(tool) || typeof tool.name !== "string") return tool
+    const targets = fields[tool.name]
+    const schema = tool.inputSchema
+    if (!targets || !isRecord(schema) || !isRecord(schema.properties)) return tool
+    const renames = new Map<string, string>()
+    for (const target of targets) {
+      if (Object.hasOwn(schema.properties, target)) continue
+      const matches = Object.keys(schema.properties).filter(key => canonicalToolKey(key) === canonicalToolKey(target))
+      if (matches.length === 1) renames.set(matches[0]!, target)
+    }
+    if (renames.size === 0) return tool
+    return {
+      ...tool,
+      inputSchema: {
+        ...schema,
+        properties: Object.fromEntries(Object.entries(schema.properties).map(([key, value]) => [renames.get(key) ?? key, value])),
+        ...(Array.isArray(schema.required)
+          ? { required: schema.required.map(key => typeof key === "string" ? renames.get(key) ?? key : key) }
+          : {}),
+      },
+    }
+  })
+}
+
+function canonicalFileToolPrompt(prompt: unknown, schemas: ToolSchemaMap): unknown {
+  if (!Array.isArray(prompt) || schemas.size === 0) return prompt
+  return prompt.map(message => {
+    if (!isRecord(message) || !Array.isArray(message.content)) return message
+    return {
+      ...message,
+      content: message.content.map(part => {
+        if (!isRecord(part) || part.type !== "tool-call" || typeof part.toolName !== "string") return part
+        const schema = schemas.get(part.toolName)
+        const input = parseToolInput(part.input)
+        if (!schema || !input) return part
+        const normalized = normalizeToolInputForSchema(input, schema)
+        return { ...part, input: typeof part.input === "string" ? JSON.stringify(normalized) : normalized }
+      }),
+    }
+  })
 }
 
 function toolSchemasFromCall(call: unknown): Map<string, unknown> {
@@ -571,17 +628,42 @@ function toolName(tool: unknown): string | undefined {
   return typeof tool.name === "string" && tool.name ? tool.name : undefined
 }
 
+const SESSION_AFFINITY_HEADERS = ["x-opencode-session-id", "x-opencode-session", "x-session-affinity", "x-session-id"] as const
+
 function sessionAffinityFromCall(call: unknown): string | undefined {
   if (!isRecord(call) || !isRecord(call.headers)) return undefined
   const headers = call.headers
  // Prefer the requesting session id. OpenCode 2.x still sends the older
  // affinity spellings as the parent/fork source for prompt-cache sharing.
-  for (const expected of ["x-opencode-session-id", "x-opencode-session", "x-session-affinity", "x-session-id"]) {
+  for (const expected of SESSION_AFFINITY_HEADERS) {
     for (const [name, value] of Object.entries(headers)) {
       if (name.toLowerCase() === expected && typeof value === "string" && value) return value
     }
   }
   return undefined
+}
+
+/**
+ * A host can give a tool-less lifecycle call its own derived session id to
+ * isolate it from the agent task (Kilo titles use `title-<sessionID>`). No
+ * catalog is ever published under that id, so a provider that pairs a
+ * lifecycle call with its session's catalog waits until cancellation. Send
+ * such a call without session affinity: the standalone shape the host meant.
+ */
+function withoutIsolatedSessionAffinity(args: unknown[], prefixes: readonly string[] | undefined): unknown[] {
+  if (!prefixes?.length) return args
+  const call = args[0]
+  if (!isRecord(call) || !isRecord(call.headers)) return args
+  if (Array.isArray(call.tools) && call.tools.length > 0) return args
+  const isolated = (name: string, value: unknown) =>
+    (SESSION_AFFINITY_HEADERS as readonly string[]).includes(name.toLowerCase()) &&
+    typeof value === "string" &&
+    prefixes.some(prefix => value.startsWith(prefix))
+  const entries = Object.entries(call.headers)
+  if (!entries.some(([name, value]) => isolated(name, value))) return args
+  const next = [...args]
+  next[0] = { ...call, headers: Object.fromEntries(entries.filter(([name, value]) => !isolated(name, value))) }
+  return next
 }
 
 type ResolveCatalogOrder = (call: unknown, tools: readonly unknown[]) => unknown[]
@@ -649,9 +731,16 @@ function prepareCall(
   const record = call as { tools?: unknown; prompt?: unknown; [key: string]: unknown }
   const tools = Array.isArray(record.tools) ? record.tools : undefined
   if (!tools) return { args, toolSchemas, context: undefined }
+  const providerTools = canonicalFileToolCatalog(tools)
+  const fileSchemas = new Map<string, unknown>()
+  providerTools.forEach((tool, i) => {
+    if (tool !== tools[i] && isRecord(tool) && typeof tool.name === "string") fileSchemas.set(tool.name, tool.inputSchema)
+  })
+  const providerPrompt = canonicalFileToolPrompt(record.prompt, fileSchemas)
   if (!roles?.tools) {
     const next = [...args]
-    next[0] = { ...record, tools: resolveCatalogOrder(call, tools) }
+    next[0] = { ...record, tools: resolveCatalogOrder(call, providerTools),
+      ...(providerPrompt !== record.prompt ? { prompt: providerPrompt } : {}) }
     return { args: next, toolSchemas, context: undefined }
   }
 
@@ -662,15 +751,16 @@ function prepareCall(
   }
 
   const vocab = buildVocabulary(roles, advertised)
-  const canonical = vocab ? translateCatalog(tools, vocab) : toolsInFixedOrder(tools)
+  const canonical = vocab ? translateCatalog(providerTools, vocab) : providerTools
   const ordered = resolveCatalogOrder(call, canonical)
   if (!vocab) {
     const next = [...args]
-    next[0] = { ...record, tools: ordered }
+    next[0] = { ...record, tools: ordered,
+      ...(providerPrompt !== record.prompt ? { prompt: providerPrompt } : {}) }
     return { args: next, toolSchemas, context: undefined }
   }
 
-  const prompt = Array.isArray(record.prompt) ? record.prompt : undefined
+  const prompt = Array.isArray(providerPrompt) ? providerPrompt : undefined
   const hostTodos = reconstructHostTodos(record.prompt, vocab)
 
   const next = [...args]
@@ -682,6 +772,39 @@ function prepareCall(
 
   return { args: next, toolSchemas, context: { vocab, hostTodos } }
 }
+
+/** Collect a resumed child only after its native send call has completed. */
+function subagentResumeWait(call: unknown, roles: Pick<HostProfile, "tools"> | undefined): StreamPartLike[] | undefined {
+  if (!isRecord(call) || !Array.isArray(call.prompt) || !Array.isArray(call.tools)) return undefined
+  const vocab = buildVocabulary(roles, call.tools.flatMap(tool => isRecord(tool) && typeof tool.name === "string" ? [tool.name] : []))
+  const last = call.prompt.at(-1)
+  if (!vocab?.subagentHost || !isRecord(last) || last.role !== "tool" || !Array.isArray(last.content)) return undefined
+  const parts = call.prompt.flatMap(message => isRecord(message) && Array.isArray(message.content) ? message.content : [])
+  const waits: StreamPartLike[] = []
+  for (const result of last.content) {
+    if (!isRecord(result) || result.type !== "tool-result" || result.toolName !== vocab.subagentHost || typeof result.toolCallId !== "string") continue
+    const original = originalCallId(result.toolCallId)
+    if (!original || result.toolCallId !== fanoutId(original, 0)) continue
+    if (parts.some(part => isRecord(part) && part.type === "tool-call" && part.toolCallId === fanoutId(original, 1))) continue
+    const sent = parts.find(part => isRecord(part) && part.type === "tool-call" && part.toolCallId === result.toolCallId && part.toolName === vocab.subagentHost)
+    if (!isRecord(sent)) continue
+    const input = parseToolInput(sent.input)
+    const op = input?.operation
+    if (!isRecord(op) || op.action !== "send" || typeof op.to_actor_id !== "string") continue
+    const output = result.output
+    if (!isRecord(output) || output.type !== "text" || typeof output.value !== "string") continue
+    try {
+      const receipt: unknown = JSON.parse(output.value)
+      if (!isRecord(receipt) || typeof receipt.inboxID !== "string" || receipt.error) continue
+    } catch { continue }
+    waits.push({ type: "tool-call", toolCallId: fanoutId(original, 1), toolName: vocab.subagentHost,
+      input: JSON.stringify({ operation: { action: "wait", actor_id: op.to_actor_id } }) })
+  }
+  return waits.length > 0 ? waits : undefined
+}
+
+const RESUME_WAIT_FINISH = { type: "finish", finishReason: { unified: "tool-calls", raw: "tool-calls" },
+  usage: { inputTokens: { total: 0, noCache: 0, cacheRead: 0, cacheWrite: 0 }, outputTokens: { total: 0, text: 0, reasoning: 0 } } }
 
 function isThenable<T>(value: unknown): value is Promise<T> {
   return (
@@ -717,7 +840,19 @@ export function adaptLanguageModel<T>(
 
   if (typeof original.doStream === "function") {
     const inner = original.doStream.bind(original)
-    adapted.doStream = (...args: unknown[]) => {
+    adapted.doStream = (...callArgs: unknown[]) => {
+      const args = withoutIsolatedSessionAffinity(callArgs, policy.isolatedSessionPrefixes)
+      const wait = subagentResumeWait(args[0], roles)
+      if (wait) {
+        const seen = new Set<string>()
+        const schemas = toolSchemasFromCall(args[0])
+        const parts = wait.flatMap(part => adoptStreamPart(part, policy, seen, schemas))
+        return Promise.resolve({ stream: new ReadableStream({ start(controller) {
+          for (const part of parts) controller.enqueue(part)
+          controller.enqueue(RESUME_WAIT_FINISH)
+          controller.close()
+        } }) })
+      }
       const sessionID = sessionAffinityFromCall(args[0])
       const prepared = prepareCall(args, roles, resolveCatalogOrder)
       const result = inner(...prepared.args)
@@ -746,7 +881,10 @@ export function adaptLanguageModel<T>(
 
   if (typeof original.doGenerate === "function") {
     const inner = original.doGenerate.bind(original)
-    adapted.doGenerate = (...args: unknown[]) => {
+    adapted.doGenerate = (...callArgs: unknown[]) => {
+      const args = withoutIsolatedSessionAffinity(callArgs, policy.isolatedSessionPrefixes)
+      const wait = subagentResumeWait(args[0], roles)
+      if (wait) return Promise.resolve({ content: wait, finishReason: RESUME_WAIT_FINISH.finishReason, usage: RESUME_WAIT_FINISH.usage })
       const sessionID = sessionAffinityFromCall(args[0])
       const prepared = prepareCall(args, roles, resolveCatalogOrder)
       const result = inner(...prepared.args)

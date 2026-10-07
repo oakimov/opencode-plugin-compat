@@ -9,11 +9,11 @@ const OPENCODE_EDIT_SCHEMA = {
   type: "object",
   properties: {
     filePath: { type: "string", description: "Path to the file to edit (relative or absolute)" },
-    oldString: { type: "string", description: "Exact text to replace. Must match exactly once in the file." },
+    oldString: { type: "string", minLength: 1, description: "Exact text to replace. Must match exactly once in the file." },
     newString: { type: "string", description: "Replacement text" },
     replaceAll: { type: "boolean", description: "Replace every occurrence instead of requiring a unique match" },
     path: { type: "string", description: "Alias of filePath" },
-    old_string: { type: "string", description: "Alias of oldString" },
+    old_string: { type: "string", minLength: 1, description: "Alias of oldString" },
     new_string: { type: "string", description: "Alias of newString" },
     replace_all: { type: "boolean", description: "Alias of replaceAll" },
     i: { type: "string", description: "Optional caller intent; ignored by the executor" },

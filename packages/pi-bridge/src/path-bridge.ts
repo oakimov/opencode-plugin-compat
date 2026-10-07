@@ -27,7 +27,27 @@ function homeDir(env: Record<string, string | undefined>): string {
   return env.HOME || env.USERPROFILE || homedir()
 }
 
+let hostAgentDir: { hostId: PiHostId; resolve: () => string } | undefined
+
+/**
+ * Manifest-selected host entries inject the host's own agent-dir resolver
+ * (pi: `getAgentDir()` from its `@earendil-works/pi-coding-agent` virtual
+ * module), so the bridge follows the host rather than re-deriving its layout.
+ */
+export function installPiHostAgentDir(hostId: PiHostId, resolve: () => string): void {
+  hostAgentDir = { hostId, resolve }
+}
+
+/** Test hook: forget the injected host agent-dir resolver. */
+export function resetPiHostAgentDir(): void {
+  hostAgentDir = undefined
+}
+
 function agentRoot(id: PiHostId, env: Record<string, string | undefined>): string {
+  if (hostAgentDir?.hostId === id) {
+    const dir = hostAgentDir.resolve()
+    if (typeof dir === "string" && dir.trim()) return path.resolve(dir)
+  }
   if (env.PI_CODING_AGENT_DIR) return path.resolve(env.PI_CODING_AGENT_DIR)
   const configDir = env.PI_CONFIG_DIR || (id === "pi" ? ".pi" : ".omp")
   return path.join(homeDir(env), configDir, "agent")
@@ -60,4 +80,19 @@ export function installPiPathBridge(
   }
   ;(globalThis as typeof globalThis & Record<typeof PATH_BRIDGE_KEY, unknown>)[PATH_BRIDGE_KEY] = bridge
   ;(globalThis as typeof globalThis & Record<typeof LEGACY_PATH_BRIDGE_KEY, unknown>)[LEGACY_PATH_BRIDGE_KEY] = bridge
+}
+
+/**
+ * Host plan directory: `<globalDataDir()>/plans` of the installed path bridge —
+ * the same location the consumer provider computes from that bridge.
+ */
+export function piHostPlansDir(): string {
+  const bridge = (globalThis as typeof globalThis & Record<typeof PATH_BRIDGE_KEY, unknown>)[PATH_BRIDGE_KEY] as
+    | { globalDataDir?: () => string }
+    | undefined
+  const root = bridge?.globalDataDir?.()
+  if (typeof root !== "string" || !root.trim()) {
+    throw new Error("pi-bridge: host path bridge is not installed; cannot resolve the host plans directory")
+  }
+  return path.join(root, "plans")
 }

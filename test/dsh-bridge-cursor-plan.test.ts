@@ -75,6 +75,12 @@ describe("Cursor plan contracts on DSH", () => {
       },
     }, new Set(["cursor-opencode"]))
     expect(definition.name).toBe("plan_enter")
+    // DSH applies plan mode on the next step of the same turn; the result must
+    // keep the model planning instead of ending the turn idle in plan mode.
+    const rendered = definition.output.render().map((part: { text: string }) => part.text).join("\n")
+    expect(rendered).toContain("same turn")
+    expect(rendered).toContain("cursor_plan_stage")
+    expect(rendered).toContain("Do not end this turn")
     const signal = new AbortController().signal
     expect(await definition.execute({}, { agent, signal })).toEqual({ selected: true })
     expect(calls).toEqual([[agent, "/plan", [], signal]])
@@ -152,10 +158,10 @@ describe("Cursor plan contracts on DSH", () => {
         { role: "user", source: { kind: "tool", callId: "review-1" }, content: [{ type: "tool-result", toolCallId: "review-1", isError, content: [{ type: "text", text }] }] },
       ],
     }, cursorPlanToolInputs)
-    const call = (prompt[0].content as any[])[0]
+    const call = (prompt[0]!.content as any[])[0]
     expect(call.toolName).toBe("cursor_plan_stage")
     expect(rewriteProviderToolCall(call.toolName, call.input, { toolInputs: cursorPlanToolInputs }).input).toEqual({ plan })
-    expect(prompt[1].content).toEqual([{ type: "tool-result", toolCallId: "review-1", toolName: "cursor_plan_stage", output: { type: isError ? "error-text" : "text", value: text } }])
+    expect(prompt[1]!.content).toEqual([{ type: "tool-result", toolCallId: "review-1", toolName: "cursor_plan_stage", output: { type: isError ? "error-text" : "text", value: text } }])
   })
 
   test("first-class DSH tool messages remain tool results for held Run continuation", () => {

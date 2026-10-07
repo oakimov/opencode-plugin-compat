@@ -22,6 +22,7 @@ import { mapPlanModeError, PlanNotApprovedError } from "../packages/pi-bridge/sr
 import type { PiBinarySaveExecute, PiExtensionApi, PiRegisterToolDefinition } from "../packages/pi-bridge/src/pi-provider-types.ts"
 import { loadProviderWithSubpathThroughHost } from "../packages/pi-bridge/src/host-module-loader.ts"
 import { loadCursorProviderModules } from "../packages/pi-bridge/src/cursor-provider-integration.ts"
+import { PI_PLAN_QUEUED_HANDOFF } from "../packages/pi-bridge/src/pi-plan-mode.ts"
 
 describe("stripTrailingNpmVersion", () => {
   test("strips version suffixes without regex", () => {
@@ -132,6 +133,7 @@ function fakePi(options: {
 
 describe("Cursor host tool registration", () => {
   test("omp registers plan enter/exit, native staging, and image save", async () => {
+    let aborts = 0
     const session = fakeSession({ hasWrite: true })
     const host = bindOmpPlanModeHostFromSession(session)
     const pi = fakePi()
@@ -168,10 +170,16 @@ describe("Cursor host tool registration", () => {
       },
       undefined,
       undefined,
-      {},
-    )) as { details: { action: string; planFilePath: string } }
+      { abort: () => { aborts++ } },
+    )) as {
+      content: Array<{ type: "text"; text: string }>
+      details: { action: string; planFilePath: string }
+    }
+    expect(aborts).toBe(0)
     expect(stageResult.details.action).toBe("plan_approved")
     expect(stageResult.details.planFilePath).toBe("local://sample-plan.md")
+    expect(stageResult.content[0]?.text).toContain("execution queued")
+    expect(stageResult.content[0]?.text).toContain(PI_PLAN_QUEUED_HANDOFF)
     expect(session.getPlanModeState()).toBeUndefined()
     expect(session.followUps).toEqual([
       "The user approved the plan at local://sample-plan.md. Execute the approved plan now.",
@@ -186,7 +194,37 @@ describe("Cursor host tool registration", () => {
     expect(exitResult.details).toEqual({ action: "plan_exit", already: true })
   })
 
+  test("staging outside plan mode tells the model to enter plan mode first", async () => {
+    // Live omp: the model staged before entering plan mode and had to guess the fix.
+    const session = fakeSession({ hasWrite: true })
+    const host = bindOmpPlanModeHostFromSession(session)
+    const pi = fakePi()
+    registerCursorHostTools(pi, {
+      hostId: "omp",
+      resolvePlanHost: async () => host,
+      executeImageSave: async () => "saved",
+      reviewPlan: async () => "Approve",
+    })
+    const stage = pi.registered.find(tool => tool.name === CURSOR_PLAN_STAGE_TOOL)!
+    let error: Error | undefined
+    try {
+      await stage.execute(
+        "c-early",
+        { plan_uri: "local://early-plan.md", content: "# Early\n", title: "early" },
+        undefined,
+        undefined,
+        {},
+      )
+    } catch (caught) {
+      error = caught as Error
+    }
+    expect(error?.message).toContain(`Call ${PLAN_ENTER_TOOL} first`)
+    expect(error?.message).toContain(CURSOR_PLAN_STAGE_TOOL)
+    expect(session.getPlanModeState()).toBeUndefined()
+  })
+
   test("native staging keeps plan mode active when review requests refinement", async () => {
+    let aborts = 0
     const session = fakeSession({ hasWrite: true })
     const host = bindOmpPlanModeHostFromSession(session)
     const pi = fakePi()
@@ -212,7 +250,7 @@ describe("Cursor host tool registration", () => {
         },
         undefined,
         undefined,
-        {},
+        { abort: () => { aborts++ } },
       )
     } catch (caught) {
       error = caught as Error
@@ -222,10 +260,12 @@ describe("Cursor host tool registration", () => {
     expect(error?.message).toContain("local://refine-plan.md")
     expect(session.getPlanModeState()?.enabled).toBe(true)
     expect(session.getPlanModeState()?.planFilePath).toBe("local://refine-plan.md")
+    expect(aborts).toBe(0)
     expect(session.followUps).toEqual([])
   })
 
   test("a dismissed review reports not-approved and stays in plan mode", async () => {
+    let aborts = 0
     const session = fakeSession({ hasWrite: true })
     const host = bindOmpPlanModeHostFromSession(session)
     const pi = fakePi()
@@ -250,7 +290,7 @@ describe("Cursor host tool registration", () => {
         },
         undefined,
         undefined,
-        {},
+        { abort: () => { aborts++ } },
       )
     } catch (caught) {
       error = caught as Error
@@ -259,6 +299,8 @@ describe("Cursor host tool registration", () => {
     expect(error?.message).toContain("was not approved")
     expect(error?.message).not.toContain("refinement requested")
     expect(session.getPlanModeState()?.enabled).toBe(true)
+    expect(aborts).toBe(1)
+    expect(session.followUps).toEqual([])
   })
 
   test("mapPlanModeError passes a not-approved reason through verbatim", () => {

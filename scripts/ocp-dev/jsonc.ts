@@ -352,8 +352,8 @@ function replaceRange(text: string, start: number, end: number, insert: string):
 }
 
 function nestValue(path: JsoncPath, value: unknown): unknown {
-  if (path.length === 0) return value
   const [head, ...tail] = path
+  if (head === undefined) return value
   if (typeof head === "number") {
     const arr: unknown[] = []
     arr[head] = nestValue(tail, value)

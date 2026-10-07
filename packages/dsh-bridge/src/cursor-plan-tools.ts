@@ -137,7 +137,14 @@ export function registerCursorPlanEntry(ctx: PlanToolContext, cursorProviders: R
     parameters: { type: "object", properties: {}, additionalProperties: false },
     output: {
       schema: { type: "object", properties: { selected: { type: "boolean", const: true } }, required: ["selected"], additionalProperties: false },
-      render: () => [{ type: "text", text: "Plan mode selected; the host applies it before the next step. Present the completed plan for review before implementation." }],
+      // DSH activates plan mode for the next step of this same turn. Ending the
+      // turn here leaves the session idle in plan mode with no plan submitted.
+      render: () => [{
+        type: "text",
+        text: "Plan mode is active from your next step in this same turn; the host does not wait for a new user message. "
+          + "Continue now: plan read-only, then submit the complete plan with cursor_plan_stage. "
+          + "Do not end this turn before submitting it, and do not implement before its result approves execution.",
+      }],
     },
     async execute(_args: unknown, exec: { agent?: PlanAgent; signal: AbortSignal }) {
       exec.signal.throwIfAborted()

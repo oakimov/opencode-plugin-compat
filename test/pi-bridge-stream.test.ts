@@ -45,7 +45,7 @@ class FakeAssistantMessageEventStream {
     return this.resultPromise
   }
   async *[Symbol.asyncIterator]() {
-    yield* this.events as never
+    yield* this.events
   }
 }
 
@@ -67,6 +67,36 @@ async function* v3Parts(parts: unknown[]) {
 }
 
 describe("runV3StreamToPi", () => {
+  test("a stream cut short by the user's abort ends as aborted, not as an error", async () => {
+    const controller = new AbortController()
+    controller.abort()
+    const piStream = new FakeAssistantMessageEventStream()
+    await runV3StreamToPi({
+      model: MODEL,
+      v3Stream: v3Parts([{ type: "text-start", id: "t1" }, { type: "text-delta", id: "t1", delta: "partial" }]) as never,
+      piStream: piStream as never,
+      signal: controller.signal,
+    })
+    const last = piStream.events.at(-1) as { type: string; reason: string; error: { stopReason: string; errorMessage?: string } }
+    expect(last.type).toBe("error")
+    expect(last.reason).toBe("aborted")
+    expect(last.error.stopReason).toBe("aborted")
+    expect(last.error.errorMessage).toBeUndefined()
+  })
+
+  test("a stream that ends without a finish and without an abort is still a protocol error", async () => {
+    const piStream = new FakeAssistantMessageEventStream()
+    await runV3StreamToPi({
+      model: MODEL,
+      v3Stream: v3Parts([{ type: "text-start", id: "t1" }]) as never,
+      piStream: piStream as never,
+      signal: new AbortController().signal,
+    })
+    const last = piStream.events.at(-1) as { reason: string; error: { errorMessage?: string } }
+    expect(last.reason).toBe("error")
+    expect(last.error.errorMessage).toBe("Provider stream ended without a finish event")
+  })
+
   test("streams text start/delta/end and finishes with stop", async () => {
     const piStream = new FakeAssistantMessageEventStream()
     await runV3StreamToPi({
@@ -82,7 +112,7 @@ describe("runV3StreamToPi", () => {
       piStream: piStream as never,
     })
 
-    const types = piStream.events.map((e: never) => (e as { type: string }).type)
+    const types = piStream.events.map((e: unknown) => (e as { type: string }).type)
     expect(types).toEqual(["start", "text_start", "text_delta", "text_delta", "text_end", "done"])
 
     const done = piStream.events.at(-1) as { type: "done"; reason: string; message: { content: unknown[]; stopReason: string; usage: { input: number; output: number; totalTokens: number; cost: { total: number } } } }
@@ -208,7 +238,7 @@ describe("runV3StreamToPi", () => {
     // held-Run billable sum. Cost still reflects the full raw request.
     expect(projected.totalTokens).toBe(80_007)
     expect(projected.cost).toEqual(billed.cost)
-    expect(cursorFinishPiUsage({ ...finish, finishReason: { unified: "error" } } as never, billed)).toBe(billed)
+    expect(cursorFinishPiUsage({ ...(finish as object), finishReason: { unified: "error" } } as never, billed)).toBe(billed)
   })
 
   test("OMP keeps billable totalTokens while Pi uses occupancy, including tool boundaries", async () => {
@@ -300,10 +330,10 @@ describe("runV3StreamToPi", () => {
       ]) as never,
       piStream: piStream as never,
     })
-    const types = piStream.events.map((e: never) => (e as { type: string }).type)
+    const types = piStream.events.map((e: unknown) => (e as { type: string }).type)
     expect(types).toEqual(["start", "toolcall_start", "toolcall_end", "done"])
 
-    const toolcallEnd = piStream.events[2] as { toolCall: { id: string; name: string; arguments: unknown } }
+    const toolcallEnd = piStream.events[2] as { toolCall: { type: string; id: string; name: string; arguments: unknown } }
     expect(toolcallEnd.toolCall).toEqual({ type: "toolCall", id: "call_1", name: "read", arguments: { path: "a.ts" } })
 
     const done = piStream.events.at(-1) as { reason: string; message: { stopReason: string } }
@@ -325,7 +355,7 @@ describe("runV3StreamToPi", () => {
       ]) as never,
       piStream: piStream as never,
     })
-    const types = piStream.events.map((e: never) => (e as { type: string }).type)
+    const types = piStream.events.map((e: unknown) => (e as { type: string }).type)
     expect(types).toEqual(["start", "toolcall_start", "toolcall_delta", "toolcall_delta", "toolcall_end", "done"])
     // Exactly one block was opened for the whole call (start/delta/end/tool-call all share contentIndex 0).
     const done = piStream.events.at(-1) as { message: { content: unknown[] } }

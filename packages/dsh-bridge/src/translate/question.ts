@@ -16,12 +16,15 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 }
 
 /** OpenCode `question` schema — what plugins / providers see. */
-export function canonicalQuestionSchema(): Record<string, unknown> {
+export function canonicalQuestionSchema(nativeSchema?: Record<string, unknown>): Record<string, unknown> {
+  const nativeProperties = nativeSchema?.properties as Record<string, unknown> | undefined
   return {
     type: "object",
     properties: {
+      ...(nativeProperties?.timeout ? { timeout: nativeProperties.timeout } : {}),
       questions: {
         type: "array",
+        minItems: 1,
         description: "Questions to ask",
         items: {
           type: "object",
@@ -159,6 +162,7 @@ export function translateToProviderQuestionInput(input: Record<string, unknown>)
   const questions = input["questions"]
   if (!Array.isArray(questions)) return input
   return {
+    ...(Object.hasOwn(input, "timeout") ? { timeout: input.timeout } : {}),
     questions: questions.map((entry) => {
       if (!isRecord(entry)) return entry
       const questionText = typeof entry["question"] === "string" ? entry["question"] : ""

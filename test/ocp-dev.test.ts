@@ -10,6 +10,7 @@ import { assertLocalLoaderLink } from "../scripts/ocp-dev/pi-family.ts"
 import { dshBuiltCli, dshHarnessRoot, isDshHarnessCheckout } from "../scripts/ocp-dev/hosts.ts"
 import {
   formatDshBridgePatch,
+  mergeDshBridgePatch,
   stageDshBridgeForForeignFileInstall,
   syncInstalledFilePackageDist,
   syncInstalledFilePackage,
@@ -363,6 +364,32 @@ describe("dsh discovery", () => {
     expect(yaml).toContain("apiKeyEnv: CURSOR_API_KEY")
     expect(yaml).toContain("package: '/abs/devin-opencode-provider/dist/index.js'")
     expect(yaml).toContain("apiKeyEnv: DEVIN_API_KEY")
+  })
+
+  test("rewrites only the bridge row of the persistent DSH profile patch", () => {
+    const rows = [{ package: "/abs/cursor-opencode-provider/dist/index.js", apiKeyEnv: "CURSOR_API_KEY" }]
+    const bridge = formatDshBridgePatch(rows)
+    // DSH Web saves the selected model here; losing it reverts sessions to the bundle default.
+    const userRows = `- id: ui-settings-general
+  name: "@deepseek-ai/dsh-client-ui-settings-general"
+  config:
+    welcomeNoticeVersion: 2026-09-28.1
+- id: agent-default-model
+  name: "@deepseek-ai/dsh-agent-default-model"
+  config:
+    provider: cursor-opencode
+    model: default
+`
+    const stale = `- id: ocp-dsh-bridge
+  config:
+    providers:
+      - package: '/old/cursor-opencode-provider/dist/index.js'
+        apiKeyEnv: CURSOR_API_KEY
+`
+    expect(mergeDshBridgePatch(undefined, rows)).toBe(bridge)
+    expect(mergeDshBridgePatch(`${stale}${userRows}`, rows)).toBe(`${bridge}${userRows}`)
+    expect(mergeDshBridgePatch(`${userRows}${stale}`, rows)).toBe(`${userRows}${bridge}`)
+    expect(mergeDshBridgePatch(userRows, rows)).toBe(`${userRows}${bridge}`)
   })
 
   test("resolves Devin checkout from OCP_DEV_DEVIN_PROVIDER_PATH", () => {

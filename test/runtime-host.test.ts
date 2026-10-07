@@ -16,6 +16,7 @@ type PathBridge = {
   globalDataDir: () => string
   globalCacheDir: () => string
   configFileNames: string[]
+  planFile: (input: { worktree: string; vcs: boolean; created: number; slug: string }) => string | undefined
 }
 
 function clearBridge(): void {
@@ -104,6 +105,27 @@ describe("installPathBridge", () => {
     const b = bridge()
     expect(b.projectConfigDirs("/repo")).toEqual(["/repo/.kilo", "/repo/.kilocode"])
     expect(b.globalConfigDirs()).toEqual(["/tmp/xdg/kilo"])
+  })
+
+  test("planFile follows each host's own Session.plan rule", () => {
+    clearBridge()
+    installPathBridge("kilo", { HOME: "/tmp/home" })
+    expect(bridge().planFile({ worktree: "/repo", vcs: true, created: 17, slug: "calm-wizard" }))
+      .toBe("/repo/.kilo/plans/17-calm-wizard.md")
+    expect(bridge().planFile({ worktree: "/repo", vcs: false, created: 17, slug: "calm-wizard" }))
+      .toBe("/tmp/home/.local/share/kilo/plans/17-calm-wizard.md")
+
+    clearBridge()
+    installPathBridge("mimo", { HOME: "/tmp/home" })
+    expect(bridge().planFile({ worktree: "/repo", vcs: true, created: 17, slug: "calm-wizard" }))
+      .toBe("/repo/.mimocode/plans/17-calm-wizard.md")
+    expect(bridge().planFile({ worktree: "/repo", vcs: false, created: 17, slug: "calm-wizard" }))
+      .toBe("/tmp/home/.local/share/mimocode/plans/17-calm-wizard.md")
+
+    for (const slug of ["", "../x", "a/b", "a\\b", ".hidden"]) {
+      expect(bridge().planFile({ worktree: "/repo", vcs: true, created: 17, slug })).toBeUndefined()
+    }
+    expect(bridge().planFile({ worktree: "/repo", vcs: true, created: 0, slug: "x" })).toBeUndefined()
   })
 
   test("opencode installs .opencode + XDG opencode config", () => {

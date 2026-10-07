@@ -6,12 +6,14 @@ import {
   createPluginInputStub,
   derivePackageName,
   extractModelsFromConfigHook,
+  hasChatParamsHook,
   instantiateHooks,
   loadOpenCodePluginModule,
   loadProviderOptions,
   mergeFactoryOptions,
   openCodeAuthFromResolvedKey,
   providerPackageMatches,
+  runChatParamsHook,
   type OpenCodeAuth,
   type OpenCodeHooks,
   type PiModelConfig,
@@ -85,6 +87,7 @@ export async function registerDshPlugin(
   const planTools = cursorIntegration ? await import("./cursor-plan-tools.js") : undefined
   const metadataWrite = cursorIntegration ? await import("./cursor-metadata-write.js") : undefined
   const instructions = cursorIntegration ? await import("./cursor-instructions.js") : undefined
+  const hostNotes = cursorIntegration ? await import("./cursor-host-notes.js") : undefined
   const loadSpec = {
     packageSpecifier: spec.package,
     label: "dsh-bridge",
@@ -221,13 +224,15 @@ export async function registerDshPlugin(
 
   const adapter = new DshLlmAdapter({
     providerName,
-    ...(planTools && metadataWrite && instructions ? {
+    ...(planTools && metadataWrite && instructions && hostNotes ? {
       toolInputs: planTools.cursorPlanToolInputs,
       toolInputsForCall: options => metadataWrite.cursorMetadataWriteToolInputs(options, planTools.cursorPlanToolInputs),
-      prepareOptions: options => planTools.prepareCursorPlanOptions(instructions.foldCursorAgentInstructions({
-        ...options,
-        messages: removeVisibleReplyEchoes(options.messages),
-      })),
+      prepareOptions: options => planTools.prepareCursorPlanOptions(hostNotes.lowerCursorTrailingHostNotes(
+        instructions.foldCursorAgentInstructions({
+          ...options,
+          messages: removeVisibleReplyEchoes(options.messages),
+        }),
+      )),
       reviewCompletedPlan: (chunks, options) => !options.purpose && options.sessionId
         && options.tools?.some(tool => tool.name === "exit_plan_mode")
         && isPlanActive?.(options.sessionId)
@@ -240,6 +245,16 @@ export async function registerDshPlugin(
       : devinUsage ? { finishUsage: devinUsage.devinFinishUsage, finishContext: devinUsage.devinFinishContext } : {}),
     credentialRef,
     providerOptionsKey,
+    // OpenCode's `chat.params` with the agent of the turn: DSH plan mode is `plan`.
+    ...(hasChatParamsHook(hooks) ? {
+      chatParams: input => runChatParamsHook(hooks, {
+        sessionID: input.sessionId,
+        agent: isPlanActive?.(input.sessionId) === true ? "plan" : "build",
+        providerID: providerOptionsKey,
+        modelID: input.modelId,
+        options: input.options,
+      }),
+    } satisfies Pick<DshLlmAdapterOptions, "chatParams"> : {}),
     resolveCredential: credentialRef ? (ref) => resolveCredential!(ref as string) : undefined,
     getLanguageModel: async (modelId, apiKey) => {
       const prepared = await preparedCredential(apiKey)

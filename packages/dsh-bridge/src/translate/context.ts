@@ -5,7 +5,8 @@
  * messages with `source.kind === "tool"` / `tool-result` blocks).
  */
 import type { LanguageModelV3FunctionTool, LanguageModelV3Prompt } from "@ai-sdk/provider"
-import { dshToolInputs } from "../host/profile.js"
+import { homedir } from "node:os"
+import { dshProfile, dshToolInputs } from "../host/profile.js"
 import { hostToolRenames, translatePromptToolNames } from "@opencode-compat/opencode-loader"
 import {
   canonicalQuestionDescription,
@@ -13,6 +14,7 @@ import {
   formatOpenCodeQuestionResult,
   questionPromptsFromInput,
 } from "./question.js"
+import { formatOpenCodeGrepResult } from "./grep.js"
 import {
   canonicalToolName,
   compareCanonicalKeys,
@@ -82,6 +84,43 @@ function toolResultOutput(block: { content?: unknown; isError?: boolean }): { ty
   return { type: block.isError ? "error-text" : "text", value }
 }
 
+/** DSH `source.kind` of its skill catalog reminder (`packages/skill/tool-skill`). */
+export const SKILL_CATALOG_SOURCE = "skill-catalog"
+
+function isSkillCatalog(message: DshMessage): boolean {
+  return message.role === "user" && message.source?.kind === SKILL_CATALOG_SOURCE
+}
+
+/**
+ * OpenCode and Pi put `<available_skills>` in the system prompt. DSH sends it
+ * as a user-role reminder instead, so on the first turn its "call the `skill`
+ * tool before taking task actions" reads as part of the user's request. A
+ * later catalog replaces every earlier one, so only the latest is current.
+ */
+function latestSkillCatalog(messages: readonly DshMessage[]): string | undefined {
+  for (let index = messages.length - 1; index >= 0; index--) {
+    const message = messages[index]!
+    if (!isSkillCatalog(message)) continue
+    const text = flattenBlockText(message.content)
+    if (text) return text
+  }
+  return undefined
+}
+
+/**
+ * Host file tools resolve `~` literally, so a request that offers them tells
+ * the model the home directory instead of leaving it to guess one.
+ */
+export function homePathNote(
+  tools: readonly { name: string }[] | undefined,
+  profile = dshProfile(),
+  home: string = process.env.HOME || homedir(),
+): string | undefined {
+  if (profile.fileToolsExpandTilde || !home) return undefined
+  if (!tools?.some(tool => profile.existingPaths?.[tool.name])) return undefined
+  return `Host file tools do not expand "~". The home directory is "${home}"; use absolute paths.`
+}
+
 export function translateGenerateOptionsToPrompt(
   options: DshGenerateOptions,
   toolInputs: DshToolInputVocabulary = dshToolInputs(),
@@ -91,7 +130,9 @@ export function translateGenerateOptionsToPrompt(
   // The host prompt names tools in host vocabulary; restate the ones this call
   // renames so the prompt matches the canonical catalog.
   const renames = hostToolRenames((options.tools ?? []).map((tool) => tool.name), (name) => canonicalToolName(name, toolInputs))
-  const system = normalizeSystemPrompt(options.system)
+  const system = [normalizeSystemPrompt(options.system), latestSkillCatalog(options.messages), homePathNote(options.tools)]
+    .filter((part): part is string => !!part)
+    .join("\n\n")
   if (system) prompt.push({ role: "system", content: translatePromptToolNames(system, renames) })
 
   const toolNames = new Map<string, string>()
@@ -99,6 +140,7 @@ export function translateGenerateOptionsToPrompt(
   const questionPrompts = new Map<string, ReturnType<typeof questionPromptsFromInput>>()
 
   for (const msg of options.messages) {
+    if (isSkillCatalog(msg)) continue
     if (msg.role === "system") {
       const text = flattenBlockText(msg.content)
       if (text) prompt.push({ role: "system", content: translatePromptToolNames(text, renames) })
@@ -145,13 +187,18 @@ export function translateGenerateOptionsToPrompt(
       const toolName = toolNames.get(id)
       if (!id || excludedToolCallIds.has(id) || !toolName) continue
       const value = flattenBlockText(msg.content)
+      const prompts = questionPrompts.get(id)
+      const formatted = msg.isError ? undefined
+        : prompts && prompts.length > 0 ? formatOpenCodeQuestionResult(prompts, value)
+        : toolName === "grep" ? formatOpenCodeGrepResult(value)
+        : undefined
       prompt.push({
         role: "tool",
         content: [{
           type: "tool-result",
           toolCallId: id,
           toolName,
-          output: { type: msg.isError ? "error-text" : "text", value: value || "(no output)" },
+          output: { type: msg.isError ? "error-text" : "text", value: formatted ?? (value || "(no output)") },
         }],
       })
       continue
@@ -182,6 +229,8 @@ export function translateGenerateOptionsToPrompt(
       if (prompts && prompts.length > 0 && output.type === "text") {
         const formatted = formatOpenCodeQuestionResult(prompts, output.value)
         if (formatted) output.value = formatted
+      } else if (toolName === "grep" && output.type === "text") {
+        output.value = formatOpenCodeGrepResult(output.value)
       }
       prompt.push({
         role: "tool",
@@ -213,7 +262,7 @@ export function translateTools(
       name: providerName,
       description: question ? canonicalQuestionDescription() : (toolInputs[t.name]?.providerDescription ?? t.description),
       inputSchema: (question
-        ? canonicalQuestionSchema()
+        ? canonicalQuestionSchema(t.parameters)
         : providerToolSchema(t.parameters, t.name, toolInputs)) as any,
     }
   }).sort((left, right) => compareCanonicalKeys(left.name, right.name))

@@ -13,7 +13,10 @@ import { translateContextToPrompt } from "../packages/pi-bridge/src/translate/co
 import { runV3StreamToPi } from "../packages/pi-bridge/src/translate/stream.ts"
 import {
   buildPiToolInputVocabulary,
+  diffTodoSnapshotToHostOps,
   expandTodoSnapshotToHostOps,
+  latestHostTodoRows,
+  reconstructTodoSnapshotFromHostOps,
   translateCanonicalToolCall,
   translateHostToolCallInput,
 } from "../packages/pi-bridge/src/translate/subagent.ts"
@@ -346,7 +349,7 @@ describe("opencode-todo stream fan-out + history fold", () => {
     })
 
     const done = piStream.events.at(-1) as {
-      message: { content: Array<{ id: string; name: string; arguments: Record<string, unknown> }> }
+      message: { content: Array<{ type: string; id: string; name: string; arguments: Record<string, unknown> }> }
     }
     expect(done.message.content).toEqual([
       {
@@ -386,7 +389,7 @@ describe("opencode-todo stream fan-out + history fold", () => {
     })
 
     const done = piStream.events.at(-1) as {
-      message: { content: Array<{ id: string; name: string; arguments: Record<string, unknown> }> }
+      message: { content: Array<{ type: string; id: string; name: string; arguments: Record<string, unknown> }> }
     }
     expect(done.message.content).toEqual([
       {
@@ -561,5 +564,145 @@ describe("opencode-todo stream fan-out + history fold", () => {
         ],
       },
     ])
+  })
+})
+
+describe("opencode-todo status diffs against the host list", () => {
+  type Row = { content: string; status: string }
+  const snapshot = (...rows: Row[]) => ({ todos: rows })
+  const row = (content: string, status: string): Row => ({ content, status })
+  // The 5a→5f lifecycle from the stock self-verify run, as host rows after each step.
+  const created = [row("a", "in_progress"), row("b", "pending"), row("c", "pending")]
+  const progressed = [row("a", "pending"), row("b", "in_progress"), row("c", "pending")]
+  const oneDone = [row("a", "completed"), row("b", "in_progress"), row("c", "pending")]
+  const dropped = [row("a", "completed"), row("b", "in_progress"), row("c", "cancelled")]
+  const finished = [row("a", "completed"), row("b", "completed"), row("c", "cancelled")]
+  const hostRows = (rows: Row[]) => rows as never
+
+  function todoResult(id: string, rows: Row[], extra: Record<string, unknown> = {}) {
+    const hostStatus = (status: string) => status === "cancelled" ? "abandoned" : status
+    return {
+      role: "toolResult",
+      toolCallId: id,
+      toolName: "todo",
+      content: "ok",
+      isError: false,
+      details: { op: "x", phases: [{ name: "Tasks", tasks: rows.map(r => ({ content: r.content, status: hostStatus(r.status) })) }] },
+      ...extra,
+    }
+  }
+
+  test("status-only steps become single host ops instead of a re-init", () => {
+    expect(diffTodoSnapshotToHostOps(snapshot(...progressed), hostRows(created))).toEqual([{ op: "start", task: "b" }])
+    expect(diffTodoSnapshotToHostOps(snapshot(...oneDone), hostRows(progressed))).toEqual([{ op: "done", task: "a" }])
+    expect(diffTodoSnapshotToHostOps(snapshot(...dropped), hostRows(oneDone))).toEqual([{ op: "drop", task: "c" }])
+    expect(diffTodoSnapshotToHostOps(snapshot(...finished), hostRows(dropped))).toEqual([{ op: "done", task: "b" }])
+    expect(diffTodoSnapshotToHostOps(snapshot(row("a", "completed"), row("b", "in_progress")), hostRows(oneDone)))
+      .toEqual([{ op: "rm", task: "c" }])
+    expect(diffTodoSnapshotToHostOps(snapshot(...oneDone), hostRows(oneDone))).toEqual([{ op: "view" }])
+    expect(diffTodoSnapshotToHostOps(snapshot(row("a", "completed"), row("b", "pending"), row("c", "in_progress")), hostRows(oneDone)))
+      .toEqual([{ op: "start", task: "c" }])
+  })
+
+  test("shapes a status diff cannot express exactly keep the full reconstruct", () => {
+    const current = hostRows(created)
+    // reorder, new row, reopen, idle without a successor, duplicates, two active rows
+    expect(diffTodoSnapshotToHostOps(snapshot(row("b", "in_progress"), row("a", "pending"), row("c", "pending")), current)).toBeUndefined()
+    expect(diffTodoSnapshotToHostOps(snapshot(...created, row("d", "pending")), current)).toBeUndefined()
+    expect(diffTodoSnapshotToHostOps(snapshot(row("a", "pending"), row("b", "in_progress")), hostRows(oneDone))).toBeUndefined()
+    expect(diffTodoSnapshotToHostOps(snapshot(row("a", "pending"), row("b", "pending"), row("c", "pending")), current)).toBeUndefined()
+    expect(diffTodoSnapshotToHostOps(snapshot(row("a", "pending"), row("a", "in_progress")), current)).toBeUndefined()
+    expect(diffTodoSnapshotToHostOps(snapshot(row("a", "in_progress"), row("b", "in_progress"), row("c", "pending")), current)).toBeUndefined()
+    expect(diffTodoSnapshotToHostOps({ todos: [] }, current)).toBeUndefined()
+    expect(diffTodoSnapshotToHostOps({ op: "start", task: "b" }, current)).toBeUndefined()
+    expect(diffTodoSnapshotToHostOps(snapshot(...progressed), [])).toBeUndefined()
+  })
+
+  test("replaying a diff on the rows it was computed from yields the snapshot", () => {
+    const steps: Array<[Row[], Row[]]> = [[created, progressed], [progressed, oneDone], [oneDone, dropped], [dropped, finished],
+      [oneDone, [row("a", "completed"), row("b", "in_progress")]], [oneDone, oneDone]]
+    for (const [before, after] of steps) {
+      const ops = diffTodoSnapshotToHostOps(snapshot(...after), hostRows(before))!
+      expect(reconstructTodoSnapshotFromHostOps(ops, hostRows(before))).toEqual(snapshot(...after))
+    }
+  })
+
+  test("host rows come from the latest successful todo result", () => {
+    const toolInputs = opsTodoInputs()
+    expect(latestHostTodoRows([], toolInputs)).toBeUndefined()
+    const messages = [
+      todoResult("t1", created),
+      todoResult("t2", progressed),
+      todoResult("t3", oneDone, { isError: true }),
+      { role: "toolResult", toolCallId: "r", toolName: "read", content: "x", isError: false, details: { phases: [] } },
+      { role: "user", content: "next" },
+    ]
+    expect(latestHostTodoRows(messages, toolInputs)).toEqual(progressed as never)
+    expect(latestHostTodoRows([todoResult("t4", dropped)], toolInputs)).toEqual(dropped as never)
+    // blocked has no OpenCode status: no diff, full reconstruct
+    expect(latestHostTodoRows([todoResult("t5", [row("a", "blocked")])], toolInputs)).toBeUndefined()
+    // without the ops-based host tool in this catalog there is no host list
+    expect(latestHostTodoRows(messages, undefined)).toBeUndefined()
+  })
+
+  test("stream diffs the first todo call and reconstructs a later one in the same response", async () => {
+    const toolInputs = opsTodoInputs()
+    const piStream = new FakeAssistantMessageEventStream()
+    await runV3StreamToPi({
+      model: MODEL,
+      toolInputs,
+      hostTodos: hostRows(created),
+      v3Stream: v3Parts([
+        { type: "tool-call", toolCallId: "c1", toolName: "todowrite", input: JSON.stringify(snapshot(...progressed)) },
+        { type: "tool-call", toolCallId: "c2", toolName: "todowrite", input: JSON.stringify(snapshot(...oneDone)) },
+        { type: "finish", usage: { inputTokens: {}, outputTokens: {} }, finishReason: { unified: "tool-calls", raw: "tool_calls" } },
+      ]) as never,
+      piStream: piStream as never,
+    })
+    const done = piStream.events.at(-1) as { message: { content: Array<{ id: string; arguments: unknown }> } }
+    expect(done.message.content.map(block => [block.id, block.arguments])).toEqual([
+      ["c1#0", { op: "start", task: "b" }],
+      ["c2#0", { op: "init", items: ["a", "b", "c"] }],
+      ["c2#1", { op: "done", task: "a" }],
+      ["c2#2", { op: "start", task: "b" }],
+    ])
+  })
+
+  test("history folds each diff back to the snapshot the model sent", () => {
+    const toolInputs = opsTodoInputs()
+    const steps = [created, progressed, oneDone, dropped, finished]
+    const messages: unknown[] = []
+    let host: Row[] | undefined
+    steps.forEach((after, index) => {
+      const id = `call_${index}`
+      const translated = translateCanonicalToolCall("todowrite", snapshot(...after), undefined, toolInputs, undefined,
+        latestHostTodoRows(messages as never, toolInputs))
+      const calls = Array.isArray(translated) ? translated : [translated!]
+      const fanout = calls.length > 1 || calls.some(call => call.fanout)
+      if (index > 0) expect(calls.every(call => call.input["op"] !== "init")).toBe(true)
+      const ids = calls.map((_, n) => fanout ? `${id}#${n}` : id)
+      messages.push({ role: "assistant", content: calls.map((call, n) => ({ type: "toolCall", id: ids[n], name: call.toolName, arguments: call.input })),
+        api: "acme", provider: "acme", model: "m", usage: {}, stopReason: "toolUse", timestamp: index })
+      host = after
+      for (const callId of ids) messages.push(todoResult(callId, host))
+    })
+
+    const prompt = translateContextToPrompt({ messages } as never, undefined, undefined, toolInputs)
+    const writes = prompt.flatMap(message => message.role === "assistant" ? message.content : [])
+    expect(writes.map(part => (part as { toolCallId: string }).toolCallId)).toEqual(steps.map((_, i) => `call_${i}`))
+    expect(writes.map(part => (part as { input: unknown }).input)).toEqual(steps.map(rows => snapshot(...rows)))
+  })
+
+  test("a diff whose prior result left history folds to its own reported rows", () => {
+    const toolInputs = opsTodoInputs()
+    const context = {
+      messages: [
+        { role: "assistant", content: [{ type: "toolCall", id: "d#0", name: "todo", arguments: { op: "done", task: "a" } }],
+          api: "acme", provider: "acme", model: "m", usage: {}, stopReason: "toolUse", timestamp: 1 },
+        todoResult("d#0", oneDone),
+      ],
+    }
+    const prompt = translateContextToPrompt(context as never, undefined, undefined, toolInputs)
+    expect((prompt[0] as { content: Array<{ input: unknown }> }).content[0]!.input).toEqual(snapshot(...oneDone))
   })
 })

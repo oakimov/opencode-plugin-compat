@@ -120,7 +120,7 @@ export function mimoProfile(options?: DraftOptions): HostProfile {
       streamToolCallEnsure: false,
       bashDescriptionRequired: true,
       clearSettledTodos: true,
-      clearSettledTodoMode: "empty",
+      clearSettledTodoMode: "completed-only",
       collapseOccupancyUsage: false,
     },
     // MiMo rotated both names: `actor` spawns subagents, and the freed `task`
@@ -176,6 +176,8 @@ export function kiloProfile(options?: DraftOptions): HostProfile {
     http: {
       directoryHeader: "x-kilo-directory",
       workspaceHeader: "x-kilo-workspace",
+      // Title generation streams with sessionID `title-${session.id}` and no tools.
+      isolatedSessionPrefixes: ["title-"],
     },
     capabilities: {
       classicHooks: true,

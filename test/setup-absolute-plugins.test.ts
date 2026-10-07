@@ -4,6 +4,7 @@ import { tmpdir } from "node:os"
 import { join } from "node:path"
 import {
   discoverAbsolutePluginRoots,
+  stripJsonc,
   wireAbsolutePluginFacades,
 } from "../packages/cli/src/setup.ts"
 
@@ -38,6 +39,64 @@ describe("ocp setup absolute-path plugin wiring", () => {
         "kilo.jsonc",
       ])
       expect(roots.sort()).toEqual([pluginA, pluginB].sort())
+    } finally {
+      rmSync(dir, { recursive: true, force: true })
+    }
+  })
+
+  test("discoverAbsolutePluginRoots reads JSONC with comments and trailing commas", () => {
+    const dir = mkdtempSync(join(tmpdir(), "ocp-abs-jsonc-"))
+    try {
+      const plugin = join(dir, "plugin")
+      mkdirSync(join(plugin, "dist"), { recursive: true })
+      writeFileSync(join(plugin, "package.json"), JSON.stringify({ name: "plugin" }))
+      writeFileSync(join(plugin, "dist", "index.js"), "export {}\n")
+      writeFileSync(
+        join(dir, "kilo.jsonc"),
+        [
+          "{",
+          '  "$schema": "https://example.invalid/config.json", // trailing comment',
+          '  "permission": { "bash": { "*": "ask", "git *": "allow", }, },',
+          "  /* block comment */",
+          `  "plugin": [`,
+          `    ${JSON.stringify(join(plugin, "dist", "index.js"))},`,
+          "  ],",
+          "}",
+        ].join("\n"),
+      )
+      expect(discoverAbsolutePluginRoots(dir, ["kilo.jsonc"])).toEqual([plugin])
+    } finally {
+      rmSync(dir, { recursive: true, force: true })
+    }
+  })
+
+  test("stripJsonc leaves string contents alone", () => {
+    const raw = '{ "url": "https://x.invalid//a", "s": "a, }", "c": "/* not */", "e": "q\\"//", }'
+    expect(JSON.parse(stripJsonc(raw))).toEqual({
+      url: "https://x.invalid//a",
+      s: "a, }",
+      c: "/* not */",
+      e: 'q"//',
+    })
+  })
+
+  test("comments cannot concatenate separate JSON tokens", () => {
+    for (const raw of ['{"a":1/* comment */2}', '{"a":tr/* comment */ue}']) {
+      expect(() => JSON.parse(stripJsonc(raw))).toThrow()
+    }
+    expect(JSON.parse(stripJsonc('{"a":/* before */1/* after */}'))).toEqual({ a: 1 })
+    expect(JSON.parse(stripJsonc('{// comment\r"a":1}'))).toEqual({ a: 1 })
+  })
+
+  test("unfinished block comments are rejected instead of accepting a truncated config", () => {
+    expect(() => stripJsonc('{"plugin":[]}/* unfinished')).toThrow("Unterminated JSONC")
+    const dir = mkdtempSync(join(tmpdir(), "ocp-invalid-jsonc-"))
+    try {
+      const plugin = join(dir, "plugin")
+      mkdirSync(plugin)
+      writeFileSync(join(plugin, "package.json"), JSON.stringify({ name: "plugin" }))
+      writeFileSync(join(dir, "config.jsonc"), JSON.stringify({ plugin: [plugin] }) + "/* unfinished")
+      expect(discoverAbsolutePluginRoots(dir, ["config.jsonc"])).toEqual([])
     } finally {
       rmSync(dir, { recursive: true, force: true })
     }

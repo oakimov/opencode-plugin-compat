@@ -7,6 +7,15 @@ import { providerUsageIntegrationForHost, usageEventPlugin } from "../packages/a
 import { resetUsageReconciliationForTests } from "../packages/adapter/src/usage-reconciliation.ts"
 import { renderProviderShimSource, stripProviderShimSource } from "../packages/adapter/src/shim-source.ts"
 
+/** What these tests call on a provider model; results are read loosely. */
+type UsageModel = {
+  doStream?(options?: unknown): Promise<{ stream: ReadableStream<any> }>
+  doGenerate?(options?: unknown): Promise<any>
+}
+function usageModel(model: UsageModel): Required<UsageModel> {
+  return model as Required<UsageModel>
+}
+
 const roots: string[] = []
 afterEach(() => { resetUsageReconciliationForTests(); for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true }) })
 const finish = {
@@ -20,10 +29,10 @@ for (const host of ["kilo", "mimo"]) {
     test(`${host} ${mode}: explicitly selected Devin keeps billed aggregates and a separate context diagnostic`, async () => {
       const root = mkdtempSync(path.join(tmpdir(), "ocp-clone-usage-")); roots.push(root)
       const usage = providerUsageIntegrationForHost(host, { XDG_CACHE_HOME: root, HOME: root }, "devin-opencode-provider")
-      const model = adaptLanguageModel({
+      const model = adaptLanguageModel(usageModel({
         async doStream() { return { stream: new ReadableStream({ start(c) { c.enqueue(finish); c.close() } }) } },
         async doGenerate() { return { ...finish, type: undefined, content: [{ type: "text", text: "ok" }] } },
-      }, policyForHostId(host), undefined, undefined, usage)
+      }), policyForHostId(host), undefined, undefined, usage)
       const options = { headers: { "x-opencode-session-id": "session" } }
       let reported: any
       if (mode === "stream") { for await (const part of (await model.doStream(options as never)).stream) reported = part }
@@ -60,11 +69,11 @@ for (const host of ["kilo", "mimo"]) {
     const root = mkdtempSync(path.join(tmpdir(), "ocp-generic-usage-")); roots.push(root)
     const integration = providerUsageIntegrationForHost(host, { XDG_CACHE_HOME: root, HOME: root }, "acme-provider")
     expect(integration?.projectFinish).toBeUndefined()
-    const model = adaptLanguageModel({ async doGenerate() { return { content: [], ...finish } } }, policyForHostId(host), undefined, undefined, integration)
+    const model = adaptLanguageModel(usageModel({ async doGenerate() { return { content: [], ...finish } } }), policyForHostId(host), undefined, undefined, integration)
     const result = await model.doGenerate()
     expect(result.usage.inputTokens).toEqual({ total: 304, noCache: 0, cacheRead: 304, cacheWrite: 0 })
     expect(result.providerMetadata).toEqual(finish.providerMetadata)
-    const aggregate = adaptLanguageModel({ async doGenerate() { return { content: [], usage: { inputTokens: { total: 100 }, outputTokens: { total: 20 } } } } }, policyForHostId(host))
+    const aggregate = adaptLanguageModel(usageModel({ async doGenerate() { return { content: [], usage: { inputTokens: { total: 100 }, outputTokens: { total: 20 } } } } }), policyForHostId(host))
     expect((await aggregate.doGenerate()).usage.inputTokens.noCache).toBe(100)
   })
 }
@@ -125,11 +134,11 @@ test("a payload delivered by several plugin hooks cannot claim the next step's r
 test("generation results are projected without leaving unclaimable reconciliation records", async () => {
   const root = mkdtempSync(path.join(tmpdir(), "ocp-usage-generate-")); roots.push(root)
   const usage = providerUsageIntegrationForHost("kilo", { XDG_CACHE_HOME: root, HOME: root }, "cursor-opencode-provider")
-  const model = adaptLanguageModel({ async doGenerate() { return {
+  const model = adaptLanguageModel(usageModel({ async doGenerate() { return {
     content: [{ type: "text", text: "title" }], finishReason: { unified: "stop" },
     usage: { inputTokens: { total: 100 }, outputTokens: { total: 10 } },
     providerMetadata: { cursor: { usageVersion: 3, inputTokensRaw: 300, outputTokensRaw: 20, cacheReadRaw: 200, cacheWriteRaw: 0, reasoningTokensRaw: 0 } },
-  } } }, policyForHostId("kilo"), undefined, undefined, usage)
+  } } }), policyForHostId("kilo"), undefined, undefined, usage)
   const result = await model.doGenerate({ headers: { "x-opencode-session-id": "session" } } as never)
   expect(result.usage.inputTokens.total).toBe(100)
   const { readdirSync } = await import("node:fs")

@@ -1,7 +1,14 @@
 import { describe, expect, test } from "bun:test"
 import { DshLlmAdapter } from "../packages/dsh-bridge/src/adapter.ts"
 import type { DshGenerateOptions, DshMessage } from "../packages/dsh-bridge/src/translate/context.ts"
-import { cursorChildNoticeContinuation, removeVisibleReplyEchoes } from "../packages/dsh-bridge/src/translate/cursor-continuation.ts"
+import {
+  applyChildNoticeHold,
+  cursorChildNoticeContinuation,
+  loggedDshMessages,
+  loggedDshRouteProvider,
+  removeVisibleReplyEchoes,
+} from "../packages/dsh-bridge/src/translate/cursor-continuation.ts"
+import { installCursorChildNoticeHold } from "../packages/dsh-bridge/src/cursor-child-notice.ts"
 
 const childId = "00000000-0000-4000-8000-000000000001"
 
@@ -193,19 +200,22 @@ describe("cursorChildNoticeContinuation", () => {
     ])).toBeUndefined()
   })
 
-  test("does not skip child notices after a tool-call", () => {
+  test("skips helper notices after a completed reply even if the spawn call is still on that assistant", () => {
     expect(cursorChildNoticeContinuation([
-      msg("assistant", "model", "reading", {}, [
-        { type: "text", text: "reading" },
-        { type: "tool-call", id: "c1", name: "read", arguments: "{\"file_path\":\"a\"}" },
+      msg("assistant", "model", "Scratch files completed. A helper was started to read hello.txt.", {}, [
+        { type: "text", text: "Scratch files completed. A helper was started to read hello.txt." },
+        { type: "tool-call", id: "c1", name: "subagent", arguments: "{}" },
       ]),
       {
-        role: "user",
-        content: [{ type: "tool-result", toolCallId: "c1", content: [{ type: "text", text: "ok" }] }],
+        role: "tool",
+        toolCallId: "c1",
+        content: [{ type: "text", text: "started" }],
         source: { kind: "tool", callId: "c1" },
       },
-      msg("user", "agent-message", "hello", { senderSessionId: childId }),
-    ])).toBeUndefined()
+      msg("user", "agent-message", "Agent 206ce0fd sent a message: \nhello.txt contains ocp", {
+        senderSessionId: childId,
+      }),
+    ])?.reason).toBe("agent-message")
   })
 })
 
@@ -220,7 +230,7 @@ describe("DshLlmAdapter silent child-notice stream", () => {
     ],
   }
 
-  test("makes the last reply final and visible without opening the model", async () => {
+  test("does not open the model or reprint the reply", async () => {
     const adapter = new DshLlmAdapter({
       providerName: "cursor-opencode",
       skipGenerate: cursorChildNoticeContinuation,
@@ -229,11 +239,8 @@ describe("DshLlmAdapter silent child-notice stream", () => {
       },
     })
     expect(await collect(adapter.stream(skipOptions))).toEqual([
-      { type: "block-start", index: 0, blockType: "text" },
-      { type: "text-delta", index: 0, text: continueAsk.content[0].text },
-      { type: "block-end", index: 0, block: { type: "text", text: continueAsk.content[0].text } },
       { type: "usage", usage: { inputTokens: 0, outputTokens: 0, totalTokens: 0 } },
-      { type: "finish", reason: { kind: "stop" }, replayState: { response: { ocp: "dsh-visible-reply-echo", ocpContext: { carry: true } } } },
+      { type: "finish", reason: { kind: "stop" }, replayState: { response: { ocpContext: { carry: true } } } },
     ])
   })
 
@@ -245,15 +252,39 @@ describe("DshLlmAdapter silent child-notice stream", () => {
     expect(removeVisibleReplyEchoes([continueAsk, echoed, human])).toEqual([continueAsk, human])
   })
 
-  test("a second child notice does not repeat an already visible display copy", () => {
+  test("a second child notice is held instead of copied into another step", () => {
     const echoed = msg("assistant", "model", continueAsk.content[0].text, {
       replayState: { response: { ocp: "dsh-visible-reply-echo" } },
     })
-    expect(cursorChildNoticeContinuation([
-      continueAsk,
-      echoed,
-      msg("user", "subagent-settled", "Background subagent finished.", { senderSessionId: childId }),
-    ])?.visibleReply).toBe("")
+    const settled = msg("user", "subagent-settled", "Background subagent finished.", { senderSessionId: childId })
+    const first = applyChildNoticeHold([continueAsk], [
+      msg("user", "agent-message", "hello", { senderSessionId: childId }),
+    ], [])
+    expect(first.action).toBe("hold")
+    const second = applyChildNoticeHold(
+      [continueAsk, echoed],
+      [settled],
+      first.action === "hold" ? first.held : [],
+    )
+    expect(second.action).toBe("hold")
+    if (second.action === "hold") expect(second.held).toHaveLength(2)
+    const human = msg("user", "user", "continue")
+    const released = applyChildNoticeHold([continueAsk, echoed], [human], second.action === "hold" ? second.held : [])
+    expect(released).toEqual({ action: "enter", release: second.action === "hold" ? second.held : [] })
+  })
+
+  test("holds a completed continue prompt so settle does not open a step", () => {
+    const answered = msg("assistant", "model", "Reply continue to run steps 8–10.", {}, [
+      { type: "reasoning", text: "Step 6 is complete." },
+      { type: "text", text: "Reply continue to run steps 8–10." },
+    ])
+    const settled = msg("user", "subagent-settled", "Background subagent finished.", { senderSessionId: childId })
+    expect(loggedDshMessages([
+      { type: "assistant/message", data: { message: { content: answered.content, source: answered.source } } },
+      { type: "turn/end", data: { reason: { kind: "completed" } } },
+    ])).toEqual([answered])
+    expect(applyChildNoticeHold([answered], [settled], [])).toEqual({ action: "hold", held: [settled] })
+    expect(applyChildNoticeHold([answered], [], [settled])).toEqual({ action: "enter", release: [] })
   })
 
   test("still opens the model for a human continue", async () => {
@@ -316,27 +347,25 @@ describe("DshLlmAdapter silent child-notice stream", () => {
     expect(opened).toBe(true)
   })
 
-  test("still opens the model after a tool result plus helper notices", async () => {
-    let opened = false
+  test("opens Cursor to process a tool result even when a helper notice follows it", async () => {
+    let prompt: unknown
     const adapter = new DshLlmAdapter({
       providerName: "cursor-opencode",
       skipGenerate: cursorChildNoticeContinuation,
       getLanguageModel: async () => {
-        opened = true
         return {
-          doStream: async () => ({
-            stream: new ReadableStream({
-              start(controller) {
-                controller.enqueue({ type: "text-delta", delta: "ok" })
-                controller.enqueue({ type: "finish", finishReason: "stop" })
-                controller.close()
-              },
-            }),
-          }),
+          doStream: async (options: { prompt: unknown }) => {
+            prompt = options.prompt
+            return { stream: new ReadableStream({ start(controller) {
+              controller.enqueue({ type: "text-delta", delta: "processed" })
+              controller.enqueue({ type: "finish", finishReason: "stop" })
+              controller.close()
+            } }) }
+          },
         } as never
       },
     })
-    await collect(adapter.stream({
+    const chunks = await collect(adapter.stream({
       provider: "cursor-opencode",
       model: "default",
       sessionId: "session-parent",
@@ -352,6 +381,86 @@ describe("DshLlmAdapter silent child-notice stream", () => {
         msg("user", "agent-message", "hello", { senderSessionId: childId }),
       ],
     }))
-    expect(opened).toBe(true)
+    expect(prompt).toBeDefined()
+    expect(JSON.stringify(prompt)).toContain('"value":"ok"')
+    expect(chunks).toContainEqual({ type: "text-delta", index: 0, text: "processed" })
+  })
+})
+
+describe("Cursor child-notice hold route", () => {
+  const reply = msg("assistant", "model", "Reply continue to run steps 8–10.", { provider: "cursor-opencode" }, [
+    { type: "reasoning", text: "Step 6 is complete." },
+    { type: "text", text: "Reply continue to run steps 8–10." },
+  ])
+  const notice = msg("user", "agent-message", "Agent 07b4778f sent a message: ", { senderSessionId: childId })
+  // Live DSH web order: the agent is created on the profile default, then the
+  // session picks Cursor (`model/selection`) before the first request header.
+  const selectedCursorEvents = [
+    { type: "model/selection", data: { provider: "cursor-opencode", model: "default" } },
+    { type: "request/header", data: { header: { config: { provider: "cursor-opencode", model: "default" } } } },
+    { type: "assistant/message", data: { message: { content: reply.content, source: reply.source } } },
+  ]
+
+  function listen(cursorProviders: ReadonlySet<string>) {
+    let listener: ((payload: unknown, next: () => Promise<unknown>) => Promise<unknown>) | undefined
+    installCursorChildNoticeHold((event, registered) => {
+      if (event === "agent/pre-step") listener = registered as never
+    }, cursorProviders)
+    return async (events: readonly unknown[] | Error, messages: readonly unknown[], provider = "deepseek-official") => {
+      let nextCalls = 0
+      const snapshotEvents = () => {
+        if (events instanceof Error) throw events
+        return events
+      }
+      const decision = await listener!({
+        agent: { id: "session-a", options: { provider }, session: { snapshotEvents } },
+        messages,
+      }, async () => {
+        nextCalls++
+        return { kind: "enter", messages: [...messages] }
+      })
+      return { decision, nextCalls }
+    }
+  }
+
+  test("a pending selection after the last header is the route", () => {
+    expect(loggedDshRouteProvider(selectedCursorEvents)).toBe("cursor-opencode")
+    expect(loggedDshRouteProvider([
+      ...selectedCursorEvents,
+      { type: "model/selection", data: { provider: "deepseek-official", model: "deepseek-flash" } },
+    ])).toBe("deepseek-official")
+    expect(loggedDshRouteProvider([{ type: "user/message", data: {} }])).toBeUndefined()
+  })
+
+  test("holds the notice when the session selected Cursor after creation on another default", async () => {
+    const step = listen(new Set(["cursor-opencode"]))
+    expect(await step(selectedCursorEvents, [notice])).toEqual({ decision: { kind: "enter", messages: [] }, nextCalls: 0 })
+  })
+
+  test("releases held notices on the next real step after the session leaves Cursor", async () => {
+    const step = listen(new Set(["cursor-opencode"]))
+    await step(selectedCursorEvents, [notice])
+    const human = msg("user", "user", "continue")
+    const switched = [
+      ...selectedCursorEvents,
+      { type: "model/selection", data: { provider: "deepseek-official", model: "deepseek-flash" } },
+    ]
+    expect(await step(switched, [])).toEqual({ decision: { kind: "enter", messages: [] }, nextCalls: 1 })
+    expect(await step(switched, [human])).toEqual({ decision: { kind: "enter", messages: [notice, human] }, nextCalls: 1 })
+  })
+
+  test("releases held notices on the next real step when the session log cannot be read", async () => {
+    const step = listen(new Set(["cursor-opencode"]))
+    await step(selectedCursorEvents, [notice])
+    const human = msg("user", "user", "continue")
+    const errors: unknown[] = []
+    const original = console.error
+    console.error = (...args: unknown[]) => { errors.push(args.join(" ")) }
+    try {
+      expect(await step(new Error("log closed"), [human])).toEqual({ decision: { kind: "enter", messages: [notice, human] }, nextCalls: 1 })
+    } finally {
+      console.error = original
+    }
+    expect(errors).toEqual(["dsh-bridge: child-notice hold could not read the session — log closed"])
   })
 })

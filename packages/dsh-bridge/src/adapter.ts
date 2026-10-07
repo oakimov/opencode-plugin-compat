@@ -10,7 +10,7 @@ import type { LanguageModelV3, LanguageModelV3CallOptions, LanguageModelV3Stream
 import { optionsForLevel, type ModelCallData, type UsageContext } from "@opencode-compat/opencode-loader"
 import { translateGenerateOptionsToPrompt, translateTools, type DshGenerateOptions, type DshMessage } from "./translate/context.js"
 import { v3StreamToDshChunks, type StreamChunk } from "./translate/stream.js"
-import type { DshToolInputVocabulary } from "./translate/tools.js"
+import { toolInputsForSchemas, type DshToolInputVocabulary } from "./translate/tools.js"
 
 export type DshLlmAdapterOptions = {
   providerName: string
@@ -21,12 +21,12 @@ export type DshLlmAdapterOptions = {
   prepareOptions?: (options: DshGenerateOptions) => DshGenerateOptions
   /** Tools installed for another configured provider are omitted from this adapter's catalog. */
   excludeToolNames?: ReadonlySet<string>
-  /** Optional provider integration selected by the registration layer. */
-  skipGenerate?: (messages: readonly DshMessage[]) => {
-    reason: string
-    visibleReply: string
-    replayState: { response: unknown }
-  } | undefined
+  /**
+   * Optional provider integration selected by the registration layer.
+   * A hit must not emit text: DSH records that text as another assistant
+   * message. Stopping the step before it starts is what keeps the reply visible once.
+   */
+  skipGenerate?: (messages: readonly DshMessage[]) => { reason: string } | undefined
   finishUsage?: (part: LanguageModelV3StreamPart & { type: "finish" }) => LanguageModelV3Usage | null | undefined
   finishContext?: (part: LanguageModelV3StreamPart & { type: "finish" }) => UsageContext | undefined
   /** Package-selected terminal stream adaptation, after V3 tool-name translation. */
@@ -37,6 +37,11 @@ export type DshLlmAdapterOptions = {
   resolveCallData?: (modelId: string) => ModelCallData | undefined
   /** Provider id key under which variant options should be placed */
   providerOptionsKey?: string
+  /**
+   * The plugin's OpenCode `chat.params` hook for a session request: receives the
+   * model/variant options and returns the options the request carries.
+   */
+  chatParams?: (input: { sessionId: string; modelId: string; options: Record<string, unknown> }) => Promise<Record<string, unknown>>
   /** Native CredentialRef env name, resolved via ctx.credentials */
   credentialRef?: string
   /** Resolve credential value from Cordis credentials service */
@@ -103,16 +108,8 @@ export class DshLlmAdapter extends LlmAdapter {
         console.log(
           `dsh-bridge: skipped child-notice generate sessionId=${options.sessionId ?? "-"} kinds=${skipped.reason}`,
         )
-        if (skipped.visibleReply.length > 0) {
-          yield { type: "block-start", index: 0, blockType: "text" }
-          yield { type: "text-delta", index: 0, text: skipped.visibleReply }
-          yield { type: "block-end", index: 0, block: { type: "text", text: skipped.visibleReply } }
-        }
         yield { type: "usage", usage: { inputTokens: 0, outputTokens: 0, totalTokens: 0 } }
-        yield { type: "finish", reason: { kind: "stop" }, replayState: {
-          ...skipped.replayState,
-          response: { ...skipped.replayState.response as object, ocpContext: { carry: true } },
-        } }
+        yield { type: "finish", reason: { kind: "stop" }, replayState: { response: { ocpContext: { carry: true } } } }
         return
       }
       const modelId = options.model
@@ -127,7 +124,7 @@ export class DshLlmAdapter extends LlmAdapter {
 
       // Translate DSH GenerateOptions → V3 call options
       const prepared = self.opts.prepareOptions?.(options) ?? options
-      const toolInputs = self.opts.toolInputsForCall?.(prepared) ?? self.opts.toolInputs
+      const toolInputs = toolInputsForSchemas(prepared.tools, self.opts.toolInputsForCall?.(prepared) ?? self.opts.toolInputs)
       const prompt = translateGenerateOptionsToPrompt(prepared, toolInputs, self.opts.excludeToolNames)
       const visibleTools = self.opts.excludeToolNames
         ? prepared.tools?.filter(tool => !self.opts.excludeToolNames!.has(tool.name))
@@ -155,9 +152,16 @@ export class DshLlmAdapter extends LlmAdapter {
 
       // Merge variant entryOptions + level options into providerOptions[providerOptionsKey]
       let callOptions = base
-      if (callData && self.opts.providerOptionsKey) {
+      if (self.opts.providerOptionsKey) {
         const level = typeof options.reasoningEffort === "string" ? options.reasoningEffort : undefined
-        const merged = { ...callData.entryOptions, ...optionsForLevel(callData.variant, level) }
+        let merged: Record<string, unknown> = callData
+          ? { ...callData.entryOptions, ...optionsForLevel(callData.variant, level) }
+          : {}
+        // OpenCode runs `chat.params` for every session turn; lifecycle
+        // requests (`purpose`, e.g. titles) are not agent turns.
+        if (self.opts.chatParams && options.sessionId && !options.purpose) {
+          merged = await self.opts.chatParams({ sessionId: options.sessionId, modelId: variantBaseId, options: merged })
+        }
         if (Object.keys(merged).length > 0) {
           callOptions = {
             ...base,

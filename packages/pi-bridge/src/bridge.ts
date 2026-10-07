@@ -20,7 +20,7 @@ import { renderApiKeyRef, type PiHostProfile } from "./host/profile.js"
 import type { PiModelConfig, PiOAuthConfig } from "@opencode-compat/opencode-loader"
 import { translateContextToPrompt, translateToolChoice, translateTools, resolvePiProviderContext } from "./translate/context.js"
 import { emptyUsage, runV3StreamToPi } from "./translate/stream.js"
-import { buildPiSubagentVocabulary, buildPiTerminalResultVocabulary, buildPiToolInputVocabulary } from "./translate/subagent.js"
+import { buildPiSubagentVocabulary, buildPiTerminalResultVocabulary, buildPiToolInputVocabulary, latestHostTodoRows } from "./translate/subagent.js"
 import { buildPiQuestionVocabulary } from "./translate/question.js"
 import type { PiContextLike, PiExtensionApi, PiModelLike, PiSimpleStreamOptions, PiUsage } from "./pi-provider-types.js"
 
@@ -96,7 +96,8 @@ export function aiSdkHeadersFromPi(
   return Object.keys(headers).length > 0 ? headers : undefined
 }
 
-function errorAssistantMessage(model: PiModelLike, err: unknown) {
+/** A failed request's message; a request the user aborted ends as `aborted`, with no error text. */
+function errorAssistantMessage(model: PiModelLike, err: unknown, aborted = false) {
   return {
     role: "assistant" as const,
     content: [],
@@ -104,14 +105,15 @@ function errorAssistantMessage(model: PiModelLike, err: unknown) {
     provider: model.provider,
     model: model.id,
     usage: emptyUsage(),
-    stopReason: "error" as const,
-    errorMessage: err instanceof Error ? err.message : String(err),
+    stopReason: aborted ? "aborted" as const : "error" as const,
+    ...(aborted ? {} : { errorMessage: err instanceof Error ? err.message : String(err) }),
     timestamp: Date.now(),
   }
 }
 
 /** Generic testable seam used by both Pi-family registrations. */
-export function buildStreamSimple(spec: AiSdkProviderSpec, runtime: PiRuntime) {
+export function buildStreamSimple(spec: AiSdkProviderSpec, runtime: PiRuntime,
+  prepareContext?: (context: PiContextLike, options?: PiSimpleStreamOptions) => Promise<PiContextLike>) {
   return (model: PiModelLike, context: PiContextLike, options?: PiSimpleStreamOptions) => {
     const piStream = runtime.createAssistantMessageEventStream()
     void (async () => {
@@ -120,7 +122,8 @@ export function buildStreamSimple(spec: AiSdkProviderSpec, runtime: PiRuntime) {
         const lm = await spec.getLanguageModel(model.id, apiKey)
         // earendil pi folds tools+systemPrompt into system messages before calling
         // custom streamSimple; omp still passes the classic Context fields.
-        const resolved = resolvePiProviderContext(context)
+        const normalized = resolvePiProviderContext(context)
+        const resolved = prepareContext ? await prepareContext(normalized, options) : normalized
         const excluded = new Set(spec.excludedToolNames ?? [])
         const providerTools = excluded.size === 0
           ? resolved.tools
@@ -128,7 +131,7 @@ export function buildStreamSimple(spec: AiSdkProviderSpec, runtime: PiRuntime) {
         const vocabulary = buildPiSubagentVocabulary(providerTools, runtime.toolSchema, runtime.profile)
         const toolInputs = buildPiToolInputVocabulary(providerTools, runtime.profile, runtime.toolSchema)
         const question = buildPiQuestionVocabulary(providerTools, runtime.profile)
-        const terminalResult = buildPiTerminalResultVocabulary(providerTools, runtime.profile)
+        const terminalResult = buildPiTerminalResultVocabulary(providerTools, runtime.profile, runtime.toolSchema)
         const translatedTools = translateTools(providerTools, runtime.toolSchema, vocabulary, toolInputs, question, terminalResult)
         const base: LanguageModelV3CallOptions = {
           prompt: translateContextToPrompt(resolved, vocabulary, runtime.profile, toolInputs, question, excluded),
@@ -152,15 +155,18 @@ export function buildStreamSimple(spec: AiSdkProviderSpec, runtime: PiRuntime) {
           toolInputs,
           terminalResult,
           question,
+          hostTodos: latestHostTodoRows(resolved.messages, toolInputs),
           allowedProviderToolNames,
           finishUsage: spec.finishUsage,
           finishContextTokens: spec.finishContextTokens,
           finishPiUsage: spec.finishPiUsage,
+          ...(options?.signal ? { signal: options.signal } : {}),
         })
       } catch (err) {
-        const message = errorAssistantMessage(model, err)
+        const aborted = options?.signal?.aborted === true
+        const message = errorAssistantMessage(model, err, aborted)
         piStream.push({ type: "start", partial: message })
-        piStream.push({ type: "error", reason: "error", error: message })
+        piStream.push({ type: "error", reason: aborted ? "aborted" : "error", error: message })
       }
     })()
     return piStream
@@ -239,6 +245,9 @@ export function buildDynamicModels(spec: AiSdkProviderSpec, profile: PiHostProfi
 export async function registerAiSdkProvider(pi: PiExtensionApi, spec: AiSdkProviderSpec): Promise<PiHostProfile> {
   const runtime = await loadPiRuntime()
   const { profile } = runtime
+  const prepareContext = profile.id === "omp"
+    ? (await import("./omp-task-results.js")).collectOmpTaskResults.bind(undefined, pi)
+    : undefined
 
   if (profile.reservedApis.includes(spec.api)) {
     throw new Error(`pi-bridge: api "${spec.api}" collides with a built-in ${profile.name} api id; choose a distinct id`)
@@ -247,7 +256,7 @@ export async function registerAiSdkProvider(pi: PiExtensionApi, spec: AiSdkProvi
   const config: Record<string, unknown> = {
     baseUrl: spec.baseUrl,
     api: spec.api,
-    streamSimple: buildStreamSimple(spec, runtime),
+    streamSimple: buildStreamSimple(spec, runtime, prepareContext),
     ...buildDynamicModels(spec, profile),
   }
   // `apiKey` goes into host config, so it must use the host's own syntax:

@@ -50,6 +50,13 @@ empty list. Successful network refreshes are persisted through Pi's model
 store, so a provider model selected in the previous session can be restored
 before the background refresh completes.
 
+Before every request the bridge runs the plugin's OpenCode `chat.params` hook,
+as OpenCode does, with the host's mode as the OpenCode agent: `plan` while the
+host is in plan mode (omp's own plan mode, or `@pify/plan-mode` on pi), `build`
+otherwise. The options the hook returns travel with that request, so a
+provider follows plan mode entered through the host's own UI. Pi has no
+OpenCode session API: the plugin's `client.session` is absent, not a stub.
+
 At session start, the bridge also activates Pi's optional built-in `find`,
 `grep`, and `ls` tools when the host has them in its allowed tool registry. The
 provider sees Pi's `find` as OpenCode's canonical `glob`; calls are translated
@@ -151,18 +158,24 @@ registers the tools that provider already bridges on:
 | Tool | Host | Behavior |
 |---|---|---|
 | `plan_enter` / `plan_exit` | **omp**; **pi** with `@pify/plan-mode` | omp: native AgentRegistry plan mode. pi: drive `enter_plan_mode` / `/plan off` |
-| `cursor_plan_stage` | **omp**; **pi** with `@pify/plan-mode` | omp: session-local plan + plan-review overlay. pi: `write_plan` then `exit_plan_mode` approval UI |
+| `cursor_plan_stage` | **omp**; **pi** with `@pify/plan-mode` | omp: session-local plan + plan-review overlay. pi: write `<getAgentDir()>/plans/<slug>-plan.md`, render it in the tool row, `/plan open` it, then pify `exit_plan_mode` approval UI |
 | `cursor_image_save` | **omp and pi** | Commit staged Cursor image bytes (`image_id` only) |
 
 `cursor_plan_stage` does not return until the host approval UI is answered.
+On omp, enter plan mode and wait for success before staging.
 Approve and execute succeeds and queues implementation. Refine or dismissing
-is an error, so Cursor keeps planning. Returning before that choice let the
+is an error, so the plan remains unapproved. On omp, dismissal also cancels the
+native turn; plan mode stays active until the user chooses the next action.
+Refinement continues planning. Returning before that choice let the
 model call `plan_exit` and continue with no review. `plan_exit` leaves plan
 mode; it is not the submit.
 
 On **pi**, install `@pify/plan-mode` (`pi install npm:@pify/plan-mode`) and list
 `@opencode-compat/pi-bridge` **before** `npm:@pify/plan-mode` in settings
-`packages` so the bridge can capture its tools. Without that package, pi still
+`packages` so the bridge can capture its tools. The bridge never calls pify
+`write_plan`, which writes into `<cwd>/.pi/plans`; staged plans stay out of the
+repository. pify's "reopened a saved plan" reminder from that `/plan open` is
+filtered from the model context (pi `context` hook), so a Revise keeps planning. Without that package, pi still
 advertises the three plan tools but execute refuses — Cursor SwitchMode cannot
 soft-approve into an unenforceable plan mode. Image save works on both hosts
 when the Cursor provider is loaded in-process. Force registration in tests with
@@ -225,6 +238,15 @@ from Pi's own schema, stored `edit` calls are translated back to the flat shape
 when replayed as history, so the model never sees a prior call in a shape its
 catalog does not declare; a stored multi-edit call keeps Pi's shape, since the
 flat contract cannot express more than one replacement.
+The provider-facing file catalog also uses `filePath` (and canonical edit
+fields) for both hosts, including OMP's native replace mode. Catalog and
+stored-call replay use that same contract; aliases are applied only for host
+execution. OMP injects a required `i` intent label into its model-facing
+schemas and strips it before executing native tools. Canonical file tools
+and grep do not advertise that harness-only requirement. Opaque custom
+tools retain their declared fields. Write keeps the host's content
+requirement: Pi requires `content`; OMP allows it to be omitted for devices
+that accept a content-less write. An empty string is preserved on both hosts.
 OMP's `read` has a different pagination contract: it accepts only `path` and
 embeds ranges as `path:raw:150-229`. The bridge advertises OpenCode's
 `{filePath, offset, limit}` shape and folds explicit ranges into that selector.
@@ -246,8 +268,15 @@ OpenCode `todowrite` / `todoread` and folds Cursor-style
 a single `init` (or `rm` when empty); snapshots that mark work completed or
 cancelled fan out `init` → `done`/`drop` → `start` under derived call ids so
 statuses actually land on the host (a lone `init` of remaining open items would
-drop completions). Native `{op:…}` calls still pass through. Fanned-out history
-is folded back into one canonical `todowrite` on the next provider turn.
+drop completions). When the latest successful `todo` result's
+`details.phases` already holds the same rows in the same order, a snapshot
+becomes only its status changes (`start`/`done`/`drop`, `rm` for omitted rows,
+`view` when nothing changed) under derived call ids. OMP treats every `init` as
+a replan that retitles the session, so status updates must not re-init.
+Reorders, new rows, reopened rows, and `blocked` rows keep the full
+reconstruct. Native `{op:…}` calls still pass through. Fanned-out history
+is folded back into one canonical `todowrite` on the next provider turn; a
+status diff folds onto the host rows it was computed from.
 
 OMP's `edit` is different again: it advertises a different schema per resolved
 edit mode (model override, then `PI_EDIT_VARIANT`, then the `edit.mode` setting,
