@@ -838,9 +838,12 @@ function joinOpenCodeGlobPath(searchPath: string | undefined, pattern: string): 
   if (!searchPath || searchPath === "." || searchPath === "./") {
     return normalizedPattern
   }
-  const base = searchPath.replace(/\\/g, "/").replace(/\/+$/, "")
+  const normalizedPath = searchPath.replace(/\\/g, "/")
+  let end = normalizedPath.length
+  while (end > 0 && normalizedPath[end - 1] === "/") end--
+  const base = normalizedPath.slice(0, end)
   const glob = normalizedPattern.replace(/^\/+/, "")
-  if (!base) return glob
+  if (!base) return `/${glob}`
   return `${base}/${glob}`
 }
 

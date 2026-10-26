@@ -318,7 +318,7 @@ export async function runDsh(_host: DshHost, mode: WireMode): Promise<void> {
     const patch = writeDevPatch(rows)
     console.log(`\nocp-dev: dsh is on LOCAL dsh-bridge + LOCAL ${rows.map((row) => row.package).join(" + ")}`)
     console.log(`  bridge: ${dshBridgePath()}/dist/index.js`)
-    for (const row of rows) console.log(`  provider: ${row.package} (${row.apiKeyEnv})`)
+    for (const row of rows) console.log(`  provider: ${row.package}`)
     console.log(`  persistent patch: ${persistent}`)
     console.log(`  dev overlay: ${patch} (for ad-hoc node apps/cli/lib/bin.js web --patch)`)
     console.log(`\n  Verify:`)

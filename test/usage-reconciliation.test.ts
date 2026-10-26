@@ -28,6 +28,42 @@ function setup() {
 }
 
 describe("Kilo usage reconciliation", () => {
+  test("restores the original record after a failed part update and permits a later retry", async () => {
+    const { root, bridge } = setup()
+    recordFinishUsage("session", {
+      type: "finish", finishReason: { unified: "stop" },
+      usage: { inputTokens: { total: 100 }, outputTokens: { total: 10 } },
+      providerMetadata: { acme: { usageVersion: 3, inputTokensRaw: 300, outputTokensRaw: 20,
+        cacheReadRaw: 200, cacheWriteRaw: 0, reasoningTokensRaw: 0 } },
+    })
+    const directory = path.join(root, "kilo", "ocp", "usage-reconciliation")
+    const original = readdirSync(directory)
+    expect(original).toHaveLength(1)
+    let attempts = 0
+    const updates: unknown[] = []
+    const client = { _client: { patch: async (request: { body: unknown }) => {
+      if (++attempts === 1) return { error: "unavailable" }
+      updates.push(request.body)
+      return {}
+    } } }
+    const event = () => ({
+      event: { type: "message.part.updated", properties: { part: {
+        id: "part", sessionID: "session", messageID: "message", type: "step-finish", reason: "stop",
+        tokens: { input: 100, output: 10, reasoning: 0, cache: { read: 0, write: 0 } },
+      } } },
+      client, directory: "/workspace", serverUrl: new URL("http://127.0.0.1:4096"),
+    })
+    await expect(bridge.handle(event())).rejects.toThrow("part update failed")
+    expect(readdirSync(directory)).toEqual(original)
+    await bridge.handle(event())
+    expect(attempts).toBe(2)
+    expect(updates).toHaveLength(1)
+    expect(updates[0]).toMatchObject({ tokens: {
+      total: 320, input: 100, output: 20, reasoning: 0, cache: { read: 200, write: 0 },
+    } })
+    expect(readdirSync(directory)).toEqual([])
+  })
+
   test("separate install-tree runtime copies share the event owner's reconciliation state", async () => {
     const { bridge } = setup()
     const root = mkdtempSync(path.join(tmpdir(), "ocp-usage-runtime-copy-"))

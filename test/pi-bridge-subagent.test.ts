@@ -658,6 +658,17 @@ describe("Pi-family subagent vocabulary", () => {
       toolInputs,
     )).toEqual({ toolName: "glob", input: { path: "src/**/*.ts" } })
 
+    // Trailing separators are scanned once, including an absolute root.
+    for (const [root, expected] of [
+      [`src${"/".repeat(50_000)}`, "src/**/*.ts"],
+      ["/".repeat(50_000), "/**/*.ts"],
+      ["src\\\\", "src/**/*.ts"],
+    ]) {
+      expect(translateCanonicalToolCall(
+        "glob", { pattern: "/**/*.ts", path: root }, undefined, toolInputs,
+      )).toEqual({ toolName: "glob", input: { path: expected } })
+    }
+
     // Absolute search root + brace pattern.
     expect(translateCanonicalToolCall(
       "glob",

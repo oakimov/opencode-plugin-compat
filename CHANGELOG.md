@@ -33,6 +33,8 @@ The monorepo ships **one shared train version** across all eleven packages, so u
 
 ### Fixed
 
+- Clone-host skills remain available after loading another provider's bundled runtime, with concurrent request catalogs kept separate.
+- OMP glob searches preserve an absolute filesystem root and handle long runs of trailing separators without backtracking.
 - Pi/OMP and DSH keep established tool catalogs stable when newly discovered tools appear.
 - Skill catalogs remain isolated across concurrent sessions and preserve host visibility rules; ordinary instructions and supporting Markdown files cannot become advertised skills.
 - Pi/OMP read batches preserve images, native ranges, and call order; skill loads retain their own identity across history reloads.

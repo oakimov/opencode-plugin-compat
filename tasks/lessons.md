@@ -1,5 +1,7 @@
 # Lessons learned
 
+- A process-wide skills reader needs one shared async context across independently bundled runtimes. Reproduce with two distinct generated-bundle imports and interleave requests; source-module isolation alone misses reader replacement.
+- Retain the original path when claiming a reconciliation file; failure recovery should not reconstruct ownership from a regex suffix. Use direct separator scans for model-supplied paths.
 - Pre-existing workspace links and a generated clone-runtime bundle masked clean CI failures. The architecture suite now checks direct workspace imports against the root manifest; validate dependency and workflow changes with the fresh-install/full-build procedure in `CONTRIBUTING.md`.
 
 - Preserve translation provenance in durable host history. A file location cannot distinguish a skill load from an ordinary or ranged read; retain the originating call identity and test replay after catalog removal. Exercise batch reads against the stock executor as well as fixtures: shared replay support does not prove both hosts split the outbound call.

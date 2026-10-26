@@ -26,7 +26,7 @@ function fixture(mode: string, outcome = "allowed-once") {
 }
 
 describe("Cursor image save on DSH", () => {
-  function provider(root: string, imageSave = "./dist/image-save.js", saved = "saved") {
+  function provider(root: string, imageSave = "./dist/image-save.js") {
     mkdirSync(path.join(root, "dist"), { recursive: true })
     mkdirSync(path.dirname(path.join(root, imageSave)), { recursive: true })
     writeFileSync(path.join(root, "package.json"), JSON.stringify({
@@ -34,7 +34,7 @@ describe("Cursor image save on DSH", () => {
       exports: { ".": { import: "./dist/index.js" }, "./image-save": { import: imageSave } },
     }))
     writeFileSync(path.join(root, "dist", "index.js"), "export const fixture = true\n")
-    writeFileSync(path.join(root, imageSave), `export const executeCursorImageSave = async () => ({output: ${JSON.stringify(saved)}})\n`)
+    writeFileSync(path.join(root, imageSave), 'export const executeCursorImageSave = async () => ({output: "saved"})\n')
   }
 
   test("follows the provider's own image-save export from the loaded root entry", async () => {

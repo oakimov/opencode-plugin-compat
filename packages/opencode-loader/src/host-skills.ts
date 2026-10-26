@@ -24,7 +24,13 @@ export type OpenCodeSkillsBridge = {
 }
 
 const MARKERS = new Set(["<built-in>", "builtin"])
-const requestSkills = new AsyncLocalStorage<readonly HostSkill[]>()
+// Install-tree bundles share one global reader, so its async request context
+// must also be shared. Keep the key versioned as this crosses module copies.
+const REQUEST_SKILLS_CONTEXT = Symbol.for("opencode.host.skills.request-context.v1")
+const shared = globalThis as typeof globalThis & {
+  [REQUEST_SKILLS_CONTEXT]?: AsyncLocalStorage<readonly HostSkill[]>
+}
+const requestSkills = shared[REQUEST_SKILLS_CONTEXT] ??= new AsyncLocalStorage<readonly HostSkill[]>()
 
 export function isUsableSkillLocation(location: string | undefined): boolean {
   if (typeof location !== "string") return false

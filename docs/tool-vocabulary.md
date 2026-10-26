@@ -45,7 +45,7 @@ Sources: `OMP:packages/coding-agent/src/edit/schemas.ts:3`, `OMP:packages/coding
 | OMP | `glob(path?, hidden?, gitignore?, limit?)`, where path includes the glob; `grep(pattern, path?, case?, gitignore?, skip?)`; `skip` is a nonnegative number or null | `O/glob.ts:34`, `O/grep.ts:60` |
 | DSH | `glob(pattern, path?)`; `grep(pattern, path?, include?)` | `D/fs/tool-fs-search/src/glob.ts:311`, `D/fs/tool-fs-search/src/grep.ts:288` |
 
-OCP advertises Pi `find` as `glob`; OMP's provider-facing `glob(pattern,path?)` joins the root and pattern into native `path`. Pi’s provider-facing grep uses `include`, translated to native `glob`. OMP’s `include` joins the search root into native `path`; `caseSensitive` becomes native `case`. Search-root `path` is never a file-key alias. Sources: `packages/pi-bridge/src/host/profile.ts:197`, `packages/pi-bridge/src/translate/subagent.ts:731`, `packages/dsh-bridge/src/host/profile.ts:55`.
+OCP advertises Pi `find` as `glob`; OMP's provider-facing `glob(pattern,path?)` joins the root and pattern into native `path`, trimming trailing separators while preserving an absolute `/` root. Pi’s provider-facing grep uses `include`, translated to native `glob`. OMP’s `include` joins the search root into native `path`; `caseSensitive` becomes native `case`. Search-root `path` is never a file-key alias. Sources: `packages/pi-bridge/src/host/profile.ts:197`, `packages/pi-bridge/src/translate/subagent.ts:731`, `packages/dsh-bridge/src/host/profile.ts:55`.
 
 ## Questions, delegation, task lists, and plans
 

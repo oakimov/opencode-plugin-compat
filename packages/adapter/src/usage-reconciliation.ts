@@ -366,7 +366,7 @@ function usageFromPart(part: RecordLike): HostTokenUsage | undefined {
   }
 }
 
-function claimRecord(sessionID: string, observed: HostTokenUsage, reason: string | undefined): { file: string; record: ReconciliationRecord } | undefined {
+function claimRecord(sessionID: string, observed: HostTokenUsage, reason: string | undefined): { file: string; source: string; record: ReconciliationRecord } | undefined {
   const root = shared.root
   if (!root) return undefined
   const prefix = `${sessionPrefix(sessionID)}-`
@@ -389,7 +389,7 @@ function claimRecord(sessionID: string, observed: HostTokenUsage, reason: string
     const claimed = `${source}.claim-${process.pid}-${randomUUID()}`
     try {
       renameSync(source, claimed)
-      return { file: claimed, record }
+      return { file: claimed, source, record }
     } catch {
       // Another process won this record; try the next candidate.
     }
@@ -522,9 +522,8 @@ async function reconcileEvent(input: HostEventInput): Promise<void> {
     }
     safeUnlink(claimed.file)
   } catch (error) {
-    const source = claimed.file.replace(/\.claim-[^.]+-[0-9a-f-]+$/, "")
     try {
-      renameSync(claimed.file, source)
+      renameSync(claimed.file, claimed.source)
     } catch {
       // Keep the provider/plugin path non-fatal even if recovery races.
     }
