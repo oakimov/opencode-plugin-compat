@@ -4,17 +4,11 @@
  * import exists in `translate/context.ts` (only `import type`), so these
  * tests need no real or mocked package.
  */
-import { afterEach, describe, expect, test } from "bun:test"
+import { describe, expect, test } from "bun:test"
 import { ompProfile } from "../packages/pi-bridge/src/host/profile.ts"
 import { translateContextToPrompt, translateToolChoice, translateTools } from "../packages/pi-bridge/src/translate/context.ts"
-import { buildPiToolInputVocabulary, translateCanonicalToolCall, translateHostToolCallInput } from "../packages/pi-bridge/src/translate/subagent.ts"
+import { buildPiToolInputVocabulary, translateCanonicalToolCall, translateHostToolCallInput, skillReadCallId } from "../packages/pi-bridge/src/translate/subagent.ts"
 import { piProfile } from "../packages/pi-bridge/src/host/profile.ts"
-import { recordHostSkillCatalogText } from "../packages/opencode-loader/src/host-skills.ts"
-
-afterEach(() => {
-  recordHostSkillCatalogText(undefined)
-})
-
 describe("translateContextToPrompt", () => {
   test("joins systemPrompt entries into one leading system message", () => {
     const prompt = translateContextToPrompt({
@@ -299,70 +293,33 @@ describe("translateTools", () => {
     ])
   })
 
-  test("Pi/OMP synthesize provider skill calls through host read locations", () => {
-    const tools = [{ name: "read", description: "Read", parameters: { type: "object", properties: { path: { type: "string" } } } }]
-    const toSchema = (tool: { parameters: unknown }) => tool.parameters as Record<string, unknown>
-    const inputs = buildPiToolInputVocabulary(tools, piProfile(), toSchema)
-    translateContextToPrompt({
-      systemPrompt: `<available_skills>
-  <skill><name>audit</name><description>Audit repo</description><location>/repo/skills/audit.md</location></skill>
-</available_skills>`,
-      messages: [],
-    } as never, undefined, piProfile(), inputs)
-
-    expect(translateTools(tools, toSchema, undefined, inputs)?.map(tool => tool.name)).toEqual(["read", "skill"])
-    expect(translateCanonicalToolCall("skill", { name: "audit" }, undefined, inputs)).toEqual({
-      toolName: "read",
-      input: { path: "/repo/skills/audit.md" },
+  for (const profile of [piProfile(), ompProfile()]) {
+    test(`${profile.id} synthesizes skill calls only from this request's explicit catalog`, () => {
+      const tools = [{ name: "read", description: "Read", parameters: { type: "object", properties: { path: { type: "string" } } } }]
+      const toSchema = (tool: { parameters: unknown }) => tool.parameters as Record<string, unknown>
+      const inputs = buildPiToolInputVocabulary(tools, profile, toSchema)
+      const location = profile.id === "omp" ? "skill://audit" : "/repo/skills/audit.md"
+      const skills = [{ name: "audit", description: "Audit repo", location }]
+      expect(translateTools(tools, toSchema, undefined, inputs, undefined, undefined, skills)?.map(tool => tool.name)).toEqual(["read", "skill"])
+      expect(translateCanonicalToolCall("skill", { name: "audit" }, undefined, inputs, undefined, undefined, skills)).toEqual({
+        toolName: "read", input: { path: location },
+      })
+      expect(translateHostToolCallInput("read", { path: location }, inputs)).toEqual({ filePath: location })
+      expect(translateTools(tools, toSchema, undefined, inputs)?.map(tool => tool.name)).toEqual(["read"])
+      expect(() => translateCanonicalToolCall("skill", { name: "other" }, undefined, inputs, undefined, undefined, skills)).toThrow("advertised catalog")
     })
-    expect(translateHostToolCallInput("read", { path: "/repo/skills/audit.md" }, inputs)).toEqual({ name: "audit" })
-  })
+  }
 
-  test("OMP skill list entries synthesize skill:// reads", () => {
-    const tools = [{ name: "read", description: "Read", parameters: { type: "object", properties: { path: { type: "string" } } } }]
-    const toSchema = (tool: { parameters: unknown }) => tool.parameters as Record<string, unknown>
-    const inputs = buildPiToolInputVocabulary(tools, ompProfile(), toSchema)
-    translateContextToPrompt({
-      systemPrompt: `<skills>
-- audit: Audit repo
-</skills>`,
-      messages: [],
-    } as never, undefined, ompProfile(), inputs)
-
-    expect(translateTools(tools, toSchema, undefined, inputs)?.map(tool => tool.name)).toEqual(["read", "skill"])
-    expect(translateCanonicalToolCall("skill", { name: "audit" }, undefined, inputs)).toEqual({
-      toolName: "read",
-      input: { path: "skill://audit" },
-    })
-  })
-
-  test("skill-location reads replay as canonical skill calls and wrapped results", () => {
-    const tools = [{ name: "read", description: "Read", parameters: { type: "object", properties: { path: { type: "string" } } } }]
-    const toSchema = (tool: { parameters: unknown }) => tool.parameters as Record<string, unknown>
-    const inputs = buildPiToolInputVocabulary(tools, piProfile(), toSchema)
-    translateContextToPrompt({
-      systemPrompt: `<available_skills>
-  <skill><name>audit</name><description>Audit repo</description><location>/repo/skills/audit.md</location></skill>
-</available_skills>`,
-      messages: [],
-    } as never, undefined, piProfile(), inputs)
-
+  test("skill reads replay by persisted provenance even after the catalog is removed", () => {
+    const tools = [{ name: "read", description: "Read", parameters: { type: "object" } }]
+    const inputs = buildPiToolInputVocabulary(tools, piProfile())
+    const id = skillReadCallId("s1", "audit")
     const prompt = translateContextToPrompt({
       messages: [
-        {
-          role: "assistant",
-          content: [{ type: "toolCall", id: "s1", name: "read", arguments: { path: "/repo/skills/audit.md" } }],
-          api: "x",
-          provider: "acme",
-          model: "m",
-          usage: {},
-          stopReason: "toolUse",
-          timestamp: 1,
-        },
-        { role: "toolResult", toolCallId: "s1", toolName: "read", content: [{ type: "text", text: "body" }], isError: false, timestamp: 2 },
+        { role: "assistant", content: [{ type: "toolCall", id, name: "read", arguments: { path: "/repo/skills/audit.md" } }] },
+        { role: "toolResult", toolCallId: id, toolName: "read", content: [{ type: "text", text: "body" }], isError: false, timestamp: 2 },
       ],
     } as never, undefined, piProfile(), inputs)
-
     expect(prompt).toEqual([
       { role: "assistant", content: [{ type: "tool-call", toolCallId: "s1", toolName: "skill", input: { name: "audit" } }] },
       { role: "tool", content: [{ type: "tool-result", toolCallId: "s1", toolName: "skill", output: { type: "text", value: "<skill_content>\nbody\n</skill_content>" } }] },

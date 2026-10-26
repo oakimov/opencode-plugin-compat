@@ -28,9 +28,8 @@ import type { PiHostProfile } from "../host/profile.js"
 import {
   ensureToolResultContiguity,
   hostToolRenames,
-  recordHostSkillCatalogText,
   translatePromptToolNames,
-  currentRecordedHostSkills,
+  type HostSkill,
 } from "@opencode-compat/opencode-loader"
 import {
   canonicalSubagentDescription,
@@ -40,6 +39,7 @@ import {
   isOpsTodoHostTool,
   isReadHostTool,
   joinReadFanoutInput,
+  skillReadCall,
   originalTodoFanoutId,
   reconstructTodoSnapshotFromHostOps,
   translateHostSubagentCall,
@@ -416,6 +416,11 @@ function assistantMessageToV3(
         })
         continue
       }
+      const skill = block.name === "read" ? skillReadCall(block.id) : undefined
+      if (skill) {
+        content.push({ type: "tool-call", toolCallId: skill.id, toolName: "skill", input: { name: skill.name } })
+        continue
+      }
       const translated =
         translateHostSubagentCall(block.name, block.arguments, vocabulary) ??
         translateHostQuestionCall(block.name, block.arguments, question)
@@ -550,7 +555,6 @@ export function translateContextToPrompt(
   const hostText = (text: string) => translatePromptToolNames(text, renames, { toolListItems: true })
 
   const systemText = normalizeSystemPrompt(context.systemPrompt)
-  if (systemText !== undefined) recordHostSkillCatalogText(systemText)
   if (systemText) prompt.push({ role: "system", content: hostText(systemText) })
 
   // Fanned-out todo/read results collapse into the first message for their canonical id.
@@ -562,25 +566,26 @@ export function translateContextToPrompt(
     string,
     {
       toolName: string
-      parts: Array<{ path: string; text: string; isError: boolean }>
+      parts: Array<{ path: string; output: LanguageModelV3ToolResultPart["output"]; isError: boolean; order: number }>
       promptIndex: number
     }
   >()
   const readPathByFanoutId = new Map<string, string>()
-  const skillNameByCallId = new Map<string, string>()
+  const readOrderByFanoutId = new Map<string, number>()
   for (const message of context.messages) {
     if (message.role !== "assistant") continue
     for (const block of message.content) {
       if (block.type !== "toolCall") continue
-      const skill = skillForReadCall(block.name, block.arguments)
-      if (skill) skillNameByCallId.set(block.id, skill.name)
       if (!isReadHostTool(block.name, toolInputs)) continue
       const path = typeof block.arguments?.path === "string"
         ? block.arguments.path
         : typeof block.arguments?.filePath === "string"
           ? block.arguments.filePath
           : ""
-      if (path) readPathByFanoutId.set(block.id, path)
+      if (path) {
+        readOrderByFanoutId.set(block.id, readPathByFanoutId.size)
+        readPathByFanoutId.set(block.id, path)
+      }
     }
   }
 
@@ -648,16 +653,16 @@ export function translateContextToPrompt(
       if (todoRows !== null) currentTodos = todoRows
       if (excludedToolNames?.has(message.toolName) || excludedToolCallIds.has(message.toolCallId)) continue
       const fanoutOriginal = originalTodoFanoutId(message.toolCallId)
-      const skillName = skillNameByCallId.get(message.toolCallId)
-      if (skillName) {
+      const skill = message.toolName === "read" ? skillReadCall(message.toolCallId) : undefined
+      if (skill) {
         prompt.push({
           role: "tool",
           content: [
             {
               type: "tool-result",
-              toolCallId: message.toolCallId,
+              toolCallId: skill.id,
               toolName: "skill",
-              output: { type: message.isError ? "error-text" : "text", value: wrapSkillContent(flattenToPlainText(message.content)) },
+              output: { type: message.isError ? "error-text" : "text", value: message.isError ? flattenToPlainText(message.content) : wrapSkillContent(flattenToPlainText(message.content)) },
             },
           ],
         })
@@ -697,11 +702,12 @@ export function translateContextToPrompt(
         continue
       }
       if (fanoutOriginal && isReadHostTool(message.toolName, toolInputs)) {
-        const text = flattenToPlainText(message.content)
+        const output = toolResultOutputFromPi(message)
+        const order = readOrderByFanoutId.get(message.toolCallId) ?? -1
         const path = readPathByFanoutId.get(message.toolCallId) || message.toolCallId
         const existing = foldedReadResults.get(fanoutOriginal)
         if (existing) {
-          existing.parts.push({ path, text, isError: message.isError === true })
+          existing.parts.push({ path, output, order, isError: message.isError === true })
           continue
         }
         const toolName = canonicalToolName(
@@ -722,7 +728,7 @@ export function translateContextToPrompt(
         })
         foldedReadResults.set(fanoutOriginal, {
           toolName,
-          parts: [{ path, text, isError: message.isError === true }],
+          parts: [{ path, output, order, isError: message.isError === true }],
           promptIndex: prompt.length - 1,
         })
         continue
@@ -757,25 +763,25 @@ export function translateContextToPrompt(
     const entry = prompt[folded.promptIndex]
     if (!entry || entry.role !== "tool" || !Array.isArray(entry.content) || !entry.content[0]) continue
     const part = entry.content[0] as LanguageModelV3ToolResultPart
-    const allFailed = folded.parts.length > 0 && folded.parts.every((row) => row.isError)
-    const value = folded.parts
-      .map((row) => {
-        const body = row.text || (row.isError ? "(error)" : "(empty)")
-        const prefix = row.isError ? `error: ${row.path}` : row.path
-        return `${prefix}\n${body}`
-      })
-      .join("\n\n")
-    part.output = { type: allFailed ? "error-text" : "text", value }
+    const rows = folded.parts.sort((a, b) => a.order - b.order)
+    const allFailed = rows.length > 0 && rows.every(row => row.isError)
+    if (rows.some(row => row.output.type === "content")) {
+      part.output = { type: "content", value: rows.flatMap(row => [
+        { type: "text" as const, text: `${row.isError ? "error: " : ""}${row.path}` },
+        ...(row.output.type === "content" ? row.output.value : [
+          { type: "text" as const, text: "value" in row.output ? String(row.output.value) : "(empty)" },
+        ]),
+      ]) }
+    } else {
+      const value = rows.map(row => {
+        const body = "value" in row.output ? String(row.output.value) : ""
+        return `${row.isError ? "error: " : ""}${row.path}\n${body || (row.isError ? "(error)" : "(empty)")}`
+      }).join("\n\n")
+      part.output = { type: allFailed ? "error-text" : "text", value }
+    }
   }
 
   return ensureToolResultContiguity(prompt) as LanguageModelV3Prompt
-}
-
-function skillForReadCall(toolName: string, input: Record<string, unknown>): { name: string } | undefined {
-  if (toolName !== "read") return undefined
-  const location = input.path ?? input.filePath
-  if (typeof location !== "string") return undefined
-  return currentRecordedHostSkills().find(skill => skill.location === location)
 }
 
 function wrapSkillContent(text: string): string {
@@ -793,6 +799,7 @@ export function translateTools(
   toolInputs?: PiToolInputVocabulary,
   question?: PiQuestionVocabulary,
   terminalResult?: PiTerminalResultVocabulary,
+  skills: readonly HostSkill[] = [],
 ): LanguageModelV3FunctionTool[] | undefined {
   if (!tools || tools.length === 0) return undefined
   const translated: LanguageModelV3FunctionTool[] = []
@@ -854,7 +861,7 @@ export function translateTools(
     }
   }
   if (
-    currentRecordedHostSkills().some(skill => skill.location) &&
+    skills.some(skill => skill.location) &&
     !translated.some(tool => tool.name === "skill") &&
     tools.some(tool => tool.name === "read")
   ) {

@@ -6,6 +6,7 @@
  * skill body. Built-in / marker locations are omitted by the provider.
  */
 
+import { AsyncLocalStorage } from "node:async_hooks"
 import { fileURLToPath } from "node:url"
 
 export const HOST_SKILLS_BRIDGE = Symbol.for("opencode.host.skills")
@@ -23,7 +24,7 @@ export type OpenCodeSkillsBridge = {
 }
 
 const MARKERS = new Set(["<built-in>", "builtin"])
-let latestCatalogText: string | undefined
+const requestSkills = new AsyncLocalStorage<readonly HostSkill[]>()
 
 export function isUsableSkillLocation(location: string | undefined): boolean {
   if (typeof location !== "string") return false
@@ -46,16 +47,13 @@ export function normalizeSkillLocation(location: string): string {
   return value
 }
 
-export function recordHostSkillCatalogText(text: string | undefined): void {
-  latestCatalogText = text && text.trim().length > 0 ? text : undefined
-}
-
-export function latestHostSkillCatalogText(): string | undefined {
-  return latestCatalogText
+/** Scope the host's advertised catalog to this provider request and its async work. */
+export function withHostSkills<T>(skills: readonly HostSkill[], run: () => T): T {
+  return requestSkills.run(projectPathDescSkills(skills), run)
 }
 
 export function currentRecordedHostSkills(): HostSkill[] {
-  return skillsFromCatalogText(latestCatalogText)
+  return projectPathDescSkills(requestSkills.getStore() ?? [])
 }
 
 /** Install or replace the process-wide skills bridge. */
@@ -79,40 +77,51 @@ export function hostSkillsBridge(): OpenCodeSkillsBridge | undefined {
   return typeof bridge.list === "function" ? (bridge as OpenCodeSkillsBridge) : undefined
 }
 
-const CATALOG = /<available_skills\b[^>]*>([\s\S]*?)<\/available_skills>/i
-const ENTRY_C1 = /<skill\b[^>]*>([\s\S]*?)<\/skill>/gi
+/** Scan tags without retrying an unbounded regex at every unmatched opener. */
+function tagBodies(text: string, tag: string): string[] {
+  const lower = text.replace(/[A-Z]/g, character => character.toLowerCase())
+  const open = `<${tag}`
+  const close = `</${tag}>`
+  const out: string[] = []
+  let cursor = 0
+  while (cursor < text.length) {
+    const start = lower.indexOf(open, cursor)
+    if (start < 0) break
+    cursor = start + open.length
+    const boundary = lower[cursor]
+    if (boundary !== ">" && boundary?.trim() !== "") continue
+    const bodyStart = lower.indexOf(">", cursor)
+    if (bodyStart < 0) break
+    const end = lower.indexOf(close, bodyStart + 1)
+    if (end < 0) break
+    out.push(text.slice(bodyStart + 1, end))
+    cursor = end + close.length
+  }
+  return out
+}
 
 function decodeXml(value: string): string {
-  return value
-    .replace(/&amp;/g, "&")
-    .replace(/&lt;/g, "<")
-    .replace(/&gt;/g, ">")
-    .replace(/&quot;/g, '"')
-    .replace(/&apos;/g, "'")
-    .replace(/&#39;/g, "'")
+  const entities: Record<string, string> = { amp: "&", lt: "<", gt: ">", quot: '"', apos: "'", "#39": "'" }
+  return value.replace(/&(amp|lt|gt|quot|apos|#39);/g, (_, entity: string) => entities[entity]!)
 }
 
 function encodeXml(value: string): string {
-  return value
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;")
+  const entities: Record<string, string> = { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }
+  return value.replace(/[&<>"]/g, character => entities[character]!)
 }
 
 function tagText(entry: string, tag: string): string | undefined {
-  const match = entry.match(new RegExp(`<${tag}\\b[^>]*>([\\s\\S]*?)<\\/${tag}>`, "i"))
-  return match?.[1] === undefined ? undefined : decodeXml(match[1].trim())
+  const body = tagBodies(entry, tag)[0]
+  return body === undefined ? undefined : decodeXml(body.trim())
 }
 
 /** Parse OpenCode-1-shaped `<available_skills>` into HostSkill rows. */
 export function parseAvailableSkillsCatalog(text: string): HostSkill[] {
-  const catalog = CATALOG.exec(text)?.[1]
+  const catalog = tagBodies(text, "available_skills")[0]
   if (!catalog) return []
   const out: HostSkill[] = []
   const seen = new Set<string>()
-  for (const match of catalog.matchAll(ENTRY_C1)) {
-    const entry = match[1] ?? ""
+  for (const entry of tagBodies(catalog, "skill")) {
     const name = tagText(entry, "name")
     const id = tagText(entry, "id")
     const description = tagText(entry, "description")
@@ -154,10 +163,16 @@ export function parseDshSkillReminder(text: string): HostSkill[] {
   const out: HostSkill[] = []
   const seen = new Set<string>()
   for (const line of text.split("\n")) {
-    const match = line.match(/^\s*-\s*`([^`]+)`\s*:\s*(.*)$/)
-    if (!match) continue
-    const name = match[1]!.trim()
-    const description = (match[2] ?? "").trim()
+    const bullet = line.trim()
+    if (!bullet.startsWith("-")) continue
+    const item = bullet.slice(1).trimStart()
+    if (!item.startsWith("`")) continue
+    const end = item.indexOf("`", 1)
+    if (end < 0) continue
+    const tail = item.slice(end + 1).trimStart()
+    if (!tail.startsWith(":")) continue
+    const name = item.slice(1, end).trim()
+    const description = tail.slice(1).trim()
     if (!name || seen.has(name)) continue
     seen.add(name)
     out.push({ name, description })
@@ -170,14 +185,21 @@ export function parseDshSkillReminder(text: string): HostSkill[] {
  * rows with `skill://<name>` locations.
  */
 export function parseOmpSkillsBlock(text: string): HostSkill[] {
-  const block = /<skills>([\s\S]*?)<\/skills>/i.exec(text)?.[1] ?? text
+  const block = tagBodies(text, "skills")[0]
+  if (block === undefined) return []
   const out: HostSkill[] = []
   const seen = new Set<string>()
   for (const line of block.split("\n")) {
-    const match = line.match(/^\s*-\s*(?:`?skill:\/\/)?`?([^:`]+)`?:\s*(.*)$/)
-    if (!match) continue
-    const name = match[1]!.trim()
-    const description = (match[2] ?? "").trim()
+    const bullet = line.trim()
+    if (!bullet.startsWith("-")) continue
+    let item = bullet.slice(1).trimStart()
+    if (item.startsWith("`")) item = item.slice(1)
+    if (item.startsWith("skill://")) item = item.slice("skill://".length)
+    const colon = item.indexOf(":")
+    if (colon < 0) continue
+    const name = item.slice(0, colon).trim().replace(/`$/, "")
+    if (name.includes("`")) continue
+    const description = item.slice(colon + 1).trim()
     if (!name || seen.has(name)) continue
     seen.add(name)
     out.push({ name, description, location: `skill://${name}` })

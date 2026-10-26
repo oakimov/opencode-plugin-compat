@@ -22,6 +22,25 @@ async function collect(
 }
 
 describe("v3StreamToDshChunks per-id text blocks", () => {
+  test("reasoning blocks reopen for repeated ids and retain distinct parallel ids", async () => {
+    const chunks = await collect([
+      { type: "reasoning-start", id: "a" },
+      { type: "reasoning-delta", id: "a", delta: "first" },
+      { type: "reasoning-start", id: "b" },
+      { type: "reasoning-delta", id: "b", delta: "second" },
+      { type: "reasoning-end", id: "a" },
+      { type: "reasoning-start", id: "a" },
+      { type: "reasoning-delta", id: "a", delta: "third" },
+      { type: "reasoning-end", id: "a" },
+      { type: "reasoning-end", id: "b" },
+      { type: "reasoning-delta", id: "c", delta: "delta only" },
+      { type: "finish", finishReason: "stop" },
+    ])
+    const starts = chunks.filter(c => c.type === "block-start" && c.blockType === "reasoning")
+    expect(starts.map(c => c.index)).toEqual([0, 1, 2, 3])
+    expect(chunks.filter(c => c.type === "block-end").map(c => c.index)).toEqual([0, 2, 1, 3])
+  })
+
   test("reopens text under a new index after a tool call closes the first text block", async () => {
     const chunks = await collect([
       { type: "text-start", id: "t1" },

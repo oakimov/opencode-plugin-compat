@@ -33,6 +33,12 @@ The monorepo ships **one shared train version** across all eleven packages, so u
 
 ### Fixed
 
+- Pi/OMP and DSH keep established tool catalogs stable when newly discovered tools appear.
+- Skill catalogs remain isolated across concurrent sessions and preserve host visibility rules; ordinary instructions and supporting Markdown files cannot become advertised skills.
+- Pi/OMP read batches preserve images, native ranges, and call order; skill loads retain their own identity across history reloads.
+- ocp-dev Pi/OMP setup recovers dangling package links after host reinstalls.
+- SDK catalog fallback honors the configured fetch implementation and isolates its cached results.
+
 - DSH opens a new text/reasoning block after a tool call instead of reusing a closed index the host assembler would drop, so later assistant text reaches the transcript.
 - Pi/OMP and DSH keep a step's tool results contiguous before the provider sees them, so notes cannot sit between trailing results and break held-Run continuation.
 - Pi/OMP fold multi-path `read` fan-outs back to the original call id and joined path on the next turn, matching Cursor's single `filePath` with `;`-joined paths.

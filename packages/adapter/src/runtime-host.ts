@@ -1,11 +1,8 @@
 import { homedir } from "node:os"
 import path from "node:path"
-import { readdirSync, readFileSync, statSync } from "node:fs"
 import {
   currentRecordedHostSkills,
   installHostSkillsBridge,
-  recordHostSkillCatalogText,
-  type HostSkill,
 } from "@opencode-compat/opencode-loader"
 
 const PATH_BRIDGE_KEY = Symbol.for("opencode.host.path-bridge")
@@ -175,78 +172,6 @@ export function installPathBridge(id: string, env: Record<string, string | undef
   // structural host contract was renamed. Remove after those releases age out.
   ;(globalThis as typeof globalThis & Record<typeof LEGACY_PATH_BRIDGE_KEY, unknown>)[LEGACY_PATH_BRIDGE_KEY] = bridge
   if (id === "mimo" || id === "kilo") {
-    installHostSkillsBridge(async ({ directory }) => {
-      const recorded = currentRecordedHostSkills()
-      return recorded.length > 0 ? recorded : skillsFromFiles(skillRoots(id, directory, dataRoot, globalRoot))
-    })
+    installHostSkillsBridge(() => currentRecordedHostSkills())
   }
-}
-
-export { recordHostSkillCatalogText }
-
-function skillRoots(id: string, directory: string, dataRoot: string, globalRoot: string): string[] {
-  const root = path.resolve(directory || process.cwd())
-  if (id === "mimo") return [path.join(root, ".mimocode", "skills"), path.join(dataRoot, "skills"), path.join(globalRoot, "skills")]
-  return [path.join(root, ".kilo", "skills"), path.join(root, ".kilocode", "skills"), path.join(dataRoot, "skills"), path.join(globalRoot, "skills")]
-}
-
-function skillsFromFiles(roots: readonly string[]): HostSkill[] {
-  const out: HostSkill[] = []
-  const visit = (dir: string, depth: number) => {
-    if (depth > 4) return
-    let entries: string[]
-    try {
-      entries = readdirSync(dir)
-    } catch {
-      return
-    }
-    for (const name of entries) {
-      const file = path.join(dir, name)
-      let stat
-      try {
-        stat = statSync(file)
-      } catch {
-        continue
-      }
-      if (stat.isDirectory()) {
-        visit(file, depth + 1)
-        continue
-      }
-      if (!name.endsWith(".md")) continue
-      const text = readFileSync(file, "utf8")
-      const skill = skillFromMarkdown(file, text)
-      if (skill) out.push(skill)
-    }
-  }
-  for (const root of roots) visit(root, 0)
-  return out
-}
-
-function skillFromMarkdown(file: string, text: string): HostSkill | undefined {
-  const base = path.basename(file).replace(/\.md$/i, "")
-  const name = frontmatterValue(text, "name") ?? base
-  const description = frontmatterValue(text, "description") ?? headingDescription(text)
-  if (!description) return undefined
-  return { name, description, location: path.resolve(file) }
-}
-
-function frontmatterValue(text: string, key: string): string | undefined {
-  if (!text.startsWith("---")) return undefined
-  const end = text.indexOf("\n---", 3)
-  if (end < 0) return undefined
-  for (const line of text.slice(3, end).split(/\r?\n/)) {
-    const at = line.indexOf(":")
-    if (at < 0 || line.slice(0, at).trim() !== key) continue
-    const value = line.slice(at + 1).trim().replace(/^["']|["']$/g, "")
-    return value || undefined
-  }
-  return undefined
-}
-
-function headingDescription(text: string): string | undefined {
-  for (const line of text.split(/\r?\n/)) {
-    const trimmed = line.trim()
-    if (trimmed && !trimmed.startsWith("#") && trimmed !== "---") return trimmed
-  }
-  return undefined
 }

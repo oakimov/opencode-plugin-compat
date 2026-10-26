@@ -2,6 +2,20 @@ import { describe, expect, test } from "bun:test"
 import { ensureToolResultContiguity } from "../packages/opencode-loader/src/tool-result-contiguity.ts"
 
 describe("ensureToolResultContiguity", () => {
+  test("notes before the first result and unknown roles stay in place", () => {
+    const prompt = [
+      { role: "assistant", content: [] },
+      { role: "system", content: "before" },
+      { role: "tool", content: [] },
+      { role: "system", content: "middle" },
+      { role: "extension", content: "barrier" },
+      { role: "tool", content: [] },
+      { role: "system", content: "after" },
+    ]
+    expect(ensureToolResultContiguity(prompt)).toEqual(prompt)
+    expect(ensureToolResultContiguity([])).toEqual([])
+  })
+
   test("moves system notes that sit between a step's tool results", () => {
     const out = ensureToolResultContiguity([
       { role: "assistant", content: [{ type: "tool-call", toolCallId: "a" }, { type: "tool-call", toolCallId: "b" }] },

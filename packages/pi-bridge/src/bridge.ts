@@ -17,8 +17,8 @@
 import type { LanguageModelV3, LanguageModelV3CallOptions, LanguageModelV3StreamPart, LanguageModelV3Usage } from "@ai-sdk/provider"
 import { loadPiRuntime, type PiRuntime } from "./host/runtime.js"
 import { renderApiKeyRef, type PiHostProfile } from "./host/profile.js"
-import type { PiModelConfig, PiOAuthConfig } from "@opencode-compat/opencode-loader"
-import { translateContextToPrompt, translateToolChoice, translateTools, resolvePiProviderContext } from "./translate/context.js"
+import { createToolCatalogOrder, skillsFromCatalogText, withHostSkills, type PiModelConfig, type PiOAuthConfig } from "@opencode-compat/opencode-loader"
+import { translateContextToPrompt, translateToolChoice, translateTools, resolvePiProviderContext, normalizeSystemPrompt } from "./translate/context.js"
 import { emptyUsage, runV3StreamToPi } from "./translate/stream.js"
 import { buildPiSubagentVocabulary, buildPiTerminalResultVocabulary, buildPiToolInputVocabulary, latestHostTodoRows } from "./translate/subagent.js"
 import { buildPiQuestionVocabulary } from "./translate/question.js"
@@ -114,6 +114,7 @@ function errorAssistantMessage(model: PiModelLike, err: unknown, aborted = false
 /** Generic testable seam used by both Pi-family registrations. */
 export function buildStreamSimple(spec: AiSdkProviderSpec, runtime: PiRuntime,
   prepareContext?: (context: PiContextLike, options?: PiSimpleStreamOptions) => Promise<PiContextLike>) {
+  const orderCatalog = createToolCatalogOrder<NonNullable<LanguageModelV3CallOptions["tools"]>[number] & { name: string }>()
   return (model: PiModelLike, context: PiContextLike, options?: PiSimpleStreamOptions) => {
     const piStream = runtime.createAssistantMessageEventStream()
     void (async () => {
@@ -133,7 +134,10 @@ export function buildStreamSimple(spec: AiSdkProviderSpec, runtime: PiRuntime,
         const question = buildPiQuestionVocabulary(providerTools, runtime.profile)
         const terminalResult = buildPiTerminalResultVocabulary(providerTools, runtime.profile, runtime.toolSchema)
         const prompt = translateContextToPrompt(resolved, vocabulary, runtime.profile, toolInputs, question, excluded)
-        const translatedTools = translateTools(providerTools, runtime.toolSchema, vocabulary, toolInputs, question, terminalResult)
+        const skills = skillsFromCatalogText(normalizeSystemPrompt(resolved.systemPrompt))
+        const hostSkills = excluded.has("skill") || providerTools?.some(tool => tool.name === "skill") ? undefined : skills
+        const sessionID = Object.entries(options?.headers ?? {}).find(([key]) => key.toLowerCase() === "x-opencode-session-id")?.[1] ?? options?.sessionId
+        const translatedTools = orderCatalog(translateTools(providerTools, runtime.toolSchema, vocabulary, toolInputs, question, terminalResult, hostSkills ?? []), sessionID)
         const base: LanguageModelV3CallOptions = {
           prompt,
           tools: translatedTools,
@@ -147,7 +151,7 @@ export function buildStreamSimple(spec: AiSdkProviderSpec, runtime: PiRuntime,
             "name" in tool && typeof tool.name === "string" ? [tool.name] : []
           ),
         )
-        const result = await lm.doStream(callOptions)
+        const result = await withHostSkills(skills, () => lm.doStream(callOptions))
         await runV3StreamToPi({
           model,
           v3Stream: result.stream,
@@ -156,6 +160,7 @@ export function buildStreamSimple(spec: AiSdkProviderSpec, runtime: PiRuntime,
           toolInputs,
           terminalResult,
           question,
+          hostSkills,
           hostTodos: latestHostTodoRows(resolved.messages, toolInputs),
           allowedProviderToolNames,
           finishUsage: spec.finishUsage,

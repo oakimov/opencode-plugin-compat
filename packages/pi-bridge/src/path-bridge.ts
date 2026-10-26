@@ -7,14 +7,11 @@
  * Pi family deliberately stays a separate package graph from the clone path.
  */
 import { homedir } from "node:os"
-import { readdirSync, readFileSync, statSync } from "node:fs"
 import path from "node:path"
 import type { PiHostId } from "./host/profile.js"
 import {
   currentRecordedHostSkills,
   installHostSkillsBridge,
-  recordHostSkillCatalogText,
-  type HostSkill,
 } from "@opencode-compat/opencode-loader"
 
 const PATH_BRIDGE_KEY = Symbol.for("opencode.host.path-bridge")
@@ -87,13 +84,8 @@ export function installPiPathBridge(
   }
   ;(globalThis as typeof globalThis & Record<typeof PATH_BRIDGE_KEY, unknown>)[PATH_BRIDGE_KEY] = bridge
   ;(globalThis as typeof globalThis & Record<typeof LEGACY_PATH_BRIDGE_KEY, unknown>)[LEGACY_PATH_BRIDGE_KEY] = bridge
-  installHostSkillsBridge(async () => {
-    const recorded = currentRecordedHostSkills()
-    return recorded.length > 0 ? recorded : skillsFromFiles([path.join(globalRoot, "skills")])
-  })
+  installHostSkillsBridge(() => currentRecordedHostSkills())
 }
-
-export { recordHostSkillCatalogText }
 
 /**
  * Host plan directory: `<globalDataDir()>/plans` of the installed path bridge —
@@ -108,62 +100,4 @@ export function piHostPlansDir(): string {
     throw new Error("pi-bridge: host path bridge is not installed; cannot resolve the host plans directory")
   }
   return path.join(root, "plans")
-}
-
-function skillsFromFiles(roots: readonly string[]): HostSkill[] {
-  const out: HostSkill[] = []
-  const visit = (dir: string, depth: number) => {
-    if (depth > 4) return
-    let entries: string[]
-    try {
-      entries = readdirSync(dir)
-    } catch {
-      return
-    }
-    for (const name of entries) {
-      const file = path.join(dir, name)
-      let stat
-      try {
-        stat = statSync(file)
-      } catch {
-        continue
-      }
-      if (stat.isDirectory()) {
-        visit(file, depth + 1)
-        continue
-      }
-      if (!name.endsWith(".md")) continue
-      const text = readFileSync(file, "utf8")
-      const description = frontmatterValue(text, "description") ?? headingDescription(text)
-      if (!description) continue
-      out.push({
-        name: frontmatterValue(text, "name") ?? path.basename(file).replace(/\.md$/i, ""),
-        description,
-        location: path.resolve(file),
-      })
-    }
-  }
-  for (const root of roots) visit(root, 0)
-  return out
-}
-
-function frontmatterValue(text: string, key: string): string | undefined {
-  if (!text.startsWith("---")) return undefined
-  const end = text.indexOf("\n---", 3)
-  if (end < 0) return undefined
-  for (const line of text.slice(3, end).split(/\r?\n/)) {
-    const at = line.indexOf(":")
-    if (at < 0 || line.slice(0, at).trim() !== key) continue
-    const value = line.slice(at + 1).trim().replace(/^["']|["']$/g, "")
-    return value || undefined
-  }
-  return undefined
-}
-
-function headingDescription(text: string): string | undefined {
-  for (const line of text.split(/\r?\n/)) {
-    const trimmed = line.trim()
-    if (trimmed && !trimmed.startsWith("#") && trimmed !== "---") return trimmed
-  }
-  return undefined
 }

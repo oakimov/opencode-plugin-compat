@@ -79,6 +79,10 @@ jobs:
       - name: Install
         run: bun install --frozen-lockfile
 
+      # Workspace exports resolve to dist; build before testing a clean checkout.
+      - name: Build
+        run: bun run build
+
       # Keep in step with the test job's commands.
       - name: Test
         run: |

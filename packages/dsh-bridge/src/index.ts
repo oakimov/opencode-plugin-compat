@@ -39,8 +39,12 @@ export async function apply(ctx: ApplyContext, config: DshBridgeConfig): Promise
     // eslint-disable-next-line no-console
     console.error(`dsh-bridge: path bridge not installed — ${err instanceof Error ? err.message : String(err)}`)
   }
-  const skillList = ctx.inject?.(["skills"], skillCtx => {
-    installDshSkillList(() => skillCtx.skills.list())
+  const skillList = ctx.inject?.(["skills", "agents"], skillCtx => {
+    installDshSkillList(input => {
+      const scope: unknown = input.sessionID ? skillCtx.agents.get(input.sessionID) : undefined
+      if (input.sessionID && !scope) return Promise.resolve([])
+      return skillCtx.skills.list({ cwd: input.directory, ...(scope ? { scope } : {}) })
+    })
   })
   void Promise.resolve(skillList).catch(error => console.error("dsh-bridge: skill list bridge failed", error))
   const validated = validateConfig({ providers: providerSpecs(config) })

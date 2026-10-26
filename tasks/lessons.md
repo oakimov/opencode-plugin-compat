@@ -1,5 +1,7 @@
 # Lessons learned
 
+- Preserve translation provenance in durable host history. A file location cannot distinguish a skill load from an ordinary or ranged read; retain the originating call identity and test replay after catalog removal. Exercise batch reads against the stock executor as well as fixtures: shared replay support does not prove both hosts split the outbound call.
+
 - Build the scoring failure inventory from native discovery and interaction results as well as host tools. A working guard or later successful review does not erase an earlier invalid call; an empty MCP-error search cannot prove a clean run.
 - Dynamic-call identity failures can originate in Cursor before OCP receives an executable call. Inspect persisted outer arguments and discovery definitions; preserve exact identity at discovery instead of inventing a host-specific repair or concealing scoring failures.
 - A successful native-tool lookup was followed only by narration of unavailability, yet the self-test reported pass. Discovery is availability evidence, not execution; check the actual invocation and result before accepting a skip.

@@ -22,7 +22,7 @@
  * match upstream take a byte-identical path.
  */
 import type { HostId, HostProfile } from "@opencode-compat/profile"
-import { normalizeV3Usage, recordHostSkillCatalogText } from "@opencode-compat/opencode-loader"
+import { normalizeV3Usage, skillsFromCatalogText, withHostSkills } from "@opencode-compat/opencode-loader"
 import {
   buildVocabulary,
   fanoutId,
@@ -729,7 +729,6 @@ function prepareCall(
   }
 
   const record = call as { tools?: unknown; prompt?: unknown; [key: string]: unknown }
-  recordHostSkillCatalogText(skillCatalogText(record.prompt))
   const tools = Array.isArray(record.tools) ? record.tools : undefined
   if (!tools) return { args, toolSchemas, context: undefined }
   const providerTools = canonicalFileToolCatalog(tools)
@@ -867,7 +866,8 @@ export function adaptLanguageModel<T>(
       }
       const sessionID = sessionAffinityFromCall(args[0])
       const prepared = prepareCall(args, roles, resolveCatalogOrder)
-      const result = inner(...prepared.args)
+      const result = withHostSkills(skillsFromCatalogText(skillCatalogText(isRecord(args[0]) ? args[0].prompt : undefined)),
+        () => inner(...prepared.args))
       const finish = (resolved: unknown) => {
         if (!resolved || typeof resolved !== "object") return resolved
         const record = resolved as { stream?: unknown; [key: string]: unknown }
@@ -899,7 +899,8 @@ export function adaptLanguageModel<T>(
       if (wait) return Promise.resolve({ content: wait, finishReason: RESUME_WAIT_FINISH.finishReason, usage: RESUME_WAIT_FINISH.usage })
       const sessionID = sessionAffinityFromCall(args[0])
       const prepared = prepareCall(args, roles, resolveCatalogOrder)
-      const result = inner(...prepared.args)
+      const result = withHostSkills(skillsFromCatalogText(skillCatalogText(isRecord(args[0]) ? args[0].prompt : undefined)),
+        () => inner(...prepared.args))
       const finish = (resolved: unknown) => {
         if (!resolved || typeof resolved !== "object") return resolved
         const record = resolved as { content?: unknown; [key: string]: unknown }

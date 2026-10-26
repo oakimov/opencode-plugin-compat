@@ -1,4 +1,4 @@
-import { existsSync, lstatSync, mkdirSync, readFileSync, realpathSync, readdirSync, rmSync, symlinkSync } from "node:fs"
+import { existsSync, lstatSync, mkdirSync, readFileSync, realpathSync, readlinkSync, readdirSync, rmSync, symlinkSync } from "node:fs"
 import { dirname, join, sep } from "node:path"
 import { configFile, resolveCli, type HostId, type WireMode } from "./hosts.ts"
 import {
@@ -83,7 +83,7 @@ function aiPackage(host: PiHost): string {
   return host === "pi" ? "@earendil-works/pi-ai" : "@oh-my-pi/pi-ai"
 }
 
-function linkHostAi(host: PiHost, hostCli: string): void {
+export function linkHostAi(host: PiHost, hostCli: string): void {
   const pkg = aiPackage(host)
   const cliReal = realpathSync(hostCli)
   const repoSiblingAi = host === "pi"
@@ -151,7 +151,7 @@ function linkHostAi(host: PiHost, hostCli: string): void {
   if (!source) {
     for (const target of [overlay, bridgeTarget]) {
       try {
-        if (existsSync(target) && lstatSync(target).isSymbolicLink() && !hasBuiltEntry(target)) {
+        if (lstatSync(target, { throwIfNoEntry: false })?.isSymbolicLink() && !hasBuiltEntry(target)) {
           rmSync(target, { force: true })
           console.log(`ocp-dev: removed unbuilt ${pkg} link (${target})`)
         }
@@ -169,7 +169,7 @@ function linkHostAi(host: PiHost, hostCli: string): void {
     }
   })()
 
-  const linkOrUpdate = (target: string, label: string): void => {
+  const linkOrUpdate = (target: string, label: string, linkSource = source): void => {
     mkdirSync(dirname(target), { recursive: true })
     const targetVersion = (() => {
       try {
@@ -179,7 +179,7 @@ function linkHostAi(host: PiHost, hostCli: string): void {
         return undefined
       }
     })()
-    if (existsSync(target)) {
+    if (lstatSync(target, { throwIfNoEntry: false })) {
       const isLink = (() => {
         try {
           return lstatSync(target).isSymbolicLink()
@@ -204,7 +204,7 @@ function linkHostAi(host: PiHost, hostCli: string): void {
             return undefined
           }
         })()
-        if (current === source && targetVersion === sourceVersion) {
+        if (current === source && readlinkSync(target) === linkSource && targetVersion === sourceVersion) {
           console.log(`ocp-dev: ${pkg}@${sourceVersion} already linked (${label})`)
           return
         }
@@ -220,7 +220,7 @@ function linkHostAi(host: PiHost, hostCli: string): void {
         } catch {}
       }
     }
-    symlinkSync(source, target)
+    symlinkSync(linkSource!, target)
     console.log(`ocp-dev: ${pkg}@${sourceVersion ?? "?"} → ${label} ${source}`)
   }
 
@@ -228,15 +228,7 @@ function linkHostAi(host: PiHost, hostCli: string): void {
   // node_modules points at that overlay so checkout resolution does not keep
   // a second source-backed link as the sole copy.
   linkOrUpdate(overlay, `state ${host}`)
-  mkdirSync(dirname(bridgeTarget), { recursive: true })
-  if (existsSync(bridgeTarget)) {
-    try {
-      rmSync(bridgeTarget, { force: true, recursive: true })
-    } catch {
-      // absent / busy
-    }
-  }
-  symlinkSync(overlay, bridgeTarget)
+  linkOrUpdate(bridgeTarget, "pi-bridge", overlay)
   console.log(`ocp-dev: ${pkg} pi-bridge → state overlay ${overlay}`)
   writeAtomic(
     manifestPath(host),

@@ -1,6 +1,6 @@
 import { expect, test } from "bun:test"
 import { z } from "zod"
-import { adaptLanguageModel, buildVocabulary, fanoutId, policyForHostId, translateCall, translateCatalog, translatePrompt } from "../packages/adapter/src/index.ts"
+import { adaptLanguageModel, buildVocabulary, fanoutId, policyForHostId, translateCall, translatePrompt } from "../packages/adapter/src/index.ts"
 import { kiloProfile, mimoProfile } from "../packages/profile/src/index.ts"
 import { ompProfile, piProfile } from "../packages/pi-bridge/src/host/profile.ts"
 import { buildPiSubagentVocabulary, buildPiTerminalResultVocabulary, buildPiToolInputVocabulary, translateCanonicalToolCall, translateHostToolCallInput, translateCanonicalSubagentCall, translateHostSubagentCall } from "../packages/pi-bridge/src/translate/subagent.ts"
@@ -142,7 +142,7 @@ test("clone multi-call step keeps order/ids; resume-wait fold keeps sibling read
     { type: "finish", finishReason: { unified: "tool-calls", raw: "tool-calls" } },
   ]
   const model = adaptLanguageModel({
-    doStream: async () => ({ stream: stream(outbound) }),
+    doStream: async (_options: unknown) => ({ stream: stream(outbound) }),
   }, policyForHostId("mimo"), mimoProfile())
   const parts = await drain(await model.doStream({ tools, prompt: [] }) as any)
   const calls = parts.filter((part: any) => part.type === "tool-call") as Array<{ toolCallId: string; toolName: string; input: string }>

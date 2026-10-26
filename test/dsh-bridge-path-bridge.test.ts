@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, test } from "bun:test"
 import { installDshPathBridge, installDshSkillList } from "../packages/dsh-bridge/src/path-bridge.ts"
+import { withHostSkills } from "@opencode-compat/opencode-loader"
 import { isCursorAgentToolSpillPath } from "../packages/dsh-bridge/src/cursor-metadata-write.ts"
 
 const KEY = Symbol.for("opencode.host.path-bridge")
@@ -46,7 +47,7 @@ describe("installDshPathBridge", () => {
       { id: "virtual", name: "virtual", description: "Virtual only" },
     ])
     const bridge = globals[SKILLS_KEY] as { list(input: { directory: string }): Promise<unknown> }
-    expect(await bridge.list({ directory: "/repo" })).toEqual([
+    expect(await withHostSkills([{ name: "audit", description: "Audit repo" }], () => bridge.list({ directory: "/repo" }))).toEqual([
       { id: "s1", name: "audit", description: "Audit repo", location: "/repo/.dsh/skills/audit.md" },
     ])
   })

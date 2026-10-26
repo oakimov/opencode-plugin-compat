@@ -4,9 +4,10 @@
 import { describe, expect, test } from "bun:test"
 import {
   installPathBridge,
-  recordHostSkillCatalogText,
   toolRolesForHostId,
 } from "../packages/adapter/src/runtime-host.ts"
+
+import { skillsFromCatalogText, withHostSkills } from "@opencode-compat/opencode-loader"
 
 const PATH_BRIDGE_KEY = Symbol.for("opencode.host.path-bridge")
 const LEGACY_PATH_BRIDGE_KEY = Symbol.for("opencode.compat.path-bridge")
@@ -26,7 +27,6 @@ function clearBridge(): void {
   delete (globalThis as Record<PropertyKey, unknown>)[PATH_BRIDGE_KEY]
   delete (globalThis as Record<PropertyKey, unknown>)[LEGACY_PATH_BRIDGE_KEY]
   delete (globalThis as Record<PropertyKey, unknown>)[SKILLS_KEY]
-  recordHostSkillCatalogText(undefined)
 }
 
 function bridge(): PathBridge {
@@ -75,12 +75,12 @@ describe("installPathBridge", () => {
   test("mimo and kilo install the canonical skills bridge from the latest catalog", async () => {
     for (const id of ["mimo", "kilo"]) {
       clearBridge()
-      recordHostSkillCatalogText(`<available_skills>
+      const skills = skillsFromCatalogText(`<available_skills>
   <skill><name>audit</name><description>Audit repo</description><location>file:///repo/skills/audit.md</location></skill>
 </available_skills>`)
       installPathBridge(id, { HOME: "/tmp/home" })
       const bridge = (globalThis as Record<PropertyKey, unknown>)[SKILLS_KEY] as SkillsBridge
-      expect(await bridge.list({ directory: "/repo" })).toEqual([
+      expect(await withHostSkills(skills, () => bridge.list({ directory: "/repo" }))).toEqual([
         { name: "audit", description: "Audit repo", location: "/repo/skills/audit.md" },
       ])
     }

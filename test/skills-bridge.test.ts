@@ -2,7 +2,6 @@ import { describe, expect, test } from "bun:test"
 import {
   buildAvailableSkillsCatalog,
   installHostSkillsBridge,
-  recordHostSkillCatalogText,
   skillsFromCatalogText,
 } from "../packages/opencode-loader/src/host-skills.ts"
 
@@ -46,7 +45,6 @@ describe("canonical host skills bridge helpers", () => {
 
   test("installs the structural symbol", async () => {
     delete (globalThis as Record<PropertyKey, unknown>)[KEY]
-    recordHostSkillCatalogText(undefined)
     installHostSkillsBridge(() => [{ name: "one", description: "One", location: "/tmp/one.md" }])
     const bridge = (globalThis as Record<PropertyKey, unknown>)[KEY] as SkillsBridge
     expect(await bridge.list({ directory: "/repo" })).toEqual([{ name: "one", description: "One", location: "/tmp/one.md" }])

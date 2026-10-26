@@ -13,72 +13,32 @@ export type ContiguousPromptMessage = {
   [key: string]: unknown
 }
 
-function isToolMessage(message: ContiguousPromptMessage): boolean {
-  return message.role === "tool"
-}
-
-function isSystemMessage(message: ContiguousPromptMessage): boolean {
-  return message.role === "system"
-}
-
-function isStepBoundary(message: ContiguousPromptMessage): boolean {
-  return message.role === "user" || message.role === "assistant"
-}
-
-/**
- * Mutate-free reorder: within each window that starts at an assistant message
- * and ends before the next user/assistant, move interleaved system notes to
- * after the last tool result of that window.
- */
-export function ensureToolResultContiguity<T extends ContiguousPromptMessage>(
-  prompt: readonly T[],
-): T[] {
-  if (prompt.length < 3) return [...prompt]
-
+/** Move interleaved system notes behind a step's results without crossing a turn. */
+export function ensureToolResultContiguity<T extends ContiguousPromptMessage>(prompt: readonly T[]): T[] {
   const out: T[] = []
-  let i = 0
-  while (i < prompt.length) {
-    const message = prompt[i]!
+  let cursor = 0
+  while (cursor < prompt.length) {
+    const message = prompt[cursor++]!
     out.push(message)
-    i++
     if (message.role !== "assistant") continue
-
-    const tools: T[] = []
     const notes: T[] = []
-    while (i < prompt.length) {
-      const next = prompt[i]!
-      if (isStepBoundary(next)) break
-      if (isToolMessage(next)) {
-        tools.push(next)
-        i++
-        continue
-      }
-      if (isSystemMessage(next) && tools.length > 0) {
-        // System among results of this step — defer until after tools.
+    let seenTool = false
+    while (cursor < prompt.length) {
+      const next = prompt[cursor]!
+      if (next.role === "user" || next.role === "assistant") break
+      cursor++
+      if (next.role === "tool") {
+        out.push(next)
+        seenTool = true
+      } else if (next.role === "system" && seenTool) {
         notes.push(next)
-        i++
-        continue
-      }
-      // Non-system, non-tool (e.g. unexpected role) or system before any tool:
-      // flush deferred notes first so later tools stay after earlier notes
-      // that were not mid-batch, then keep the message in place.
-      if (notes.length > 0 && tools.length === 0) {
-        out.push(...notes)
+      } else {
+        out.push(...notes, next)
         notes.length = 0
+        seenTool = false
       }
-      if (tools.length > 0) {
-        out.push(...tools)
-        tools.length = 0
-        if (notes.length > 0) {
-          out.push(...notes)
-          notes.length = 0
-        }
-      }
-      out.push(next)
-      i++
     }
-    if (tools.length > 0) out.push(...tools)
-    if (notes.length > 0) out.push(...notes)
+    out.push(...notes)
   }
   return out
 }

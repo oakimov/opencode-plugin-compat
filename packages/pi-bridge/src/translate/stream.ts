@@ -8,7 +8,7 @@
  * (which additionally has a `deferred` done-reason).
  */
 import type { LanguageModelV3FinishReason, LanguageModelV3StreamPart, LanguageModelV3Usage } from "@ai-sdk/provider"
-import { normalizeUsage } from "@opencode-compat/opencode-loader"
+import { normalizeUsage, type HostSkill } from "@opencode-compat/opencode-loader"
 import type {
   PiAssistantMessage as AssistantMessage,
   PiEventStream as AssistantMessageEventStream,
@@ -20,6 +20,7 @@ import {
   asTranslatedCalls,
   isOpsTodoHostTool,
   todoFanoutId,
+  skillReadCallId,
   translateCanonicalToolCall,
   type HostTodoRow,
   type PiSubagentVocabulary,
@@ -96,6 +97,8 @@ export async function runV3StreamToPi(options: {
   question?: PiQuestionVocabulary
   /** Ops-based host todo rows as of this request (see `latestHostTodoRows`). */
   hostTodos?: readonly HostTodoRow[]
+  /** Only provided when the skill tool is synthesized from native reads. */
+  hostSkills?: readonly HostSkill[]
   /** Fail closed if a provider emits a tool that was not in this call's catalog. */
   allowedProviderToolNames?: ReadonlySet<string>
   /** Optional package-selected accounting projection; null means display only. */
@@ -210,7 +213,7 @@ export async function runV3StreamToPi(options: {
           }
           const input = parseToolInput(part.input)
           const translated = asTranslatedCalls(
-            translateCanonicalToolCall(part.toolName, input, options.vocabulary, options.toolInputs, options.question, hostTodos),
+            translateCanonicalToolCall(part.toolName, input, options.vocabulary, options.toolInputs, options.question, hostTodos, options.hostSkills),
           )
           // A later todo call in this response would diff against rows the
           // host has already changed; let it reconstruct instead.
@@ -228,11 +231,13 @@ export async function runV3StreamToPi(options: {
           const fanout = calls.length > 1 || calls.some(call => call.fanout)
           for (let index = 0; index < calls.length; index++) {
             const call = calls[index]!
-            const callId = fanout ? todoFanoutId(part.toolCallId, index) : part.toolCallId
+            const callId = part.toolName === "skill" && options.hostSkills !== undefined
+              ? skillReadCallId(part.toolCallId, String(input.name ?? input.id))
+              : fanout ? todoFanoutId(part.toolCallId, index) : part.toolCallId
             let idx: number
             if (index === 0) {
               idx = toolCallIndexById.get(part.toolCallId) ?? openToolCallBlock(callId)
-              if (fanout) {
+              if (callId !== part.toolCallId) {
                 // Retarget the block opened under the canonical id.
                 toolCallIndexById.delete(part.toolCallId)
                 toolCallIndexById.set(callId, idx)

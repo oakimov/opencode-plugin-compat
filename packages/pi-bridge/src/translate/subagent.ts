@@ -9,7 +9,7 @@
  */
 import type { PiHostProfile, PiToolInputProfile } from "../host/profile.js"
 import type { PiTool } from "../pi-provider-types.js"
-import { currentRecordedHostSkills } from "@opencode-compat/opencode-loader"
+import type { HostSkill } from "@opencode-compat/opencode-loader"
 import {
   translateCanonicalQuestionCall,
   type PiQuestionVocabulary,
@@ -75,6 +75,7 @@ function todoCallsForHost(
   input: Record<string, unknown>,
   shape: PiToolInputProfile["inputShape"],
   hostTodos?: readonly HostTodoRow[],
+  providerSchema?: PiToolInputProfile["providerSchema"],
 ): TranslatedSubagentCall | TranslatedSubagentCall[] {
   if (shape === "opencode-todo") {
     const diff = hostTodos ? diffTodoSnapshotToHostOps(input, hostTodos) : undefined
@@ -84,8 +85,8 @@ function todoCallsForHost(
     if (ops.length === 1) return { toolName: hostToolName, input: ops[0]! }
     return ops.map(op => ({ toolName: hostToolName, input: op }))
   }
-  if (shape === "opencode-read") {
-    return expandReadCalls(hostToolName, input)
+  if (shape === "opencode-read" || providerSchema === "opencode-read") {
+    return expandReadCalls(hostToolName, input, shape === "opencode-read")
   }
   return { toolName: hostToolName, input: applyInputShape(input, shape) }
 }
@@ -117,6 +118,7 @@ function isAbsolutePathToken(path: string): boolean {
 function expandReadCalls(
   hostToolName: string,
   input: Record<string, unknown>,
+  inlineRange = true,
 ): TranslatedSubagentCall | TranslatedSubagentCall[] {
   const path = input["path"]
   if (typeof path === "string") {
@@ -124,11 +126,11 @@ function expandReadCalls(
     if (parts) {
       return parts.map(part => ({
         toolName: hostToolName,
-        input: applyReadShape({ ...input, path: part }),
+        input: inlineRange ? applyReadShape({ ...input, path: part }) : { ...input, path: part },
       }))
     }
   }
-  return { toolName: hostToolName, input: applyReadShape(input) }
+  return { toolName: hostToolName, input: inlineRange ? applyReadShape(input) : input }
 }
 
 function agentNamesFromSchema(schema: unknown): string[] {
@@ -598,6 +600,8 @@ export function joinReadFanoutInput(
   for (const operation of operations) {
     const raw = operation["path"] ?? operation["filePath"]
     if (typeof raw !== "string" || !raw) continue
+    if (offset === undefined && typeof operation.offset === "number") offset = operation.offset
+    if (limit === undefined && typeof operation.limit === "number") limit = operation.limit
     const peeled = peelReadSelector(raw)
     if (peeled && typeof peeled.filePath === "string") {
       paths.push(peeled.filePath)
@@ -930,11 +934,13 @@ export function translateCanonicalToolCall(
   question?: PiQuestionVocabulary,
   /** Current ops-based host todo rows; enables status diffs instead of re-init. */
   hostTodos?: readonly HostTodoRow[],
+  skills?: readonly HostSkill[],
 ): TranslatedSubagentCall | TranslatedSubagentCall[] | undefined {
-  if (toolName === CANONICAL_SKILL_TOOL) {
+  if (toolName === CANONICAL_SKILL_TOOL && skills !== undefined) {
     const name = typeof input.name === "string" ? input.name : typeof input.id === "string" ? input.id : undefined
-    const location = skillLocationForName(name)
-    if (location) return { toolName: "read", input: { path: location } }
+    const location = skills.find(skill => skill.name === name || skill.id === name)?.location
+    if (!location) throw new Error("Requested skill is not in this request's advertised catalog")
+    return { toolName: "read", input: { path: location } }
   }
 
   const subagent = translateCanonicalSubagentCall(toolName, input, vocabulary)
@@ -954,7 +960,7 @@ export function translateCanonicalToolCall(
     const [hostToolName, profile] = renamedProfile
     const source = toolName === "todoread" ? { op: "view", ...input } : input
     const translated = rewriteInputKeys(source, profile.inputAliases, profile.dropInputKeys)
-    return todoCallsForHost(hostToolName, translated, profile.inputShape, hostTodos)
+    return todoCallsForHost(hostToolName, translated, profile.inputShape, hostTodos, profile.providerSchema)
   }
 
   const inputProfile = toolInputs?.[toolName]
@@ -966,7 +972,10 @@ export function translateCanonicalToolCall(
     dropInputKeys?.some(name => Object.hasOwn(input, name)) === true
   if (rewrites) {
     const translated = rewriteInputKeys(input, inputAliases, dropInputKeys)
-    return todoCallsForHost(toolName, translated, inputShape, hostTodos)
+    return todoCallsForHost(toolName, translated, inputShape, hostTodos, inputProfile.providerSchema)
+  }
+  if (inputProfile.providerSchema === "opencode-read" && inputShape !== "opencode-read") {
+    return expandReadCalls(toolName, input, false)
   }
   if (inputShape) {
     if (inputShape === "opencode-todo" || inputShape === "opencode-read") {
@@ -994,13 +1003,6 @@ export function translateHostToolCallInput(
   input: Record<string, unknown>,
   toolInputs: PiToolInputVocabulary | undefined,
 ): Record<string, unknown> {
-  if (toolName === "read") {
-    const path = input["path"] ?? input["filePath"]
-    if (typeof path === "string") {
-      const skill = currentRecordedHostSkills().find(entry => entry.location === path)
-      if (skill) return { name: skill.name }
-    }
-  }
   const schema = toolInputs?.[toolName]?.providerSchema
   if (schema === "opencode-write" || schema === "opencode-read") {
     const path = input["filePath"] ?? input["path"]
@@ -1077,9 +1079,21 @@ export function translateHostToolCallInput(
   return { filePath: path, oldString: edit.oldText, newString: edit.newText }
 }
 
-function skillLocationForName(name: string | undefined): string | undefined {
-  if (!name) return undefined
-  return currentRecordedHostSkills().find(skill => skill.name === name || skill.id === name)?.location
+/** Persist provenance in the host call id, which survives host history reloads. */
+export function skillReadCallId(id: string, name: string): string {
+  return `ocp-skill:${Buffer.from(JSON.stringify([id, name])).toString("base64url")}`
+}
+
+export function skillReadCall(id: string): { id: string; name: string } | undefined {
+  if (!id.startsWith("ocp-skill:")) return undefined
+  try {
+    const value: unknown = JSON.parse(Buffer.from(id.slice("ocp-skill:".length), "base64url").toString())
+    if (!Array.isArray(value) || value.length !== 2 || typeof value[0] !== "string" || typeof value[1] !== "string") return undefined
+    if (skillReadCallId(value[0], value[1]) !== id) return undefined
+    return { id: value[0], name: value[1] }
+  } catch {
+    return undefined
+  }
 }
 
 /**
@@ -1198,10 +1212,6 @@ export function canonicalToolName(
   toolInputs?: PiToolInputVocabulary,
   input?: Record<string, unknown>,
 ): string {
-  if (toolName === "read") {
-    const path = input?.["path"] ?? input?.["filePath"]
-    if (typeof path === "string" && currentRecordedHostSkills().some(skill => skill.location === path)) return CANONICAL_SKILL_TOOL
-  }
   const profile = toolInputs?.[toolName]
   if (profile?.extraProviderNames?.includes("todoread") === true && input?.["op"] === "view") {
     return "todoread"

@@ -10,6 +10,8 @@ import { dshProfile, dshToolInputs } from "../host/profile.js"
 import {
   ensureToolResultContiguity,
   hostToolRenames,
+  parseDshSkillReminder,
+  type HostSkill,
   translatePromptToolNames,
 } from "@opencode-compat/opencode-loader"
 import {
@@ -105,10 +107,22 @@ function latestSkillCatalog(messages: readonly DshMessage[]): string | undefined
   for (let index = messages.length - 1; index >= 0; index--) {
     const message = messages[index]!
     if (!isSkillCatalog(message)) continue
-    const text = flattenBlockText(message.content)
-    if (text) return text
+    return flattenBlockText(message.content)
   }
   return undefined
+}
+
+/** The latest host-published catalog is authoritative, including an empty replacement. */
+export function dshHostSkills(options: DshGenerateOptions): HostSkill[] {
+  if (!options.tools?.some(tool => tool.name === "skill")) return []
+  const message = options.messages.slice().reverse().find(isSkillCatalog)
+  if (!message) return []
+  const entries = message.source.entries
+  if (!Array.isArray(entries)) return parseDshSkillReminder(flattenBlockText(message.content))
+  return entries.flatMap((entry: unknown) => {
+    if (!entry || typeof entry !== "object" || !("name" in entry) || typeof entry.name !== "string") return []
+    return [{ name: entry.name, description: "description" in entry && typeof entry.description === "string" ? entry.description : "" }]
+  })
 }
 
 /**
