@@ -159,7 +159,7 @@ async function buildHarness(harness: string): Promise<void> {
   console.log("ocp-dev: building dsh native-system")
   run(harness, ["pnpm", "run", "build:native-system"])
   console.log("ocp-dev: building dsh host lib (tsc + tsdown)")
-  run(harness, ["node", "--max-old-space-size=4096", "./node_modules/typescript/bin/tsc", "-b", "tsconfig.host.json"])
+  run(harness, ["node", "--max-old-space-size=8192", "./node_modules/typescript/bin/tsc", "-b", "tsconfig.host.json"])
   await runDshTsdown(harness, "host")
   console.log("ocp-dev: building dsh client lib (tsc + tsdown)")
   run(harness, ["./node_modules/typescript/bin/tsc", "-b", "tsconfig.client.json"])

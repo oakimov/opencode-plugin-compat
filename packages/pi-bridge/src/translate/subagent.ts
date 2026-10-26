@@ -9,12 +9,14 @@
  */
 import type { PiHostProfile, PiToolInputProfile } from "../host/profile.js"
 import type { PiTool } from "../pi-provider-types.js"
+import { currentRecordedHostSkills } from "@opencode-compat/opencode-loader"
 import {
   translateCanonicalQuestionCall,
   type PiQuestionVocabulary,
 } from "./question.js"
 
 export const CANONICAL_SUBAGENT_TOOL = "task"
+export const CANONICAL_SKILL_TOOL = "skill"
 
 export type SubagentToolSchemaFn = (tool: PiTool) => Record<string, unknown>
 
@@ -574,6 +576,43 @@ export function isOpsTodoHostTool(
   return toolInputs?.[toolName]?.inputShape === "opencode-todo"
 }
 
+/** True when the host tool is the OpenCode-shaped read that may multi-path fan out. */
+export function isReadHostTool(
+  toolName: string,
+  toolInputs: PiToolInputVocabulary | undefined,
+): boolean {
+  const profile = toolInputs?.[toolName]
+  return profile?.inputShape === "opencode-read" || profile?.providerSchema === "opencode-read"
+}
+
+/**
+ * Rebuild the provider-facing joined path (+ optional range) from fanned-out
+ * host read arguments, in fan-out order.
+ */
+export function joinReadFanoutInput(
+  operations: readonly Record<string, unknown>[],
+): Record<string, unknown> {
+  const paths: string[] = []
+  let offset: number | undefined
+  let limit: number | undefined
+  for (const operation of operations) {
+    const raw = operation["path"] ?? operation["filePath"]
+    if (typeof raw !== "string" || !raw) continue
+    const peeled = peelReadSelector(raw)
+    if (peeled && typeof peeled.filePath === "string") {
+      paths.push(peeled.filePath)
+      if (offset === undefined && typeof peeled.offset === "number") offset = peeled.offset
+      if (limit === undefined && typeof peeled.limit === "number") limit = peeled.limit
+      continue
+    }
+    paths.push(raw)
+  }
+  const input: Record<string, unknown> = { filePath: paths.join(";") }
+  if (offset !== undefined) input.offset = offset
+  if (limit !== undefined) input.limit = limit
+  return input
+}
+
 type SnapshotTodoRow = { content: string; status: OpenCodeTodoStatus }
 
 function readSnapshotTodoRows(todos: unknown): SnapshotTodoRow[] | undefined {
@@ -892,6 +931,12 @@ export function translateCanonicalToolCall(
   /** Current ops-based host todo rows; enables status diffs instead of re-init. */
   hostTodos?: readonly HostTodoRow[],
 ): TranslatedSubagentCall | TranslatedSubagentCall[] | undefined {
+  if (toolName === CANONICAL_SKILL_TOOL) {
+    const name = typeof input.name === "string" ? input.name : typeof input.id === "string" ? input.id : undefined
+    const location = skillLocationForName(name)
+    if (location) return { toolName: "read", input: { path: location } }
+  }
+
   const subagent = translateCanonicalSubagentCall(toolName, input, vocabulary)
   if (subagent) return subagent
 
@@ -949,6 +994,13 @@ export function translateHostToolCallInput(
   input: Record<string, unknown>,
   toolInputs: PiToolInputVocabulary | undefined,
 ): Record<string, unknown> {
+  if (toolName === "read") {
+    const path = input["path"] ?? input["filePath"]
+    if (typeof path === "string") {
+      const skill = currentRecordedHostSkills().find(entry => entry.location === path)
+      if (skill) return { name: skill.name }
+    }
+  }
   const schema = toolInputs?.[toolName]?.providerSchema
   if (schema === "opencode-write" || schema === "opencode-read") {
     const path = input["filePath"] ?? input["path"]
@@ -1023,6 +1075,11 @@ export function translateHostToolCallInput(
   // it here would contradict the schema the model was just shown. Emit only
   // the three keys that schema declares.
   return { filePath: path, oldString: edit.oldText, newString: edit.newText }
+}
+
+function skillLocationForName(name: string | undefined): string | undefined {
+  if (!name) return undefined
+  return currentRecordedHostSkills().find(skill => skill.name === name || skill.id === name)?.location
 }
 
 /**
@@ -1141,6 +1198,10 @@ export function canonicalToolName(
   toolInputs?: PiToolInputVocabulary,
   input?: Record<string, unknown>,
 ): string {
+  if (toolName === "read") {
+    const path = input?.["path"] ?? input?.["filePath"]
+    if (typeof path === "string" && currentRecordedHostSkills().some(skill => skill.location === path)) return CANONICAL_SKILL_TOOL
+  }
   const profile = toolInputs?.[toolName]
   if (profile?.extraProviderNames?.includes("todoread") === true && input?.["op"] === "view") {
     return "todoread"

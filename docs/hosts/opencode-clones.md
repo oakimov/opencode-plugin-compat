@@ -269,6 +269,14 @@ covers `read`, `write`, `edit`/`StrReplace`, future fork conventions, and MCP
 tools without hard-coding any of them; exact, unknown, and ambiguous keys are
 preserved.
 
+**Multi-call scheduling (host limitation):** MiMo's `ToolGate` admits only
+`read` / `grep` / `glob` concurrently; every other tool — including `actor`
+(canonical `task`), `bash`, edits, and MCP — is a FIFO barrier with fail-cascade
+(`MiMo-Code:packages/cli/src/tool/gate.ts`). OCP keeps `task` → `actor` `run` and
+does **not** restate around the gate. Parallel Cursor steps still arrive as one
+batch; `actor` children serialize on MiMo while readonly reads can overlap.
+Kilo starts tools on arrival (per-file edit semaphore only).
+
 **Why in-place entry (not package.json exports):** classic plugins such as
 `cursor-opencode-provider` set `npm: MODULE_URL` → a direct
 `file://…/dist/index.js` URL, so package `exports` shims never run. After Layer

@@ -31,5 +31,6 @@ coverage/
 
 .claude/settings.local.json
 
-# local plans
+# local plans / archived plan copies
 tasks/plans/
+tasks/lessons/

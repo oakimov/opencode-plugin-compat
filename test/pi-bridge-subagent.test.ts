@@ -814,7 +814,7 @@ describe("Pi-family subagent vocabulary", () => {
     )).toEqual({ toolName: "read", input: { path: "/tmp/only-one.txt" } })
   })
 
-  test("next-turn history keeps multi-path read fan-outs as separate calls", () => {
+  test("next-turn history folds multi-path read fan-outs to the original call id", () => {
     const tools = [{ name: "read", description: "Read a file", parameters: { type: "object" } }] as never
     const toolInputs = buildPiToolInputVocabulary(tools, ompProfile())
     const context = {
@@ -855,20 +855,18 @@ describe("Pi-family subagent vocabulary", () => {
       {
         role: "assistant",
         content: [
-          { type: "tool-call", toolCallId: "call_r#0", toolName: "read", input: { filePath: "/tmp/a.txt" } },
-          { type: "tool-call", toolCallId: "call_r#1", toolName: "read", input: { filePath: "/tmp/b.txt" } },
+          { type: "tool-call", toolCallId: "call_r", toolName: "read", input: { filePath: "/tmp/a.txt;/tmp/b.txt" } },
         ],
       },
       {
         role: "tool",
         content: [
-          { type: "tool-result", toolCallId: "call_r#0", toolName: "read", output: { type: "text", value: "aaa" } },
-        ],
-      },
-      {
-        role: "tool",
-        content: [
-          { type: "tool-result", toolCallId: "call_r#1", toolName: "read", output: { type: "text", value: "bbb" } },
+          {
+            type: "tool-result",
+            toolCallId: "call_r",
+            toolName: "read",
+            output: { type: "text", value: "/tmp/a.txt\naaa\n\n/tmp/b.txt\nbbb" },
+          },
         ],
       },
     ])

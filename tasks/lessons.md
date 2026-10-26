@@ -2,6 +2,7 @@
 
 - Build the scoring failure inventory from native discovery and interaction results as well as host tools. A working guard or later successful review does not erase an earlier invalid call; an empty MCP-error search cannot prove a clean run.
 - Dynamic-call identity failures can originate in Cursor before OCP receives an executable call. Inspect persisted outer arguments and discovery definitions; preserve exact identity at discovery instead of inventing a host-specific repair or concealing scoring failures.
+- A successful native-tool lookup was followed only by narration of unavailability, yet the self-test reported pass. Discovery is availability evidence, not execution; check the actual invocation and result before accepting a skip.
 
 - A compound shell call can return zero after an earlier command failed. Score the complete output and stderr, not just the tool status or final exit; shell headings use a literal `%s` format so leading hyphens cannot become options.
 
@@ -34,6 +35,7 @@ Corrections and durable takeaways for this repo. Current tool definitions live i
 ## 2026-10-06 — Preserve rejected-call evidence
 
 - A successful recovery does not erase a prior invalid call. Inspect the saved Cursor arguments and advertised schema before blaming translation, then retain argument rejections from every step in scoring. Tool-less title attempts belong to their own lifecycle row rather than a main-session capability pass.
+- A malformed awk projection during report preparation was scored as a tool-exercise failure. Keep that error visible, but assess recovered reporting-script mistakes separately from failures of the exercised capabilities; use the self-verify guide's scoring exception.
 
 ## 2026-10-06 — Verify intermediate task state
 
@@ -861,3 +863,7 @@ Consequences worth remembering:
 - Follow native post-tool lifecycle before renaming a capability. A native completion can trigger review before the next model call; changing its advertised identity can create a second approval flow. Verify the full stock interaction.
 
 - Schema validation alone cannot prove a tool contract: inspect executor guards and post-return lifecycle, then exercise the stock runtime.
+
+## 2026-10-07 — Host scheduling limits are documented, never translated around
+
+- A host's tool scheduling (MiMo `ToolGate` serializing `actor`, Pi `executionMode`, OMP `concurrency`, DSH `isConcurrencySafe`) is host behavior. OCP translates calls and results faithfully and documents the limit; it must not restate calls (for example `actor run` → `spawn` + `wait`) to gain concurrency the host does not grant.

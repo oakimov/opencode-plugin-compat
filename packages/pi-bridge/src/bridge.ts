@@ -132,9 +132,10 @@ export function buildStreamSimple(spec: AiSdkProviderSpec, runtime: PiRuntime,
         const toolInputs = buildPiToolInputVocabulary(providerTools, runtime.profile, runtime.toolSchema)
         const question = buildPiQuestionVocabulary(providerTools, runtime.profile)
         const terminalResult = buildPiTerminalResultVocabulary(providerTools, runtime.profile, runtime.toolSchema)
+        const prompt = translateContextToPrompt(resolved, vocabulary, runtime.profile, toolInputs, question, excluded)
         const translatedTools = translateTools(providerTools, runtime.toolSchema, vocabulary, toolInputs, question, terminalResult)
         const base: LanguageModelV3CallOptions = {
-          prompt: translateContextToPrompt(resolved, vocabulary, runtime.profile, toolInputs, question, excluded),
+          prompt,
           tools: translatedTools,
           toolChoice: translateToolChoice(options?.toolChoice, vocabulary, toolInputs, question),
           abortSignal: options?.signal,

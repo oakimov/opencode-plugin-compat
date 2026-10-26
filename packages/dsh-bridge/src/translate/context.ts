@@ -7,7 +7,11 @@
 import type { LanguageModelV3FunctionTool, LanguageModelV3Prompt } from "@ai-sdk/provider"
 import { homedir } from "node:os"
 import { dshProfile, dshToolInputs } from "../host/profile.js"
-import { hostToolRenames, translatePromptToolNames } from "@opencode-compat/opencode-loader"
+import {
+  ensureToolResultContiguity,
+  hostToolRenames,
+  translatePromptToolNames,
+} from "@opencode-compat/opencode-loader"
 import {
   canonicalQuestionDescription,
   canonicalQuestionSchema,
@@ -243,7 +247,7 @@ export function translateGenerateOptionsToPrompt(
       })
     }
   }
-  return prompt
+  return ensureToolResultContiguity(prompt) as LanguageModelV3Prompt
 }
 
 export function translateTools(

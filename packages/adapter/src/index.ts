@@ -94,6 +94,7 @@ import {
   wrapProviderSdkForProfile,
 } from "./language-model"
 import { installPathBridge } from "./runtime-host"
+import { installSkillsBridge } from "./skills-bridge"
 import { providerUsageIntegrationForHost } from "./provider-usage"
 export { providerUsageIntegrationForHost, usageEventPlugin } from "./provider-usage"
 
@@ -128,6 +129,7 @@ export function wirePromiseV2(
     )
   }
   installPathBridge(profile.id, options?.env as Record<string, string | undefined> | undefined)
+  installSkillsBridge(profile.id)
   const host = createPromiseV2Host(options?.pluginOptions ?? {})
   return {
     ctx: host.ctx,

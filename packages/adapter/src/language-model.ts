@@ -22,7 +22,7 @@
  * match upstream take a byte-identical path.
  */
 import type { HostId, HostProfile } from "@opencode-compat/profile"
-import { normalizeV3Usage } from "@opencode-compat/opencode-loader"
+import { normalizeV3Usage, recordHostSkillCatalogText } from "@opencode-compat/opencode-loader"
 import {
   buildVocabulary,
   fanoutId,
@@ -729,6 +729,7 @@ function prepareCall(
   }
 
   const record = call as { tools?: unknown; prompt?: unknown; [key: string]: unknown }
+  recordHostSkillCatalogText(skillCatalogText(record.prompt))
   const tools = Array.isArray(record.tools) ? record.tools : undefined
   if (!tools) return { args, toolSchemas, context: undefined }
   const providerTools = canonicalFileToolCatalog(tools)
@@ -771,6 +772,17 @@ function prepareCall(
   }
 
   return { args: next, toolSchemas, context: { vocab, hostTodos } }
+}
+
+function skillCatalogText(prompt: unknown): string | undefined {
+  if (!Array.isArray(prompt)) return undefined
+  for (let index = prompt.length - 1; index >= 0; index--) {
+    const message = prompt[index]
+    if (!isRecord(message) || message.role !== "system") continue
+    const content = message.content
+    if (typeof content === "string" && content.includes("<available_skills")) return content
+  }
+  return undefined
 }
 
 /** Collect a resumed child only after its native send call has completed. */

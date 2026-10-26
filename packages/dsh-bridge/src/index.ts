@@ -3,7 +3,7 @@
  * Mirrors `packages/llm/llm-deepseek/src/index.ts` (name/inject/Config/apply).
  * One registration per OpenCode provider: Cordis `LlmAdapter` + shared loader.
  */
-import { installDshPathBridge } from "./path-bridge.js"
+import { installDshPathBridge, installDshSkillList } from "./path-bridge.js"
 import { isCursorProviderPackage, validateConfig } from "./config.js"
 import { registerDshPlugin } from "./register.js"
 import { loadConfigSchema, providerSpecs, settingsAddress } from "./settings.js"
@@ -39,6 +39,10 @@ export async function apply(ctx: ApplyContext, config: DshBridgeConfig): Promise
     // eslint-disable-next-line no-console
     console.error(`dsh-bridge: path bridge not installed — ${err instanceof Error ? err.message : String(err)}`)
   }
+  const skillList = ctx.inject?.(["skills"], skillCtx => {
+    installDshSkillList(() => skillCtx.skills.list())
+  })
+  void Promise.resolve(skillList).catch(error => console.error("dsh-bridge: skill list bridge failed", error))
   const validated = validateConfig({ providers: providerSpecs(config) })
   const entryId = Config === undefined ? undefined : ctx.fiber?.entry?.options.id
   if (Config === undefined) {

@@ -8,6 +8,7 @@ The monorepo ships **one shared train version** across all eleven packages, so u
 
 ### Added
 
+- Clone, Pi-family, and DSH bridges install the canonical `opencode.host.skills` catalog so providers receive skill names, descriptions, and locations without skill content on the wire.
 - One current tool vocabulary records native and provider-facing calls, parameters, and declaration sources; host upgrades and tool changes require updating it in place.
 
 - Kilo and MiMo: the host path bridge now tells providers the host's own plan file for a session (`planFile`), so a Cursor plan is written where the host's plan review reads it and approved through that review.
@@ -15,7 +16,10 @@ The monorepo ships **one shared train version** across all eleven packages, so u
 
 ### Changed
 
-- Cursor self-verify skips unavailable optional question/helper capabilities without failing T7, includes ordinary AskQuestion rejections in its saved extract, scopes evidence to the current session, and retains unexpected scoring-command failures.
+- MiMo host guide documents ToolGate scheduling: readonly `read`/`grep`/`glob` may overlap; `actor` (canonical `task`) and other tools stay FIFO — OCP does not bypass the gate.
+- Cursor self-verify follows the advertised direct or dynamic route for planning and images, and requires real invocation results before scoring an unavailable skip.
+- Cursor self-verify L5 treats correct `allowTools=false` refusals on tool-less title/summary/helper Runs as pass; only an emitted/executed host tool on those Runs fails the row.
+- Cursor self-verify skips unavailable optional question/helper capabilities without failing T7, includes ordinary AskQuestion rejections in its saved extract, scopes evidence to the current session, and reports recovered read-only scoring-script errors without failing T2.
 - Cursor self-verify keeps argument/schema failures after successful retries and separately scores attempted execution in tool-less helper requests.
 - Cursor self-verify final reports require rendered Markdown with a metadata list and score table, without enclosing code fences or plain-text output.
 - Clone-host provider shims add one event-only `__ocpUsageEvents` plugin export and keep the provider's own exports unchanged, so the provider plugin loads once; rerun `ocp setup` to refresh existing shims.
@@ -28,6 +32,11 @@ The monorepo ships **one shared train version** across all eleven packages, so u
 
 ### Fixed
 
+- DSH opens a new text/reasoning block after a tool call instead of reusing a closed index the host assembler would drop, so later assistant text reaches the transcript.
+- Pi/OMP and DSH keep a step's tool results contiguous before the provider sees them, so notes cannot sit between trailing results and break held-Run continuation.
+- Pi/OMP fold multi-path `read` fan-outs back to the original call id and joined path on the next turn, matching Cursor's single `filePath` with `;`-joined paths.
+- ocp-dev Pi/OMP host-AI package overlays live under the managed host state dir (not only the bridge tree), so local-dev links survive host package reinstalls.
+- Pi and OMP expose a provider-facing `skill` tool backed by native reads of the advertised skill location, so bridged providers can load skills even though those hosts have no native skill tool.
 - Self-verify requires a complete failure inventory before a pass, including rejected native discovery and premature plan attempts, even when every host call later succeeds.
 - Self-verify distinguishes dynamic invocation identity from inner arguments, waits for deferred plan-agent handoffs, and counts parallel and scoring rejections separately, including shell failures masked by a later successful command.
 - OMP delegated tasks include required solution context in single/batch mode, foreground calls collect the child result, and child completion submits the current yield schema without overriding structured/work-pool output.

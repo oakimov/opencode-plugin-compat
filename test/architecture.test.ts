@@ -71,10 +71,24 @@ describe("OCP architecture boundaries", () => {
     for (const file of [
       "packages/adapter/src/runtime-host.ts",
       "packages/pi-bridge/src/path-bridge.ts",
+      "packages/dsh-bridge/src/path-bridge.ts",
     ]) {
       const source = text(file)
       expect(source).toContain('Symbol.for("opencode.host.path-bridge")')
       expect(source).toContain('Symbol.for("opencode.compat.path-bridge")')
+    }
+  })
+
+  test("skill installers publish the neutral structural contract without provider identity", () => {
+    for (const file of [
+      "packages/opencode-loader/src/host-skills.ts",
+      "packages/adapter/src/runtime-host.ts",
+      "packages/pi-bridge/src/path-bridge.ts",
+      "packages/dsh-bridge/src/path-bridge.ts",
+    ]) {
+      const source = text(file)
+      expect(source).toMatch(/Symbol\.for\("opencode\.host\.skills"\)|installHostSkillsBridge/)
+      expect(source).not.toMatch(/cursor-opencode-provider|isCursorProviderPackage|Cursor/)
     }
   })
 

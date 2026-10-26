@@ -4,11 +4,13 @@
 import { describe, expect, test } from "bun:test"
 import {
   installPathBridge,
+  recordHostSkillCatalogText,
   toolRolesForHostId,
 } from "../packages/adapter/src/runtime-host.ts"
 
 const PATH_BRIDGE_KEY = Symbol.for("opencode.host.path-bridge")
 const LEGACY_PATH_BRIDGE_KEY = Symbol.for("opencode.compat.path-bridge")
+const SKILLS_KEY = Symbol.for("opencode.host.skills")
 
 type PathBridge = {
   projectConfigDirs: (workspaceRoot: string) => string[]
@@ -18,10 +20,13 @@ type PathBridge = {
   configFileNames: string[]
   planFile: (input: { worktree: string; vcs: boolean; created: number; slug: string }) => string | undefined
 }
+type SkillsBridge = { list(input: { directory: string }): Promise<unknown> }
 
 function clearBridge(): void {
   delete (globalThis as Record<PropertyKey, unknown>)[PATH_BRIDGE_KEY]
   delete (globalThis as Record<PropertyKey, unknown>)[LEGACY_PATH_BRIDGE_KEY]
+  delete (globalThis as Record<PropertyKey, unknown>)[SKILLS_KEY]
+  recordHostSkillCatalogText(undefined)
 }
 
 function bridge(): PathBridge {
@@ -62,7 +67,22 @@ describe("installPathBridge", () => {
         XDG_CACHE_HOME: "/tmp/xdg-cache",
       })
       expect((globalThis as Record<PropertyKey, unknown>)[PATH_BRIDGE_KEY]).toBeUndefined()
+      expect((globalThis as Record<PropertyKey, unknown>)[SKILLS_KEY]).toBeUndefined()
       expect(toolRolesForHostId(id)).toBeUndefined()
+    }
+  })
+
+  test("mimo and kilo install the canonical skills bridge from the latest catalog", async () => {
+    for (const id of ["mimo", "kilo"]) {
+      clearBridge()
+      recordHostSkillCatalogText(`<available_skills>
+  <skill><name>audit</name><description>Audit repo</description><location>file:///repo/skills/audit.md</location></skill>
+</available_skills>`)
+      installPathBridge(id, { HOME: "/tmp/home" })
+      const bridge = (globalThis as Record<PropertyKey, unknown>)[SKILLS_KEY] as SkillsBridge
+      expect(await bridge.list({ directory: "/repo" })).toEqual([
+        { name: "audit", description: "Audit repo", location: "/repo/skills/audit.md" },
+      ])
     }
   })
 

@@ -223,8 +223,8 @@ export async function runV3StreamToPi(options: {
           // One canonical call can expand into several host ops (todo
           // init/done/start, or a `;`-joined multi-path read). Fan out under
           // derived ids so the host executes every op; history folding
-          // (translateContextToPrompt) collapses todo fan-outs back for the
-          // provider and keeps read fan-outs as separate entries.
+          // (translateContextToPrompt) collapses todo and read fan-outs back
+          // to the provider's original call id.
           const fanout = calls.length > 1 || calls.some(call => call.fanout)
           for (let index = 0; index < calls.length; index++) {
             const call = calls[index]!

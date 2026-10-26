@@ -1,7 +1,16 @@
 import { existsSync, lstatSync, mkdirSync, readFileSync, realpathSync, readdirSync, rmSync, symlinkSync } from "node:fs"
 import { dirname, join, sep } from "node:path"
 import { configFile, resolveCli, type HostId, type WireMode } from "./hosts.ts"
-import { defaultProviderPath, pluginName, repoRoot } from "./paths.ts"
+import {
+  assertManaged,
+  defaultProviderPath,
+  hostStateDir,
+  manifestPath,
+  pluginName,
+  readText,
+  repoRoot,
+  writeAtomic,
+} from "./paths.ts"
 import { removePiProvider, upsertPiProvider } from "./pi-config.ts"
 
 export type PiHost = Extract<HostId, "pi" | "omp">
@@ -134,19 +143,23 @@ function linkHostAi(host: PiHost, hostCli: string): void {
     }
     break
   }
+  const overlayRoot = join(hostStateDir(host), "node_modules")
+  const overlay = join(overlayRoot, pkg)
+  assertManaged(overlayRoot)
+  const bridgeTarget = join(bridgePath(), "node_modules", pkg)
+
   if (!source) {
-    const target = join(bridgePath(), "node_modules", pkg)
-    try {
-      if (existsSync(target) && lstatSync(target).isSymbolicLink() && !hasBuiltEntry(target)) {
-        rmSync(target, { force: true })
-        console.log(`ocp-dev: removed unbuilt ${pkg} link`)
-      }
-    } catch {}
+    for (const target of [overlay, bridgeTarget]) {
+      try {
+        if (existsSync(target) && lstatSync(target).isSymbolicLink() && !hasBuiltEntry(target)) {
+          rmSync(target, { force: true })
+          console.log(`ocp-dev: removed unbuilt ${pkg} link (${target})`)
+        }
+      } catch {}
+    }
     console.log(`ocp-dev: no built ${pkg} to link (pi injects it at runtime); skipping`)
     return
   }
-  const target = join(bridgePath(), "node_modules", pkg)
-  mkdirSync(dirname(target), { recursive: true })
 
   const sourceVersion = (() => {
     try {
@@ -155,59 +168,88 @@ function linkHostAi(host: PiHost, hostCli: string): void {
       return undefined
     }
   })()
-  const targetVersion = (() => {
-    try {
-      const real = lstatSync(target).isSymbolicLink() ? realpathSync(target) : target
-      return JSON.parse(readFileSync(join(real, "package.json"), "utf8")).version as string
-    } catch {
-      return undefined
-    }
-  })()
 
-  if (existsSync(target)) {
-    const isLink = (() => {
+  const linkOrUpdate = (target: string, label: string): void => {
+    mkdirSync(dirname(target), { recursive: true })
+    const targetVersion = (() => {
       try {
-        return lstatSync(target).isSymbolicLink()
+        const real = lstatSync(target).isSymbolicLink() ? realpathSync(target) : target
+        return JSON.parse(readFileSync(join(real, "package.json"), "utf8")).version as string
       } catch {
-        return false
+        return undefined
       }
     })()
-    if (!isLink && existsSync(join(target, "package.json"))) {
-      if (targetVersion && sourceVersion && targetVersion === sourceVersion) {
-        console.log(`ocp-dev: ${pkg}@${targetVersion} already resolves inside local pi-bridge`)
-        return
-      }
-      console.log(`ocp-dev: ${pkg} version mismatch ${targetVersion ?? "unknown"} vs host ${sourceVersion ?? "unknown"} → relinking`)
-      // Remove real directory installed by `bun install` before symlinking
-      try {
-        rmSync(target, { recursive: true, force: true })
-      } catch {}
-    } else if (isLink) {
-      const current = (() => {
+    if (existsSync(target)) {
+      const isLink = (() => {
         try {
-          return realpathSync(target)
+          return lstatSync(target).isSymbolicLink()
         } catch {
-          return undefined
+          return false
         }
       })()
-      if (current === source && targetVersion === sourceVersion) {
-        console.log(`ocp-dev: ${pkg}@${sourceVersion} already linked to host runtime ${source}`)
-        return
+      if (!isLink && existsSync(join(target, "package.json"))) {
+        if (targetVersion && sourceVersion && targetVersion === sourceVersion) {
+          console.log(`ocp-dev: ${pkg}@${targetVersion} already resolves (${label})`)
+          return
+        }
+        console.log(`ocp-dev: ${pkg} version mismatch ${targetVersion ?? "unknown"} vs host ${sourceVersion ?? "unknown"} → relinking (${label})`)
+        try {
+          rmSync(target, { recursive: true, force: true })
+        } catch {}
+      } else if (isLink) {
+        const current = (() => {
+          try {
+            return realpathSync(target)
+          } catch {
+            return undefined
+          }
+        })()
+        if (current === source && targetVersion === sourceVersion) {
+          console.log(`ocp-dev: ${pkg}@${sourceVersion} already linked (${label})`)
+          return
+        }
+        console.log(`ocp-dev: ${pkg} stale link ${current ?? "broken"}@${targetVersion ?? "?"} → updating (${label})`)
+        try {
+          rmSync(target, { force: true })
+        } catch {}
+      } else if (!isLink) {
+        throw new Error(`refusing to replace non-package host peer target: ${target}`)
+      } else {
+        try {
+          rmSync(target, { force: true })
+        } catch {}
       }
-      console.log(`ocp-dev: ${pkg} stale link ${current ?? "broken"}@${targetVersion ?? "?"} → updating to ${source}@${sourceVersion ?? "?"}`)
-      try {
-        rmSync(target, { force: true })
-      } catch {}
-    } else if (!isLink) {
-      throw new Error(`refusing to replace non-package host peer target: ${target}`)
-    } else {
-      try {
-        rmSync(target, { force: true })
-      } catch {}
+    }
+    symlinkSync(source, target)
+    console.log(`ocp-dev: ${pkg}@${sourceVersion ?? "?"} → ${label} ${source}`)
+  }
+
+  // Per-host overlay under the ocp-dev state dir (isolation). Bridge
+  // node_modules points at that overlay so checkout resolution does not keep
+  // a second source-backed link as the sole copy.
+  linkOrUpdate(overlay, `state ${host}`)
+  mkdirSync(dirname(bridgeTarget), { recursive: true })
+  if (existsSync(bridgeTarget)) {
+    try {
+      rmSync(bridgeTarget, { force: true, recursive: true })
+    } catch {
+      // absent / busy
     }
   }
-  symlinkSync(source, target)
-  console.log(`ocp-dev: ${pkg}@${sourceVersion ?? "?"} → host runtime ${source}`)
+  symlinkSync(overlay, bridgeTarget)
+  console.log(`ocp-dev: ${pkg} pi-bridge → state overlay ${overlay}`)
+  writeAtomic(
+    manifestPath(host),
+    `${JSON.stringify({
+      host,
+      mode: "local",
+      hostAiPackage: pkg,
+      hostAiOverlay: overlay,
+      hostAiSource: source,
+      bridgeAiLink: bridgeTarget,
+      updated: new Date().toISOString(),
+    }, null, 2)}\n`,
+  )
 }
 
 function piRemoveIfPresent(hostCli: string, source: string): void {
@@ -285,14 +327,26 @@ export async function unshimPi(host: PiHost): Promise<void> {
     ompRemoveIfPresent(hostCli, plugin)
   }
   removePiProvider(configFile(host), plugin)
-  const target = join(bridge, "node_modules", aiPackage(host))
-  try {
-    if (lstatSync(target).isSymbolicLink()) {
-      rmSync(target)
-      console.log(`ocp-dev: unlinked ${aiPackage(host)} from ${bridge}`)
+  const pkg = aiPackage(host)
+  const bridgeTarget = join(bridge, "node_modules", pkg)
+  const overlay = join(hostStateDir(host), "node_modules", pkg)
+  for (const target of [bridgeTarget, overlay]) {
+    try {
+      if (lstatSync(target).isSymbolicLink()) {
+        rmSync(target)
+        console.log(`ocp-dev: unlinked ${pkg} from ${target}`)
+      }
+    } catch {
+      // absent
     }
-  } catch {
-    // absent
+  }
+  const manifest = manifestPath(host)
+  if (readText(manifest)) {
+    try {
+      rmSync(manifest, { force: true })
+    } catch {
+      // absent
+    }
   }
   console.log(`ocp-dev: ${host} returned to factory state`)
 }
