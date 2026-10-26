@@ -6,6 +6,10 @@ The monorepo ships **one shared train version** across all eleven packages, so u
 
 ## [Unreleased]
 
+### Changed
+
+- `@opencode-compat/dsh-bridge` publishes a committed Cordis entry that re-exports the built `apply` surface, so source checkouts and scanners see the runtime export without a local `dist/` build.
+
 ## [0.4.4] - 2026-10-26
 
 ### Added

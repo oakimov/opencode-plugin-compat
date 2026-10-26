@@ -13,7 +13,7 @@
   "publishConfig": {
     "access": "public"
   },
-  "main": "./dist/index.js",
+  "main": "./cordis-entry.js",
   "types": "./dist/index.d.ts",
   "exports": {
     "./token-meter": {
@@ -22,7 +22,7 @@
     },
     ".": {
       "types": "./dist/index.d.ts",
-      "import": "./dist/index.js"
+      "import": "./cordis-entry.js"
     },
     "./config": {
       "types": "./dist/config.d.ts",
@@ -31,14 +31,17 @@
   },
   "files": [
     "dist",
+    "cordis-entry.js",
     "cordis.patch.yml",
     "LICENSE",
     "README.md",
+    "SECURITY.md",
     "!dist/**/*.map"
   ],
   "dsh": {
     "bundle": {
-      "patch": "./cordis.patch.yml"
+      "patch": "./cordis.patch.yml",
+      "mode": "patch"
     }
   },
   "scripts": {
