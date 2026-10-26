@@ -13,6 +13,7 @@ The monorepo ships **one shared train version** across all eleven packages, so u
 
 - Kilo and MiMo: the host path bridge now tells providers the host's own plan file for a session (`planFile`), so a Cursor plan is written where the host's plan review reads it and approved through that review.
 - PR and `main` CI runs typecheck, coverage tests, and Codecov upload (same dual-job merge/head pattern as the Cursor provider).
+- Pull request reviews follow the repository review rubric (`docs/review-rules.md` + `.greptile/`), including blocker checks for the vendor boundary, provider boundary, three host mechanisms, catalog integrity, and tool-vocabulary drift.
 
 ### Changed
 

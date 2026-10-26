@@ -62,9 +62,11 @@ Missing access, skipped checks, setup/doctor output and model registration alone
 
 ### Review and coverage requirements
 
+- Pull request reviews follow the repository [review rubric](./docs/review-rules.md), including blocker checks for secrets, the vendor boundary, the provider boundary, the three host mechanisms, catalog integrity, and tool-vocabulary drift.
+- **Resolve every Greptile finding before merge, regardless of severity**, including minor issues and nits. Address each finding and resolve its review thread; leave no open Greptile issues.
 - **Provide sufficient test coverage for new and changed behavior**, including relevant error paths. Address uncovered changes and coverage regressions reported by Codecov; all applicable Codecov checks must pass under the repository's [coverage configuration](codecov.yml).
 - CI job **`Typecheck, test, build`** must pass on the PR merge with `main`. Coverage for Codecov is measured on the PR head (see `.github/workflows/ci.yml`).
-- **PRs with unresolved Codecov coverage issues will be closed if they go 3 days without an update addressing those issues.** Keep the PR updated while working through coverage feedback.
+- **PRs with unresolved Greptile findings or Codecov coverage issues will be closed if they go 3 days without an update addressing those issues.** Keep the PR updated while working through review and coverage feedback.
 
 ## License
 
