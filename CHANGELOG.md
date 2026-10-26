@@ -6,6 +6,8 @@ The monorepo ships **one shared train version** across all eleven packages, so u
 
 ## [Unreleased]
 
+## [0.4.4] - 2026-10-26
+
 ### Added
 
 - Clone, Pi-family, and DSH bridges install the canonical `opencode.host.skills` catalog so providers receive skill names, descriptions, and locations without skill content on the wire.
