@@ -36,6 +36,8 @@ bun run matrix
 
 For package, dependency or published-bin changes, also run `bun run pack:check`. This is the package inspection gate; releases and publication must follow [AGENTS.md](./AGENTS.md) and [docs/guides/npm-publish.md](./docs/guides/npm-publish.md).
 
+Declare workspace packages imported directly by root tests in the root `devDependencies`. Verify dependency changes with a fresh `bun install --frozen-lockfile` outside the existing checkout, then run `bun run build` before typecheck and tests. Leftover workspace links and generated runtime bundles can hide clean-checkout failures.
+
 Rebuild and refresh the installed OCP/provider output, restart the affected stock host, and verify the loaded runtime before claiming a fix. Local development guidance lives in [TESTING.md](./TESTING.md); native OpenCode loads providers directly and must not be wrapped with an OCP development shim.
 
 ## Pull requests

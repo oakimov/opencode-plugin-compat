@@ -1,5 +1,7 @@
 # Lessons learned
 
+- Pre-existing workspace links and a generated clone-runtime bundle masked clean CI failures. The architecture suite now checks direct workspace imports against the root manifest; validate dependency and workflow changes with the fresh-install/full-build procedure in `CONTRIBUTING.md`.
+
 - Preserve translation provenance in durable host history. A file location cannot distinguish a skill load from an ordinary or ranged read; retain the originating call identity and test replay after catalog removal. Exercise batch reads against the stock executor as well as fixtures: shared replay support does not prove both hosts split the outbound call.
 
 - Build the scoring failure inventory from native discovery and interaction results as well as host tools. A working guard or later successful review does not erase an earlier invalid call; an empty MCP-error search cannot prove a clean run.

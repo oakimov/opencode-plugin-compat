@@ -28,6 +28,10 @@ jobs:
       - name: Install
         run: bun install --frozen-lockfile
 
+      # Tests consume both workspace dist exports and the bundled clone runtime.
+      - name: Build
+        run: bun run build
+
       - name: Typecheck
         run: bun run typecheck
 
@@ -51,10 +55,7 @@ jobs:
           disable_search: true
           fail_ci_if_error: true
 
-      - name: Build
-        run: bun run build
-
-      # architecture.test.ts skips dist/ when it is absent; re-run after tsc.
+      # Keep an explicit post-build architecture check in the required job.
       - name: Architecture checks on dist
         run: bun test ./test/architecture.test.ts
 

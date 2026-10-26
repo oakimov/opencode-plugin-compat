@@ -3,6 +3,7 @@ import { existsSync, readFileSync, readdirSync, statSync } from "node:fs"
 import path from "node:path"
 import { buildVocabulary, translateCatalog } from "@opencode-compat/adapter"
 import { mimoProfile } from "@opencode-compat/profile"
+import ts from "typescript"
 
 const ROOT = path.resolve(import.meta.dir, "..")
 
@@ -38,6 +39,23 @@ function violations(files: readonly string[], pattern: RegExp): string[] {
 }
 
 describe("OCP architecture boundaries", () => {
+  test("root tests declare every directly imported workspace package", () => {
+    const manifest: { dependencies?: Record<string, string>; devDependencies?: Record<string, string> } = JSON.parse(text("package.json"))
+    const declared = new Set(Object.keys({ ...manifest.dependencies, ...manifest.devDependencies }))
+    const missing: string[] = []
+    for (const file of filesUnder("test", [".ts"])) {
+      const source = ts.createSourceFile(file, readFileSync(file, "utf8"), ts.ScriptTarget.Latest)
+      for (const statement of source.statements) {
+        if (!ts.isImportDeclaration(statement) || !ts.isStringLiteral(statement.moduleSpecifier)) continue
+        const specifier = statement.moduleSpecifier.text
+        if (!specifier.startsWith("@opencode-compat/")) continue
+        const name = specifier.split("/").slice(0, 2).join("/")
+        if (!declared.has(name)) missing.push(`${path.relative(ROOT, file)}: ${name}`)
+      }
+    }
+    expect(missing).toEqual([])
+  })
+
   test("clone adapter contains no Pi-family runtime identities or paths", () => {
     const files = filesUnder("packages/adapter/src", [".ts"])
     expect(violations(
