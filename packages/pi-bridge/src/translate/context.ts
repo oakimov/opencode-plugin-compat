@@ -25,13 +25,21 @@ import type {
   PiToolResultMessage,
 } from "../pi-provider-types.js"
 import type { PiHostProfile } from "../host/profile.js"
-import { hostToolRenames, translatePromptToolNames } from "@opencode-compat/opencode-loader"
+import {
+  ensureToolResultContiguity,
+  hostToolRenames,
+  translatePromptToolNames,
+  type HostSkill,
+} from "@opencode-compat/opencode-loader"
 import {
   canonicalSubagentDescription,
   canonicalSubagentSchema,
   canonicalToolName,
   hostTodoRowsFromResult,
   isOpsTodoHostTool,
+  isReadHostTool,
+  joinReadFanoutInput,
+  skillReadCall,
   originalTodoFanoutId,
   reconstructTodoSnapshotFromHostOps,
   translateHostSubagentCall,
@@ -148,6 +156,14 @@ const OPENCODE_TODO_WRITE_DESCRIPTION =
   "or cancelled. Do not send op/init/start/done fields."
 
 const OPENCODE_TODO_READ_DESCRIPTION = "Read the current session task list. Takes no arguments."
+
+const OPENCODE_SKILL_DESCRIPTION = "Load one advertised skill by name before using its guidance."
+const OPENCODE_SKILL_SCHEMA: Record<string, unknown> = {
+  type: "object",
+  properties: { name: { type: "string", description: "Name of the advertised skill to load" } },
+  required: ["name"],
+  additionalProperties: false,
+}
 
 /**
  * OpenCode/Cursor bash surface. Lead with `workdir` — host bash.md buries
@@ -336,18 +352,26 @@ function assistantMessageToV3(
     | { type: "file"; data: string; mediaType: string }
     | { type: "tool-call"; toolCallId: string; toolName: string; input: unknown }
   > = []
-  // Fanned-out todo ops share one canonical todowrite id; emit it once.
-  // Other fan-outs (e.g. multi-path read) keep every host call as its own
-  // history entry so paths/results are not collapsed into an empty snapshot.
+  // Fanned-out todo ops and multi-path reads share one canonical id; emit once.
   const foldedTodoFanouts = new Set<string>()
+  const foldedReadFanouts = new Set<string>()
   const todoOpsByOriginal = new Map<string, Record<string, unknown>[]>()
+  const readOpsByOriginal = new Map<string, Record<string, unknown>[]>()
   for (const block of message.content) {
     if (block.type !== "toolCall") continue
     const original = originalTodoFanoutId(block.id)
-    if (!original || !isOpsTodoHostTool(block.name, toolInputs)) continue
-    const operations = todoOpsByOriginal.get(original) ?? []
-    operations.push(block.arguments)
-    todoOpsByOriginal.set(original, operations)
+    if (!original) continue
+    if (isOpsTodoHostTool(block.name, toolInputs)) {
+      const operations = todoOpsByOriginal.get(original) ?? []
+      operations.push(block.arguments)
+      todoOpsByOriginal.set(original, operations)
+      continue
+    }
+    if (isReadHostTool(block.name, toolInputs)) {
+      const operations = readOpsByOriginal.get(original) ?? []
+      operations.push(block.arguments)
+      readOpsByOriginal.set(original, operations)
+    }
   }
   for (const block of message.content) {
     if (block.type === "text") content.push({ type: "text", text: block.text })
@@ -378,6 +402,23 @@ function assistantMessageToV3(
           toolName: canonicalToolName(block.name, vocabulary, toolInputs, { op: "init" }),
           input: snapshot,
         })
+        continue
+      }
+      if (fanoutOriginal && isReadHostTool(block.name, toolInputs)) {
+        if (foldedReadFanouts.has(fanoutOriginal)) continue
+        foldedReadFanouts.add(fanoutOriginal)
+        const operations = readOpsByOriginal.get(fanoutOriginal) ?? [block.arguments]
+        content.push({
+          type: "tool-call",
+          toolCallId: fanoutOriginal,
+          toolName: canonicalToolName(block.name, vocabulary, toolInputs),
+          input: joinReadFanoutInput(operations),
+        })
+        continue
+      }
+      const skill = block.name === "read" ? skillReadCall(block.id) : undefined
+      if (skill) {
+        content.push({ type: "tool-call", toolCallId: skill.id, toolName: "skill", input: { name: skill.name } })
         continue
       }
       const translated =
@@ -516,12 +557,37 @@ export function translateContextToPrompt(
   const systemText = normalizeSystemPrompt(context.systemPrompt)
   if (systemText) prompt.push({ role: "system", content: hostText(systemText) })
 
-  // Fanned-out todo results collapse into the first message for their canonical id.
-  // Multi-path read fan-outs are left as separate results (matched by call id).
+  // Fanned-out todo/read results collapse into the first message for their canonical id.
   const foldedTodoResults = new Map<
     string,
     { toolName: string; texts: string[]; isError: boolean; promptIndex: number }
   >()
+  const foldedReadResults = new Map<
+    string,
+    {
+      toolName: string
+      parts: Array<{ path: string; output: LanguageModelV3ToolResultPart["output"]; isError: boolean; order: number }>
+      promptIndex: number
+    }
+  >()
+  const readPathByFanoutId = new Map<string, string>()
+  const readOrderByFanoutId = new Map<string, number>()
+  for (const message of context.messages) {
+    if (message.role !== "assistant") continue
+    for (const block of message.content) {
+      if (block.type !== "toolCall") continue
+      if (!isReadHostTool(block.name, toolInputs)) continue
+      const path = typeof block.arguments?.path === "string"
+        ? block.arguments.path
+        : typeof block.arguments?.filePath === "string"
+          ? block.arguments.filePath
+          : ""
+      if (path) {
+        readOrderByFanoutId.set(block.id, readPathByFanoutId.size)
+        readPathByFanoutId.set(block.id, path)
+      }
+    }
+  }
 
   // Host todo state for folding status diffs: the rows before each assistant
   // message, and each fanned-out group's final reported rows.
@@ -587,6 +653,21 @@ export function translateContextToPrompt(
       if (todoRows !== null) currentTodos = todoRows
       if (excludedToolNames?.has(message.toolName) || excludedToolCallIds.has(message.toolCallId)) continue
       const fanoutOriginal = originalTodoFanoutId(message.toolCallId)
+      const skill = message.toolName === "read" ? skillReadCall(message.toolCallId) : undefined
+      if (skill) {
+        prompt.push({
+          role: "tool",
+          content: [
+            {
+              type: "tool-result",
+              toolCallId: skill.id,
+              toolName: "skill",
+              output: { type: message.isError ? "error-text" : "text", value: message.isError ? flattenToPlainText(message.content) : wrapSkillContent(flattenToPlainText(message.content)) },
+            },
+          ],
+        })
+        continue
+      }
       if (fanoutOriginal && isOpsTodoHostTool(message.toolName, toolInputs)) {
         const text = flattenToPlainText(message.content)
         const existing = foldedTodoResults.get(fanoutOriginal)
@@ -620,6 +701,38 @@ export function translateContextToPrompt(
         })
         continue
       }
+      if (fanoutOriginal && isReadHostTool(message.toolName, toolInputs)) {
+        const output = toolResultOutputFromPi(message)
+        const order = readOrderByFanoutId.get(message.toolCallId) ?? -1
+        const path = readPathByFanoutId.get(message.toolCallId) || message.toolCallId
+        const existing = foldedReadResults.get(fanoutOriginal)
+        if (existing) {
+          existing.parts.push({ path, output, order, isError: message.isError === true })
+          continue
+        }
+        const toolName = canonicalToolName(
+          canonicalQuestionToolName(message.toolName, question),
+          vocabulary,
+          toolInputs,
+        )
+        prompt.push({
+          role: "tool",
+          content: [
+            {
+              type: "tool-result",
+              toolCallId: fanoutOriginal,
+              toolName,
+              output: { type: "text", value: "" },
+            },
+          ],
+        })
+        foldedReadResults.set(fanoutOriginal, {
+          toolName,
+          parts: [{ path, output, order, isError: message.isError === true }],
+          promptIndex: prompt.length - 1,
+        })
+        continue
+      }
       prompt.push({
         role: "tool",
         content: [
@@ -646,8 +759,34 @@ export function translateContextToPrompt(
     const value = folded.texts.join("\n") || "Todo list updated."
     part.output = { type: folded.isError ? "error-text" : "text", value }
   }
+  for (const folded of foldedReadResults.values()) {
+    const entry = prompt[folded.promptIndex]
+    if (!entry || entry.role !== "tool" || !Array.isArray(entry.content) || !entry.content[0]) continue
+    const part = entry.content[0] as LanguageModelV3ToolResultPart
+    const rows = folded.parts.sort((a, b) => a.order - b.order)
+    const allFailed = rows.length > 0 && rows.every(row => row.isError)
+    if (rows.some(row => row.output.type === "content")) {
+      part.output = { type: "content", value: rows.flatMap(row => [
+        { type: "text" as const, text: `${row.isError ? "error: " : ""}${row.path}` },
+        ...(row.output.type === "content" ? row.output.value : [
+          { type: "text" as const, text: "value" in row.output ? String(row.output.value) : "(empty)" },
+        ]),
+      ]) }
+    } else {
+      const value = rows.map(row => {
+        const body = "value" in row.output ? String(row.output.value) : ""
+        return `${row.isError ? "error: " : ""}${row.path}\n${body || (row.isError ? "(error)" : "(empty)")}`
+      }).join("\n\n")
+      part.output = { type: allFailed ? "error-text" : "text", value }
+    }
+  }
 
-  return prompt
+  return ensureToolResultContiguity(prompt) as LanguageModelV3Prompt
+}
+
+function wrapSkillContent(text: string): string {
+  if (text.includes("<skill_content>")) return text
+  return `<skill_content>\n${text}\n</skill_content>`
 }
 
 /** Translate host tools into AI-SDK V3 function tools. */
@@ -660,6 +799,7 @@ export function translateTools(
   toolInputs?: PiToolInputVocabulary,
   question?: PiQuestionVocabulary,
   terminalResult?: PiTerminalResultVocabulary,
+  skills: readonly HostSkill[] = [],
 ): LanguageModelV3FunctionTool[] | undefined {
   if (!tools || tools.length === 0) return undefined
   const translated: LanguageModelV3FunctionTool[] = []
@@ -719,6 +859,18 @@ export function translateTools(
         inputSchema: extra === "todoread" ? TODO_READ_SCHEMA : providerToolSchema(tool, toSchema, toolInputs) as unknown as JSONSchema7,
       })
     }
+  }
+  if (
+    skills.some(skill => skill.location) &&
+    !translated.some(tool => tool.name === "skill") &&
+    tools.some(tool => tool.name === "read")
+  ) {
+    translated.push({
+      type: "function",
+      name: "skill",
+      description: OPENCODE_SKILL_DESCRIPTION,
+      inputSchema: OPENCODE_SKILL_SCHEMA as JSONSchema7,
+    })
   }
   return translated.sort((left, right) => (left.name < right.name ? -1 : left.name > right.name ? 1 : 0))
 }

@@ -7,8 +7,8 @@
  * `LlmAdapter.stream(GenerateOptions)` → `StreamChunk`.
  */
 import type { LanguageModelV3, LanguageModelV3CallOptions, LanguageModelV3StreamPart, LanguageModelV3Usage } from "@ai-sdk/provider"
-import { optionsForLevel, type ModelCallData, type UsageContext } from "@opencode-compat/opencode-loader"
-import { translateGenerateOptionsToPrompt, translateTools, type DshGenerateOptions, type DshMessage } from "./translate/context.js"
+import { createToolCatalogOrder, optionsForLevel, withHostSkills, type ModelCallData, type UsageContext } from "@opencode-compat/opencode-loader"
+import { dshHostSkills, translateGenerateOptionsToPrompt, translateTools, type DshGenerateOptions, type DshMessage } from "./translate/context.js"
 import { v3StreamToDshChunks, type StreamChunk } from "./translate/stream.js"
 import { toolInputsForSchemas, type DshToolInputVocabulary } from "./translate/tools.js"
 
@@ -83,6 +83,7 @@ export abstract class LlmAdapter {
 }
 
 export class DshLlmAdapter extends LlmAdapter {
+  private readonly orderCatalog = createToolCatalogOrder<NonNullable<LanguageModelV3CallOptions["tools"]>[number] & { name: string }>()
   constructor(private readonly opts: DshLlmAdapterOptions) {
     super()
   }
@@ -129,7 +130,7 @@ export class DshLlmAdapter extends LlmAdapter {
       const visibleTools = self.opts.excludeToolNames
         ? prepared.tools?.filter(tool => !self.opts.excludeToolNames!.has(tool.name))
         : prepared.tools
-      const tools = translateTools(visibleTools, toolInputs)
+      const tools = self.orderCatalog(translateTools(visibleTools, toolInputs), prepared.sessionId)
 
       // Session affinity: DSH native sessionId → requesting-session header.
       // Skip on a zero-tool call: a provider may treat a session-keyed call
@@ -171,7 +172,7 @@ export class DshLlmAdapter extends LlmAdapter {
       }
 
       try {
-        const result = await lm.doStream(callOptions as never)
+        const result = await withHostSkills(dshHostSkills(prepared), () => lm.doStream(callOptions))
         const translated = v3StreamToDshChunks(result.stream, toolInputs, {
           allowedProviderToolNames: new Set(tools?.map(tool => tool.name) ?? []),
           finishUsage: self.opts.finishUsage,

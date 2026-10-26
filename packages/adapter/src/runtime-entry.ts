@@ -8,6 +8,8 @@ export {
   toolRolesForHostId,
 } from "./runtime-host"
 
+export { installSkillsBridge } from "./skills-bridge"
+
 export {
   usageIntegrationForHost,
   installUsageReconciliation,

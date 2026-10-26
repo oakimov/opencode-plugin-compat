@@ -3,6 +3,7 @@ import { existsSync, readFileSync, readdirSync, statSync } from "node:fs"
 import path from "node:path"
 import { buildVocabulary, translateCatalog } from "@opencode-compat/adapter"
 import { mimoProfile } from "@opencode-compat/profile"
+import ts from "typescript"
 
 const ROOT = path.resolve(import.meta.dir, "..")
 
@@ -38,6 +39,23 @@ function violations(files: readonly string[], pattern: RegExp): string[] {
 }
 
 describe("OCP architecture boundaries", () => {
+  test("root tests declare every directly imported workspace package", () => {
+    const manifest: { dependencies?: Record<string, string>; devDependencies?: Record<string, string> } = JSON.parse(text("package.json"))
+    const declared = new Set(Object.keys({ ...manifest.dependencies, ...manifest.devDependencies }))
+    const missing: string[] = []
+    for (const file of filesUnder("test", [".ts"])) {
+      const source = ts.createSourceFile(file, readFileSync(file, "utf8"), ts.ScriptTarget.Latest)
+      for (const statement of source.statements) {
+        if (!ts.isImportDeclaration(statement) || !ts.isStringLiteral(statement.moduleSpecifier)) continue
+        const specifier = statement.moduleSpecifier.text
+        if (!specifier.startsWith("@opencode-compat/")) continue
+        const name = specifier.split("/").slice(0, 2).join("/")
+        if (!declared.has(name)) missing.push(`${path.relative(ROOT, file)}: ${name}`)
+      }
+    }
+    expect(missing).toEqual([])
+  })
+
   test("clone adapter contains no Pi-family runtime identities or paths", () => {
     const files = filesUnder("packages/adapter/src", [".ts"])
     expect(violations(
@@ -71,10 +89,24 @@ describe("OCP architecture boundaries", () => {
     for (const file of [
       "packages/adapter/src/runtime-host.ts",
       "packages/pi-bridge/src/path-bridge.ts",
+      "packages/dsh-bridge/src/path-bridge.ts",
     ]) {
       const source = text(file)
       expect(source).toContain('Symbol.for("opencode.host.path-bridge")')
       expect(source).toContain('Symbol.for("opencode.compat.path-bridge")')
+    }
+  })
+
+  test("skill installers publish the neutral structural contract without provider identity", () => {
+    for (const file of [
+      "packages/opencode-loader/src/host-skills.ts",
+      "packages/adapter/src/runtime-host.ts",
+      "packages/pi-bridge/src/path-bridge.ts",
+      "packages/dsh-bridge/src/path-bridge.ts",
+    ]) {
+      const source = text(file)
+      expect(source).toMatch(/Symbol\.for\("opencode\.host\.skills"\)|installHostSkillsBridge/)
+      expect(source).not.toMatch(/cursor-opencode-provider|isCursorProviderPackage|Cursor/)
     }
   })
 

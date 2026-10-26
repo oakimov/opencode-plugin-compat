@@ -172,7 +172,8 @@ rg -n \
   -e 'outbound Run:|hash requestContext|turn usage validation:|cache diagnosis:' \
   -e 'extractTools:|EMITTED tool-call|debug: enabled file=|reinit=append' \
   -e 'size-cap truncate|buildEnv:|binary write STAGED|image save: wrote' \
-  -e 'BRIDGED create_plan|wrote create_plan answer|continuation: wrote exec result' \
+  -e 'BRIDGED create_plan|create_plan: emulated approval=|wrote create_plan answer' \
+  -e 'continuation: wrote exec result' \
   -e 'APPROVED switch_mode|BRIDGED switch_mode|host-agent-mode:' \
   -e 'exec: REFUSED|REJECTED AskQuestion' \
   -e 'display tool_call_completed: ERROR' \
@@ -314,9 +315,14 @@ macOS and Linux: shorten lines with `cut -c1-N`, not regex counts such as
    If the mode-switch result or instructions say the host changes agents after
    this turn, end the turn without further tool calls. Create the plan only
    after the host starts the next planning turn.
-   Cursor-native CreatePlan and SwitchMode already have native function
-   definitions. Call them directly; do not discover them through
-   GetDynamicTools/GetMcpTools or wrap them in CallDynamicTool. After an approved
+   Use Cursor's advertised invocation route: call a supplied top-level function
+   directly; if SwitchMode or CreatePlan is listed in a dynamic namespace,
+   discover its schema and invoke it through CallDynamicTool with the discovered
+   namespace, tool name and arguments. A lookup does not install a top-level
+   function or switch modes. A successful lookup is availability evidence:
+   do not replace the invocation with an unavailable claim. Require an actual
+   result for a refusal; narration is not evidence. If the route cannot be
+   established, mark the affected planning rows blocked, not skipped. After an approved
    deferred switch, a brief handoff confirmation ends the turn; the instruction
    to continue exercise work does not authorize another tool in that turn.
    Let this session choose how planning and review happen. Do not name
@@ -325,14 +331,24 @@ macOS and Linux: shorten lines with `cut -c1-N`, not regex counts such as
    approval. After explicit approval, apply and read back that change once.
    A refine or dismiss must leave it unapplied. Record the exercised outcome
    as step 8 complete; do not test every possible choice.
-   If dismissal cancels the host turn, wait for the human's next message before
-   continuing steps 9–10. Do not reopen review or repeat step 8.
+   After No or dismissal, end the turn immediately and wait for
+   a fresh human message before any further tool call, including steps 9–10,
+   scoring or cleanup. Do not reopen review or repeat step 8. Remaining in plan
+   mode does not authorize otherwise denied tools; on a later user turn, native
+   plan permissions still apply. A tool answer or synthetic handoff is not a
+   fresh human message. Typed freeform feedback on the provider's emulated
+   `question` review is different: revise the plan in this same turn using
+   that text, with no implementation or steps 9–10 until that review resolves.
+   A native plan-stage refinement error retains that host's turn-ending outcome.
 
 9. **Image** — If this session can generate an image, generate one tiny image
    and let that workflow choose the path. Do not name the scratch dir, the git
    worktree, the provider checkout, or a cache/project folder as the
    destination. Verify the save succeeded and the resulting file exists with
-   nonzero size. Otherwise skip.
+   nonzero size. Follow the advertised direct or dynamic invocation route as
+   in step 8. A returned image-tool schema is availability evidence; a narrated
+   unavailable result does not justify skipping. Otherwise skip only when the
+   capability is actually absent.
 
 10. **Score** — Now run the step-10 log filter once. Fill the table. Do not
     re-run the filter. Delete only the scratch dir. Leave the image where the
@@ -340,9 +356,10 @@ macOS and Linux: shorten lines with `cut -c1-N`, not regex counts such as
     Review tool errors from the entire session, including this scoring step.
     A corrected retry does not erase an earlier schema/argument rejection.
     Include provider-side missing-required-argument refusals as well as host
-    schema errors and unexpected tool/command failures (including malformed
-    scoring commands). Wrong-tool arguments still fail when silently ignored;
-    host success does not mean the requested operation ran. Retain server-side
+    schema errors and unexpected tool/command failures. Keep recovered scoring
+    issues in the inventory under the narrow exception below. Wrong-tool
+    arguments still fail when silently ignored; host success does not mean
+    the requested operation ran. Retain server-side
     dynamic-call identity errors even when no host execution was emitted.
     Native discovery/interaction results count too. In particular, an error
     saying a native tool is already available directly, or a premature CreatePlan
@@ -362,17 +379,32 @@ macOS and Linux: shorten lines with `cut -c1-N`, not regex counts such as
     Inspect every command's output, including stderr, before the verdict.
     `completed` or exit zero is insufficient: a later command can mask an
     earlier failure in the same shell call. Diagnostics such as `printf:
-    invalid option` or `printf: usage:` fail T2 even when later output succeeds.
+    invalid option` or `printf: usage:` fail T2 even when later output succeeds,
+    except for a recovered scoring issue as defined below.
+    **Recovered scoring issue:** a syntax, quoting, or portability error in a
+    read-only shell command used solely to inspect the saved step-10 extract
+    does not fail T2 if a corrected command succeeds and supplies the required
+    evidence. For example, a malformed awk projection followed by a successful
+    correction is a reported scoring issue. Record the original error, count,
+    and successful correction in Notes; do not hide it or rerun the live-log
+    filter. This exception does not cover steps 1–9, invalid tool names or
+    invocation identities, missing required tool arguments, wrong-tool calls,
+    provider/host failures, extra probes, or mutations. Unrecovered scoring
+    errors still fail T2; mark any affected evidence rows blocked when their
+    required evidence could not be established.
     An optional capability's unavailable refusal is a skip,
-    not such a failure. Keep tool-less helper refusals separate from main-session
-    tool errors, and score them in L5.
+    not such a failure. Keep tool-less helper rows separate from main-session
+    tool errors, and score them in L5. A correct provider gate
+    (`exec: REFUSED … allowTools=false`) is L5 pass evidence, not a T2/T7
+    failure and not an inventory fail by itself.
     Before drafting the score table, build a **failure inventory** from the
     entire transcript and saved extract: tool/interaction, error or ignored
     argument, phase, count, and source cite. Include native discovery results
     even when no host tool or exec refusal exists. If you cannot establish
     whether an observed error was an expected user choice, mark its row blocked.
     Do not infer T2 passed from an empty ERROR/REFUSED search. Check this inventory
-    against T2 and T7 before selecting the verdict.
+    against T2 and T7 before selecting the verdict. Do not treat lifecycle
+    `REFUSED … allowTools=false` as a T2 failure.
 
 ### Scoring
 
@@ -394,18 +426,18 @@ main session changes conversation after starting.
 | L0 | Log is this provider's debug file: a process header and `debug: enabled file=`, or (after a pre-agent truncate on a long-lived process) live `extractTools:` / `outbound Run:` in the same file. Note `log reinit` if multiple headers / append / size-cap; a missing banner after truncate is expected, not failed |
 | L1 | At least one `outbound Run:` and one `cache diagnosis:` |
 | L2 | First completed main-session turn: `turn usage validation: status=ok`; a title/helper's earlier terminal does not establish this row |
-| L3 | After the new user message in step 7, the main session's `outbound Run` retains its conversation id with `checkpointLen>0`, `reset=false`, `systemPromptLen=0`, and `requestContextReused=true`. A completed `continuity=warm` diagnostic also confirms reuse, but the current turn's terminal diagnostic is written only after you finish, so do not wait or re-filter for it. Report any earlier interruption/remint separately. An equal `requestContextHash` alone does not prove warm reuse |
+| L3 | After the new user message in step 7, the main session's `outbound Run` retains its conversation id with `checkpointLen>0`, `reset=false`, `systemPromptLen=0`, and `requestContextReused=true`. A `cache diagnosis:` line is written when its Run ends, so a Run's diagnosis is the first one after its `outbound Run:` for the same session. The diagnosis just before the post-continue Run closes the Run that served steps 1–7; its `continuity=cold coldReason=no-checkpoint` is that seeded first Run, not this one, and is no L3 finding. A later `continuity=warm` diagnostic for the post-continue Run also confirms reuse. When step 8 switched agents, that Run ended at the handoff and its diagnosis may read `turnEnded=unavailable` with `raw*` fields `unavailable`: no ratio was measured, which is not a miss. Otherwise its diagnosis may not exist until you finish; do not wait or re-filter for it. Report any earlier interruption/remint separately. An equal `requestContextHash` alone does not prove warm reuse |
 | L4 | `perModelCallCache=unavailable` |
-| L5 | Tool-less title/summary/helper requests made no attempted execution (`REFUSED ... allowTools=false` fails this row). Correlate each tool-less Run with its own terminal diagnostic/transcript; ordinary helpers with a nonempty catalog may execute tools and do not belong here. Native protocol context/catalog probes are not execution attempts. **Skipped** only when no tool-less request occurred |
+| L5 | Tool-less title/summary/helper requests did not **execute** host tools. Correct provider gating (`exec: REFUSED … allowTools=false`) is **pass**. **Fail** only if a tool-less Run `EMITTED` a host tool-call or wrote an exec result for a real host tool. Correlate each tool-less Run with its own terminal diagnostic/transcript; ordinary helpers with a nonempty catalog may execute tools and do not belong here. Native protocol context/catalog probes are not execution attempts. **Skipped** only when no tool-less request occurred |
 | T1 | Scratch file / search / shell work succeeded |
-| T2 | The complete failure inventory has no main-session invalid call or unexpected tool/command failure in steps 1–10, including native discovery errors, premature plan attempts, server-side dynamic-call identity errors, provider-side refusals, malformed scoring commands and wrong-tool arguments silently ignored by the host. Any such failure fails T2 even if a corrected retry succeeds. One unavailable optional question/helper refusal is skip evidence, not a T2 failure; expected user review choices are scored in P1/P2. If a working-directory field exists, step 3’s `pwd` used it and printed the scratch dir; dedicated search/list capabilities were used when advertised in steps 1–9; exercise work used this session’s best available tools |
+| T2 | The complete failure inventory has no main-session invalid call or unexpected tool/command failure in steps 1–10, including native discovery errors, premature plan attempts, server-side dynamic-call identity errors, provider-side refusals and wrong-tool arguments silently ignored by the host. Any such failure fails T2 even if a corrected retry succeeds, except a disclosed **recovered scoring issue** meeting step 10's narrow definition. One unavailable optional question/helper refusal is skip evidence, not a T2 failure; expected user review choices are scored in P1/P2. If a working-directory field exists, step 3’s `pwd` used it and printed the scratch dir; dedicated search/list capabilities were used when advertised in steps 1–9; exercise work used this session’s best available tools |
 | T3 | Ask-user step completed, or honestly skipped only when no ask capability existed |
 | T4a–T4f | Matching 5a–5f outcomes (all required when a full-list tool exists); lifecycle once. **Skipped** when the session has no full-list todo tool. **Failed** if the last snapshot that still names `ocp-sv-a` / `ocp-sv-b` / `ocp-sv-c` leaves any of them `pending` or `in_progress`, even when a later call is `{ "todos": [] }` |
 | T5 | Helper ran, or honestly skipped when none was available / the call was refused unavailable. A refused helper is skip evidence, not a run failure |
 | T6 | Nothing required the provider to import `@opencode-compat/*`. Score observed execution only; absence of a string in the filtered log is not a source/dependency audit. Do not run extra probes to establish this row |
-| T7 | No false pass/skip, available capability skipped, todo lifecycle replayed, guessed host tool name, or lower-quality substitute for an available dedicated tool. A Cursor-native call that executed as the host's advertised tool is that tool, not a substitute. **Skipped** when the only concern is an absent optional capability, including one unavailable native AskQuestion/Task refusal followed by T3/T5 skip. Such a refusal does not mean an unadvertised host name was guessed. Repeated unavailable attempts or actual guessed host names still fail |
-| P1 | A plan was created; the human's accept/reject was honored; nothing was implemented without execution approval. **Skipped** only when this session cannot plan |
-| P2 | If step 8 used a distinct execution-review step, that review's transcript outcome matches the human choice. **Skipped** when there was no such review (P1 still applies) |
+| T7 | No continuation after a declined plan review before a fresh human message, false pass/skip, available capability skipped, todo lifecycle replayed, guessed host tool name, or lower-quality substitute for an available dedicated tool. A Cursor-native call that executed as the host's advertised tool is that tool, not a substitute. **Skipped** when the only concern is an absent optional capability, including one unavailable native AskQuestion/Task refusal followed by T3/T5 skip. Such a refusal does not mean an unadvertised host name was guessed. Repeated unavailable attempts or actual guessed host names still fail |
+| P1 | A plan was created; the human's accept/reject was honored; nothing was implemented without execution approval. After No/dismissal, the turn stopped with no further tool call until a fresh human message. Genuine freeform feedback on an emulated question review may revise the plan in the same turn; it is not approval. **Skipped** only when this session cannot plan |
+| P2 | If step 8 used a distinct execution-review step, that review's transcript outcome matches the human choice and refusal ends the turn before any further tool call. **Skipped** when there was no such review (P1 still applies) |
 | P3 | Every emitted host tool belonged to this session's advertised catalog; native interactions followed the supported routes. One unavailable native question/helper refusal followed by a skip does not fail this row: it emitted no host execution. Guessed host tool names and repeated unavailable attempts still fail |
 | H1 | Provider checkout not written |
 | H2 | No host project-config directory under scratch from plan tools |
@@ -422,8 +454,17 @@ never cite an absent package string as proof of the dependency boundary.
 
 Score P2 from the step-8 transcript once. Require an explicit accept or
 reject that matches the human choice. Narration and elapsed time are not
-evidence. `failed` if implementation started without approval, or after a
-refine/dismiss. `blocked` if the review result or choice cannot be
+evidence. `BRIDGED create_plan … bridge=<kind>` only names how the review was
+asked (`approve` means through the host question); it is not the answer. Cite
+the review's result instead: the host question or review tool result in the
+transcript, and `create_plan: emulated approval=yes|no` in the log when the
+bridge was `approve`. New logs append `outcome=approved|declined|refine`:
+`approval=no outcome=refine` means typed feedback, not No/dismissal. Verify
+the complete feedback in the transcript and same-turn plan revision; only Yes
+approves execution. Score P1/P2/T7 `failed` if any tool ran after No or
+dismissal before a fresh human message, including read-only
+self-test, image, scoring or cleanup calls. An unchanged implementation file
+cannot erase that failure. An honored refusal is an expected passing outcome. `blocked` if the review result or choice cannot be
 established. Do not rerun step 8 or the live-log filter to turn a blocked
 row into a pass.
 
@@ -454,9 +495,10 @@ Use this Markdown layout, replacing placeholders with the actual results:
 **Notes:** Brief findings, skips, and interruptions; omit if none.
 
 When the failure inventory is nonempty, include every entry and its count in
-Notes before the table. T2 must reflect any invalid attempt; T7 must fail if
-the report hides one or calls the affected row passed. A successful final
-state, empty debug-error search, or completed host calls alone cannot justify
+Notes before the table. Label any recovered scoring issue and cite its successful
+correction. T2 must reflect every non-exempt failure; T7 must fail if the report
+hides an error or calls an affected row passed without meeting its criteria.
+A successful final state, empty debug-error search, or completed host calls alone cannot justify
 `pass`. With no failures, explicitly write `Failure inventory: none` in Notes.
 
 | id | result | evidence |

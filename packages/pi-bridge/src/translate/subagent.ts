@@ -9,12 +9,14 @@
  */
 import type { PiHostProfile, PiToolInputProfile } from "../host/profile.js"
 import type { PiTool } from "../pi-provider-types.js"
+import type { HostSkill } from "@opencode-compat/opencode-loader"
 import {
   translateCanonicalQuestionCall,
   type PiQuestionVocabulary,
 } from "./question.js"
 
 export const CANONICAL_SUBAGENT_TOOL = "task"
+export const CANONICAL_SKILL_TOOL = "skill"
 
 export type SubagentToolSchemaFn = (tool: PiTool) => Record<string, unknown>
 
@@ -73,6 +75,7 @@ function todoCallsForHost(
   input: Record<string, unknown>,
   shape: PiToolInputProfile["inputShape"],
   hostTodos?: readonly HostTodoRow[],
+  providerSchema?: PiToolInputProfile["providerSchema"],
 ): TranslatedSubagentCall | TranslatedSubagentCall[] {
   if (shape === "opencode-todo") {
     const diff = hostTodos ? diffTodoSnapshotToHostOps(input, hostTodos) : undefined
@@ -82,8 +85,8 @@ function todoCallsForHost(
     if (ops.length === 1) return { toolName: hostToolName, input: ops[0]! }
     return ops.map(op => ({ toolName: hostToolName, input: op }))
   }
-  if (shape === "opencode-read") {
-    return expandReadCalls(hostToolName, input)
+  if (shape === "opencode-read" || providerSchema === "opencode-read") {
+    return expandReadCalls(hostToolName, input, shape === "opencode-read")
   }
   return { toolName: hostToolName, input: applyInputShape(input, shape) }
 }
@@ -115,6 +118,7 @@ function isAbsolutePathToken(path: string): boolean {
 function expandReadCalls(
   hostToolName: string,
   input: Record<string, unknown>,
+  inlineRange = true,
 ): TranslatedSubagentCall | TranslatedSubagentCall[] {
   const path = input["path"]
   if (typeof path === "string") {
@@ -122,11 +126,11 @@ function expandReadCalls(
     if (parts) {
       return parts.map(part => ({
         toolName: hostToolName,
-        input: applyReadShape({ ...input, path: part }),
+        input: inlineRange ? applyReadShape({ ...input, path: part }) : { ...input, path: part },
       }))
     }
   }
-  return { toolName: hostToolName, input: applyReadShape(input) }
+  return { toolName: hostToolName, input: inlineRange ? applyReadShape(input) : input }
 }
 
 function agentNamesFromSchema(schema: unknown): string[] {
@@ -574,6 +578,45 @@ export function isOpsTodoHostTool(
   return toolInputs?.[toolName]?.inputShape === "opencode-todo"
 }
 
+/** True when the host tool is the OpenCode-shaped read that may multi-path fan out. */
+export function isReadHostTool(
+  toolName: string,
+  toolInputs: PiToolInputVocabulary | undefined,
+): boolean {
+  const profile = toolInputs?.[toolName]
+  return profile?.inputShape === "opencode-read" || profile?.providerSchema === "opencode-read"
+}
+
+/**
+ * Rebuild the provider-facing joined path (+ optional range) from fanned-out
+ * host read arguments, in fan-out order.
+ */
+export function joinReadFanoutInput(
+  operations: readonly Record<string, unknown>[],
+): Record<string, unknown> {
+  const paths: string[] = []
+  let offset: number | undefined
+  let limit: number | undefined
+  for (const operation of operations) {
+    const raw = operation["path"] ?? operation["filePath"]
+    if (typeof raw !== "string" || !raw) continue
+    if (offset === undefined && typeof operation.offset === "number") offset = operation.offset
+    if (limit === undefined && typeof operation.limit === "number") limit = operation.limit
+    const peeled = peelReadSelector(raw)
+    if (peeled && typeof peeled.filePath === "string") {
+      paths.push(peeled.filePath)
+      if (offset === undefined && typeof peeled.offset === "number") offset = peeled.offset
+      if (limit === undefined && typeof peeled.limit === "number") limit = peeled.limit
+      continue
+    }
+    paths.push(raw)
+  }
+  const input: Record<string, unknown> = { filePath: paths.join(";") }
+  if (offset !== undefined) input.offset = offset
+  if (limit !== undefined) input.limit = limit
+  return input
+}
+
 type SnapshotTodoRow = { content: string; status: OpenCodeTodoStatus }
 
 function readSnapshotTodoRows(todos: unknown): SnapshotTodoRow[] | undefined {
@@ -795,9 +838,12 @@ function joinOpenCodeGlobPath(searchPath: string | undefined, pattern: string): 
   if (!searchPath || searchPath === "." || searchPath === "./") {
     return normalizedPattern
   }
-  const base = searchPath.replace(/\\/g, "/").replace(/\/+$/, "")
+  const normalizedPath = searchPath.replace(/\\/g, "/")
+  let end = normalizedPath.length
+  while (end > 0 && normalizedPath[end - 1] === "/") end--
+  const base = normalizedPath.slice(0, end)
   const glob = normalizedPattern.replace(/^\/+/, "")
-  if (!base) return glob
+  if (!base) return `/${glob}`
   return `${base}/${glob}`
 }
 
@@ -891,7 +937,15 @@ export function translateCanonicalToolCall(
   question?: PiQuestionVocabulary,
   /** Current ops-based host todo rows; enables status diffs instead of re-init. */
   hostTodos?: readonly HostTodoRow[],
+  skills?: readonly HostSkill[],
 ): TranslatedSubagentCall | TranslatedSubagentCall[] | undefined {
+  if (toolName === CANONICAL_SKILL_TOOL && skills !== undefined) {
+    const name = typeof input.name === "string" ? input.name : typeof input.id === "string" ? input.id : undefined
+    const location = skills.find(skill => skill.name === name || skill.id === name)?.location
+    if (!location) throw new Error("Requested skill is not in this request's advertised catalog")
+    return { toolName: "read", input: { path: location } }
+  }
+
   const subagent = translateCanonicalSubagentCall(toolName, input, vocabulary)
   if (subagent) return subagent
 
@@ -909,7 +963,7 @@ export function translateCanonicalToolCall(
     const [hostToolName, profile] = renamedProfile
     const source = toolName === "todoread" ? { op: "view", ...input } : input
     const translated = rewriteInputKeys(source, profile.inputAliases, profile.dropInputKeys)
-    return todoCallsForHost(hostToolName, translated, profile.inputShape, hostTodos)
+    return todoCallsForHost(hostToolName, translated, profile.inputShape, hostTodos, profile.providerSchema)
   }
 
   const inputProfile = toolInputs?.[toolName]
@@ -921,7 +975,10 @@ export function translateCanonicalToolCall(
     dropInputKeys?.some(name => Object.hasOwn(input, name)) === true
   if (rewrites) {
     const translated = rewriteInputKeys(input, inputAliases, dropInputKeys)
-    return todoCallsForHost(toolName, translated, inputShape, hostTodos)
+    return todoCallsForHost(toolName, translated, inputShape, hostTodos, inputProfile.providerSchema)
+  }
+  if (inputProfile.providerSchema === "opencode-read" && inputShape !== "opencode-read") {
+    return expandReadCalls(toolName, input, false)
   }
   if (inputShape) {
     if (inputShape === "opencode-todo" || inputShape === "opencode-read") {
@@ -1023,6 +1080,23 @@ export function translateHostToolCallInput(
   // it here would contradict the schema the model was just shown. Emit only
   // the three keys that schema declares.
   return { filePath: path, oldString: edit.oldText, newString: edit.newText }
+}
+
+/** Persist provenance in the host call id, which survives host history reloads. */
+export function skillReadCallId(id: string, name: string): string {
+  return `ocp-skill:${Buffer.from(JSON.stringify([id, name])).toString("base64url")}`
+}
+
+export function skillReadCall(id: string): { id: string; name: string } | undefined {
+  if (!id.startsWith("ocp-skill:")) return undefined
+  try {
+    const value: unknown = JSON.parse(Buffer.from(id.slice("ocp-skill:".length), "base64url").toString())
+    if (!Array.isArray(value) || value.length !== 2 || typeof value[0] !== "string" || typeof value[1] !== "string") return undefined
+    if (skillReadCallId(value[0], value[1]) !== id) return undefined
+    return { id: value[0], name: value[1] }
+  } catch {
+    return undefined
+  }
 }
 
 /**

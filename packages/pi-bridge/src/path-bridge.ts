@@ -9,6 +9,10 @@
 import { homedir } from "node:os"
 import path from "node:path"
 import type { PiHostId } from "./host/profile.js"
+import {
+  currentRecordedHostSkills,
+  installHostSkillsBridge,
+} from "@opencode-compat/opencode-loader"
 
 const PATH_BRIDGE_KEY = Symbol.for("opencode.host.path-bridge")
 const LEGACY_PATH_BRIDGE_KEY = Symbol.for("opencode.compat.path-bridge")
@@ -80,6 +84,7 @@ export function installPiPathBridge(
   }
   ;(globalThis as typeof globalThis & Record<typeof PATH_BRIDGE_KEY, unknown>)[PATH_BRIDGE_KEY] = bridge
   ;(globalThis as typeof globalThis & Record<typeof LEGACY_PATH_BRIDGE_KEY, unknown>)[LEGACY_PATH_BRIDGE_KEY] = bridge
+  installHostSkillsBridge(() => currentRecordedHostSkills())
 }
 
 /**

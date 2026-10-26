@@ -22,7 +22,7 @@
  * match upstream take a byte-identical path.
  */
 import type { HostId, HostProfile } from "@opencode-compat/profile"
-import { normalizeV3Usage } from "@opencode-compat/opencode-loader"
+import { normalizeV3Usage, skillsFromCatalogText, withHostSkills } from "@opencode-compat/opencode-loader"
 import {
   buildVocabulary,
   fanoutId,
@@ -773,6 +773,17 @@ function prepareCall(
   return { args: next, toolSchemas, context: { vocab, hostTodos } }
 }
 
+function skillCatalogText(prompt: unknown): string | undefined {
+  if (!Array.isArray(prompt)) return undefined
+  for (let index = prompt.length - 1; index >= 0; index--) {
+    const message = prompt[index]
+    if (!isRecord(message) || message.role !== "system") continue
+    const content = message.content
+    if (typeof content === "string" && content.includes("<available_skills")) return content
+  }
+  return undefined
+}
+
 /** Collect a resumed child only after its native send call has completed. */
 function subagentResumeWait(call: unknown, roles: Pick<HostProfile, "tools"> | undefined): StreamPartLike[] | undefined {
   if (!isRecord(call) || !Array.isArray(call.prompt) || !Array.isArray(call.tools)) return undefined
@@ -855,7 +866,8 @@ export function adaptLanguageModel<T>(
       }
       const sessionID = sessionAffinityFromCall(args[0])
       const prepared = prepareCall(args, roles, resolveCatalogOrder)
-      const result = inner(...prepared.args)
+      const result = withHostSkills(skillsFromCatalogText(skillCatalogText(isRecord(args[0]) ? args[0].prompt : undefined)),
+        () => inner(...prepared.args))
       const finish = (resolved: unknown) => {
         if (!resolved || typeof resolved !== "object") return resolved
         const record = resolved as { stream?: unknown; [key: string]: unknown }
@@ -887,7 +899,8 @@ export function adaptLanguageModel<T>(
       if (wait) return Promise.resolve({ content: wait, finishReason: RESUME_WAIT_FINISH.finishReason, usage: RESUME_WAIT_FINISH.usage })
       const sessionID = sessionAffinityFromCall(args[0])
       const prepared = prepareCall(args, roles, resolveCatalogOrder)
-      const result = inner(...prepared.args)
+      const result = withHostSkills(skillsFromCatalogText(skillCatalogText(isRecord(args[0]) ? args[0].prompt : undefined)),
+        () => inner(...prepared.args))
       const finish = (resolved: unknown) => {
         if (!resolved || typeof resolved !== "object") return resolved
         const record = resolved as { content?: unknown; [key: string]: unknown }

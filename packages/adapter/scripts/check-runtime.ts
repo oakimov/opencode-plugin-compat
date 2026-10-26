@@ -22,6 +22,7 @@ for (const name of [
   "providerUsageIntegrationForHost",
   "usageEventPlugin",
   "installPathBridge",
+  "installSkillsBridge",
   "policyForHostId",
   "toolRolesForHostId",
   "wrapProviderModule",

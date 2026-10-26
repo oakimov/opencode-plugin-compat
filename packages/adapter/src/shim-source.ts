@@ -148,6 +148,7 @@ import {
   usageEventPlugin as __ocpUsageEventPlugin,
   detectHostId,
   installPathBridge,
+  installSkillsBridge,
   policyForHostId,
   toolRolesForHostId,
   wrapProviderModule,
@@ -155,6 +156,7 @@ import {
 
 const __host = detectHostId(process.env, process.argv, process.execPath, ${hostHint})
 installPathBridge(__host, process.env)
+installSkillsBridge(__host)
 const __usage = providerUsageIntegrationForHost(__host, process.env, ${JSON.stringify(meta.packageName ?? "")})
 const __policy = policyForHostId(__host)
 const __roles = toolRolesForHostId(__host)

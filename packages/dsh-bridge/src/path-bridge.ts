@@ -9,9 +9,13 @@
 import { homedir } from "node:os"
 import path from "node:path"
 import type { DshHostId } from "./host/profile.js"
+import { currentRecordedHostSkills, installHostSkillsBridge, type HostSkill } from "@opencode-compat/opencode-loader"
 
 const PATH_BRIDGE_KEY = Symbol.for("opencode.host.path-bridge")
 const LEGACY_PATH_BRIDGE_KEY = Symbol.for("opencode.compat.path-bridge")
+
+type SkillListInput = { directory: string; sessionID?: string }
+let dshSkillList: ((input: SkillListInput) => Promise<unknown>) | undefined
 
 function unique(values: Array<string | undefined>): string[] {
   return [
@@ -63,4 +67,30 @@ export function installDshPathBridge(
   }
   ;(globalThis as typeof globalThis & Record<typeof PATH_BRIDGE_KEY, unknown>)[PATH_BRIDGE_KEY] = bridge
   ;(globalThis as typeof globalThis & Record<typeof LEGACY_PATH_BRIDGE_KEY, unknown>)[LEGACY_PATH_BRIDGE_KEY] = bridge
+  installHostSkillsBridge(async input => {
+    const advertised = new Set(currentRecordedHostSkills().map(skill => skill.name))
+    if (advertised.size === 0) return []
+    return dshSkillsFromSummaries(await dshSkillList?.(input)).filter(skill => advertised.has(skill.name))
+  })
+}
+
+export function installDshSkillList(list: (input: SkillListInput) => Promise<unknown>): void {
+  dshSkillList = list
+}
+
+function dshSkillsFromSummaries(value: unknown): HostSkill[] {
+  if (!Array.isArray(value)) return []
+  const skills: HostSkill[] = []
+  for (const item of value) {
+    if (!item || typeof item !== "object") continue
+    const summary = item as Record<string, unknown>
+    const invocation = summary.invocation
+    if (invocation && typeof invocation === "object" && "modelInvocable" in invocation && invocation.modelInvocable === false) continue
+    const name = typeof summary.name === "string" ? summary.name : typeof summary.id === "string" ? summary.id : undefined
+    const description = typeof summary.description === "string" ? summary.description : ""
+    const location = typeof summary.path === "string" && summary.path.trim() ? summary.path : undefined
+    if (!name || !location) continue
+    skills.push({ name, ...(typeof summary.id === "string" ? { id: summary.id } : {}), description, location })
+  }
+  return skills
 }

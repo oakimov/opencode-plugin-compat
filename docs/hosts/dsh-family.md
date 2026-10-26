@@ -20,6 +20,8 @@ Instead, `@opencode-compat/dsh-bridge` is a **Cordis plugin** (`name`/`inject`/`
 
 Host variance is **data** (`DshHostProfile` single `dsh` profile) — same rule as `HostProfile`/`PiHostProfile`.
 
+The structural skills bridge uses the current request's published catalog and passes its workspace and agent to `skills.list()`. Skills hidden from model invocation, unadvertised entries, and virtual skills without file locations are omitted. A replacement empty catalog clears earlier entries.
+
 ## Install via DSH plugin
 
 ```bash

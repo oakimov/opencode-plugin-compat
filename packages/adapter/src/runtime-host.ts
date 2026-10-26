@@ -1,5 +1,9 @@
 import { homedir } from "node:os"
 import path from "node:path"
+import {
+  currentRecordedHostSkills,
+  installHostSkillsBridge,
+} from "@opencode-compat/opencode-loader"
 
 const PATH_BRIDGE_KEY = Symbol.for("opencode.host.path-bridge")
 const LEGACY_PATH_BRIDGE_KEY = Symbol.for("opencode.compat.path-bridge")
@@ -167,4 +171,7 @@ export function installPathBridge(id: string, env: Record<string, string | undef
   // Transitional compatibility for unchanged providers published before the
   // structural host contract was renamed. Remove after those releases age out.
   ;(globalThis as typeof globalThis & Record<typeof LEGACY_PATH_BRIDGE_KEY, unknown>)[LEGACY_PATH_BRIDGE_KEY] = bridge
+  if (id === "mimo" || id === "kilo") {
+    installHostSkillsBridge(() => currentRecordedHostSkills())
+  }
 }

@@ -204,12 +204,13 @@ function toModelV2Info(providerID: string, model: ModelsDevModel): ModelV2Info |
   }
 }
 
-let modelsDevCache: Promise<ModelV2Info[]> | undefined
+const modelsDevCaches = new WeakMap<typeof fetch, Promise<ModelV2Info[]>>()
 
 /** Fetch + flatten models.dev into Catalog-shaped ModelV2Info rows. */
 export async function loadModelsDevCatalog(
   fetcher: typeof fetch = fetch,
 ): Promise<ModelV2Info[]> {
+  let modelsDevCache = modelsDevCaches.get(fetcher)
   if (!modelsDevCache) {
     modelsDevCache = (async () => {
       const response = await fetcher(MODELS_DEV_URL)
@@ -227,9 +228,10 @@ export async function loadModelsDevCatalog(
       }
       return out
     })().catch((err) => {
-      modelsDevCache = undefined
+      modelsDevCaches.delete(fetcher)
       throw err
     })
+    modelsDevCaches.set(fetcher, modelsDevCache)
   }
   return modelsDevCache
 }
@@ -282,11 +284,13 @@ function wrapCatalog(data: ModelV2Info[], directory?: string): ListResult {
 export class OpencodeClient {
   readonly client: unknown
   private readonly directory?: string
+  private readonly fetcher: typeof fetch
 
   constructor(config: OpencodeClientConfig = {}) {
     const normalized = withDirectoryHeaders(config)
     this.client = normalized.client
     this.directory = normalized.directory
+    this.fetcher = normalized.fetch ?? fetch
   }
 
   get v2() {
@@ -317,7 +321,7 @@ export class OpencodeClient {
     // deadlocks (`timeout: false` fetch). Polyfill from models.dev instead.
     if (host === "kilo" || host === "mimo") {
       try {
-        return wrapCatalog(await loadModelsDevCatalog(), directory)
+        return wrapCatalog(await loadModelsDevCatalog(this.fetcher), directory)
       } catch (err) {
         if (options?.throwOnError) throw err
         return { data: { data: [], location: { directory } }, error: err }
@@ -341,7 +345,7 @@ export class OpencodeClient {
     }
 
     try {
-      return wrapCatalog(await loadModelsDevCatalog(), directory)
+      return wrapCatalog(await loadModelsDevCatalog(this.fetcher), directory)
     } catch (err) {
       if (options?.throwOnError) throw err
       return { data: { data: [], location: { directory } }, error: err }

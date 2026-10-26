@@ -1,6 +1,6 @@
 import { expect, test } from "bun:test"
 import { z } from "zod"
-import { adaptLanguageModel, buildVocabulary, policyForHostId, translateCall, translateCatalog, translatePrompt } from "../packages/adapter/src/index.ts"
+import { adaptLanguageModel, buildVocabulary, fanoutId, policyForHostId, translateCall, translatePrompt } from "../packages/adapter/src/index.ts"
 import { kiloProfile, mimoProfile } from "../packages/profile/src/index.ts"
 import { ompProfile, piProfile } from "../packages/pi-bridge/src/host/profile.ts"
 import { buildPiSubagentVocabulary, buildPiTerminalResultVocabulary, buildPiToolInputVocabulary, translateCanonicalToolCall, translateHostToolCallInput, translateCanonicalSubagentCall, translateHostSubagentCall } from "../packages/pi-bridge/src/translate/subagent.ts"
@@ -127,6 +127,65 @@ test("MiMo collects every successful resumed child in a parallel receipt batch",
   expect(parts.filter((part: any) => part.type === "tool-call").map((part: any) => JSON.parse(part.input).operation.actor_id)).toEqual(["first", "second"])
   expect(parts.filter((part: any) => part.type === "tool-input-start")).toHaveLength(2)
   expect((await model.doGenerate(call) as any).content).toHaveLength(2)
+})
+
+test("clone multi-call step keeps order/ids; resume-wait fold keeps sibling read contiguous", async () => {
+  const vocab = buildVocabulary(mimoProfile(), ["read", "actor"])!
+  const tools = [
+    { name: "read", inputSchema: { type: "object", properties: { file_path: { type: "string" } }, required: ["file_path"] } },
+    { name: "actor", inputSchema: { type: "object" } },
+  ]
+  const outbound = [
+    { type: "tool-call", toolCallId: "read-a", toolName: "read", input: JSON.stringify({ filePath: "/tmp/a.txt" }) },
+    { type: "tool-call", toolCallId: "read-b", toolName: "read", input: JSON.stringify({ filePath: "/tmp/b.txt" }) },
+    { type: "tool-call", toolCallId: "task-1", toolName: "task", input: JSON.stringify(canonicalTask) },
+    { type: "finish", finishReason: { unified: "tool-calls", raw: "tool-calls" } },
+  ]
+  const model = adaptLanguageModel({
+    doStream: async (_options: unknown) => ({ stream: stream(outbound) }),
+  }, policyForHostId("mimo"), mimoProfile())
+  const parts = await drain(await model.doStream({ tools, prompt: [] }) as any)
+  const calls = parts.filter((part: any) => part.type === "tool-call") as Array<{ toolCallId: string; toolName: string; input: string }>
+  expect(calls.map((part) => part.toolCallId)).toEqual(["read-a", "read-b", "task-1"])
+  expect(calls.map((part) => part.toolName)).toEqual(["read", "read", "actor"])
+  expect(parts.filter((part: any) => part.type === "tool-input-start")).toHaveLength(3)
+  expect(JSON.parse(calls[0]!.input)).toEqual({ file_path: "/tmp/a.txt" })
+  expect(JSON.parse(calls[1]!.input)).toEqual({ file_path: "/tmp/b.txt" })
+  expect(JSON.parse(calls[2]!.input)).toMatchObject({ operation: { action: "run" } })
+
+  const resume = translateCall("resume", "task", { ...canonicalTask, task_id: "child" }, vocab)![0]!
+  expect(resume.toolCallId).toBe(fanoutId("resume", 0))
+  const waitId = fanoutId("resume", 1)
+  const history = [
+    {
+      role: "assistant",
+      content: [
+        { type: "tool-call", toolCallId: resume.toolCallId, toolName: "actor", input: resume.input },
+        { type: "tool-call", toolCallId: waitId, toolName: "actor", input: { operation: { action: "wait", actor_id: "child" } } },
+        { type: "tool-call", toolCallId: "read-sib", toolName: "read", input: { file_path: "/tmp/sib.txt" } },
+      ],
+    },
+    {
+      role: "tool",
+      content: [
+        { type: "tool-result", toolCallId: resume.toolCallId, toolName: "actor", output: { type: "text", value: '{"inboxID":"receipt"}' } },
+        { type: "tool-result", toolCallId: waitId, toolName: "actor", output: { type: "text", value: '{"actor_id":"child","result":"done"}' } },
+        { type: "tool-result", toolCallId: "read-sib", toolName: "read", output: { type: "text", value: "sibling" } },
+      ],
+    },
+  ]
+  const replay = translatePrompt(history, vocab) as Array<{ role: string; content: Array<Record<string, unknown>> }>
+  expect(replay).toHaveLength(2)
+  expect(replay[0]!.content.map((part) => part.toolCallId)).toEqual(["resume", "read-sib"])
+  expect(replay[0]!.content.map((part) => part.toolName)).toEqual(["task", "read"])
+  expect(replay[1]!.content.map((part) => [part.toolCallId, part.toolName])).toEqual([
+    ["resume", "task"],
+    ["read-sib", "read"],
+  ])
+  expect((replay[1]!.content[0] as { output?: { value?: string } }).output?.value).toContain("done")
+  expect((replay[1]!.content[1] as { output?: { value?: string } }).output?.value).toBe("sibling")
+  expect(replay.flatMap((message) => message.content).filter((part) => part.type === "tool-call")).toHaveLength(2)
+  expect(replay.flatMap((message) => message.content).filter((part) => part.type === "tool-result")).toHaveLength(2)
 })
 
 test("DSH preserves enabled routing, background and timed-question capabilities", () => {

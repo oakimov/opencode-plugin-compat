@@ -61,6 +61,10 @@ are handled: a *derived* id that would shadow a host built-in is suffixed
 
 ---
 
+## Skills and read replay
+
+The provider sees only skills advertised by the current host request. With native `read` enabled, the bridge offers `skill({name})` and loads the advertised file or `skill://` URI through that reader. Ordinary reads of those locations remain reads, including explicit ranges. Parallel read batches retain their original call id, path order, errors, and images on the next provider step.
+
 ## Install via npm
 
 Install the published `@opencode-compat/pi-bridge` through the host's own
@@ -71,7 +75,7 @@ omp plugin install @opencode-compat/pi-bridge   # oh-my-pi
 pi install npm:@opencode-compat/pi-bridge       # pi
 ```
 
-`pi-bridge` ships in the same `0.2.x` train as the rest of `@opencode-compat/*`.
+`pi-bridge` ships in the same version train as the rest of `@opencode-compat/*`.
 Installed this way its dependencies resolve normally — no linking needed.
 
 The provider package you name in the config is a separate install. Add it the

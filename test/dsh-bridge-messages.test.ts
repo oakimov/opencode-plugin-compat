@@ -562,6 +562,30 @@ describe("dsh-bridge stream translation", () => {
     expect(chunks.at(-1)).toMatchObject({ type: "finish", reason: { kind: "tool-calls" } })
   })
 
+  test("text after a tool call opens a new block index (assembler-safe)", async () => {
+    const chunks = await collectV3ToDsh(parts([
+      { type: "text-start", id: "t1" } as never,
+      { type: "text-delta", id: "t1", delta: "before" } as never,
+      { type: "text-end", id: "t1" } as never,
+      { type: "tool-input-start", id: "c1", toolName: "read" } as never,
+      { type: "tool-input-end", id: "c1" } as never,
+      { type: "tool-call", toolCallId: "c1", toolName: "read", input: { filePath: "a.ts" } } as never,
+      { type: "text-start", id: "t2" } as never,
+      { type: "text-delta", id: "t2", delta: "after" } as never,
+      { type: "text-end", id: "t2" } as never,
+      { type: "finish", finishReason: "tool-calls", usage: { inputTokens: 1, outputTokens: 1 } } as never,
+    ]))
+    const textEnds = chunks.filter(
+      (c): c is Extract<typeof c, { type: "block-end" }> =>
+        c.type === "block-end" && c.block.type === "text",
+    )
+    expect(textEnds).toHaveLength(2)
+    expect(textEnds[0]?.index).not.toBe(textEnds[1]?.index)
+    expect(textEnds[0]?.block).toMatchObject({ type: "text", text: "before" })
+    expect(textEnds[1]?.block).toMatchObject({ type: "text", text: "after" })
+    expect(textEnds[0]!.index).toBeLessThan(textEnds[1]!.index)
+  })
+
   test("Cursor occupancy-only finishes emit zero usage without adding a full prefix", async () => {
     // DSH token-meter sums every step's sample; one held provider Run serves
     // many steps with a single billed aggregate. Intermediate occupancy

@@ -36,6 +36,8 @@ bun run matrix
 
 For package, dependency or published-bin changes, also run `bun run pack:check`. This is the package inspection gate; releases and publication must follow [AGENTS.md](./AGENTS.md) and [docs/guides/npm-publish.md](./docs/guides/npm-publish.md).
 
+Declare workspace packages imported directly by root tests in the root `devDependencies`. Verify dependency changes with a fresh `bun install --frozen-lockfile` outside the existing checkout, then run `bun run build` before typecheck and tests. Leftover workspace links and generated runtime bundles can hide clean-checkout failures.
+
 Rebuild and refresh the installed OCP/provider output, restart the affected stock host, and verify the loaded runtime before claiming a fix. Local development guidance lives in [TESTING.md](./TESTING.md); native OpenCode loads providers directly and must not be wrapped with an OCP development shim.
 
 ## Pull requests
@@ -62,9 +64,11 @@ Missing access, skipped checks, setup/doctor output and model registration alone
 
 ### Review and coverage requirements
 
+- Pull request reviews follow the repository [review rubric](./docs/review-rules.md), including blocker checks for secrets, the vendor boundary, the provider boundary, the three host mechanisms, catalog integrity, and tool-vocabulary drift.
+- **Resolve every Greptile finding before merge, regardless of severity**, including minor issues and nits. Address each finding and resolve its review thread; leave no open Greptile issues.
 - **Provide sufficient test coverage for new and changed behavior**, including relevant error paths. Address uncovered changes and coverage regressions reported by Codecov; all applicable Codecov checks must pass under the repository's [coverage configuration](codecov.yml).
 - CI job **`Typecheck, test, build`** must pass on the PR merge with `main`. Coverage for Codecov is measured on the PR head (see `.github/workflows/ci.yml`).
-- **PRs with unresolved Codecov coverage issues will be closed if they go 3 days without an update addressing those issues.** Keep the PR updated while working through coverage feedback.
+- **PRs with unresolved Greptile findings or Codecov coverage issues will be closed if they go 3 days without an update addressing those issues.** Keep the PR updated while working through review and coverage feedback.
 
 ## License
 

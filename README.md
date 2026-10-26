@@ -18,6 +18,8 @@ Three host families are supported — **never unify the mechanisms**:
 
 `ocp setup` also applies LanguageModel tool-stream normalization to compatible custom provider entries. It uses each call's advertised tool schema to adopt argument-key conventions (for example, camelCase or snake_case), so providers and future OpenCode-compatible hosts remain host-agnostic.
 
+Providers receive the current host skill catalog through `opencode.host.skills`. Catalogs stay scoped to each request; Pi/OMP skill loads use the enabled native reader and preserve their identity on replay. See the [tool vocabulary](./docs/tool-vocabulary.md#skills).
+
 **License:** [MPL-2.0](./LICENSE)
 
 ## Supported hosts

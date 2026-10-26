@@ -41,6 +41,8 @@ function mapFinishReason(v3: unknown): { kind: string; [k: string]: unknown } {
  * Each V3 part becomes one or more DSH chunks with monotonic block indexes.
  * Tool-call `input` is serialized as raw JSON string (DSH expects `argumentsDelta` as JSON fragments).
  */
+type TextBlock = { index: number; buffer: string; started: boolean; ended: boolean }
+
 export async function* v3StreamToDshChunks(
   stream: ReadableStream<LanguageModelV3StreamPart>,
   toolInputs: DshToolInputVocabulary = dshToolInputs(),
@@ -53,19 +55,15 @@ export async function* v3StreamToDshChunks(
 ): AsyncGenerator<StreamChunk> {
   const reader = stream.getReader()
   let nextIndex = 0
-  let textIndex: number | undefined
-  let reasoningIndex: number | undefined
+  // Per V3 id — a second text/reasoning after a tool call must open a new DSH
+  // block. Reusing a closed index is dropped by DSH's assembler.
+  const textBlocks = new Map<string, TextBlock>()
+  const reasoningBlocks = new Map<string, TextBlock>()
   const toolIndices = new Map<string, number>()
   const toolArgBuffers = new Map<number, string>()
   const toolNames = new Map<string, string>()
   const providerToolNames = new Map<string, string>()
   const toolClosed = new Set<number>()
-  let textBuffer = ""
-  let reasoningBuffer = ""
-  let textStarted = false
-  let reasoningStarted = false
-  let textEnded = false
-  let reasoningEnded = false
   let pendingUsage: StreamChunk | undefined
   let pendingFinish: StreamChunk | undefined
 
@@ -75,17 +73,19 @@ export async function* v3StreamToDshChunks(
     }
   }
 
-  const ensureText = (): number => {
-    if (textIndex !== undefined) return textIndex
-    const idx = nextIndex++
-    textIndex = idx
-    return idx
+  const openText = (id: string): TextBlock => {
+    const existing = textBlocks.get(id)
+    if (existing && !existing.ended) return existing
+    const block: TextBlock = { index: nextIndex++, buffer: "", started: false, ended: false }
+    textBlocks.set(id, block)
+    return block
   }
-  const ensureReasoning = (): number => {
-    if (reasoningIndex !== undefined) return reasoningIndex
-    const idx = nextIndex++
-    reasoningIndex = idx
-    return idx
+  const openReasoning = (id: string): TextBlock => {
+    const existing = reasoningBlocks.get(id)
+    if (existing && !existing.ended) return existing
+    const block: TextBlock = { index: nextIndex++, buffer: "", started: false, ended: false }
+    reasoningBlocks.set(id, block)
+    return block
   }
 
   try {
@@ -100,54 +100,58 @@ export async function* v3StreamToDshChunks(
           break
 
         case "text-start": {
-          const idx = ensureText()
-          if (!textStarted) {
-            textStarted = true
-            yield { type: "block-start", index: idx, blockType: "text" }
+          const block = openText(String(part.id ?? "text"))
+          if (!block.started) {
+            block.started = true
+            yield { type: "block-start", index: block.index, blockType: "text" }
           }
           break
         }
         case "text-delta": {
-          const idx = ensureText()
-          if (!textStarted) {
-            textStarted = true
-            yield { type: "block-start", index: idx, blockType: "text" }
+          const block = openText(String(part.id ?? "text"))
+          if (!block.started) {
+            block.started = true
+            yield { type: "block-start", index: block.index, blockType: "text" }
           }
-          textBuffer += part.delta as string
-          yield { type: "text-delta", index: idx, text: part.delta }
+          block.buffer += part.delta as string
+          yield { type: "text-delta", index: block.index, text: part.delta }
           break
         }
-        case "text-end":
-          if (textIndex !== undefined && !textEnded) {
-            textEnded = true
-            yield { type: "block-end", index: textIndex, block: { type: "text", text: textBuffer } }
+        case "text-end": {
+          const block = textBlocks.get(String(part.id ?? "text"))
+          if (block && !block.ended) {
+            block.ended = true
+            yield { type: "block-end", index: block.index, block: { type: "text", text: block.buffer } }
           }
           break
+        }
 
         case "reasoning-start": {
-          const idx = ensureReasoning()
-          if (!reasoningStarted) {
-            reasoningStarted = true
-            yield { type: "block-start", index: idx, blockType: "reasoning" }
+          const block = openReasoning(String(part.id ?? "reasoning"))
+          if (!block.started) {
+            block.started = true
+            yield { type: "block-start", index: block.index, blockType: "reasoning" }
           }
           break
         }
         case "reasoning-delta": {
-          const idx = ensureReasoning()
-          if (!reasoningStarted) {
-            reasoningStarted = true
-            yield { type: "block-start", index: idx, blockType: "reasoning" }
+          const block = openReasoning(String(part.id ?? "reasoning"))
+          if (!block.started) {
+            block.started = true
+            yield { type: "block-start", index: block.index, blockType: "reasoning" }
           }
-          reasoningBuffer += part.delta as string
-          yield { type: "reasoning-delta", index: idx, text: part.delta }
+          block.buffer += part.delta as string
+          yield { type: "reasoning-delta", index: block.index, text: part.delta }
           break
         }
-        case "reasoning-end":
-          if (reasoningIndex !== undefined && !reasoningEnded) {
-            reasoningEnded = true
-            yield { type: "block-end", index: reasoningIndex, block: { type: "reasoning", text: reasoningBuffer } }
+        case "reasoning-end": {
+          const block = reasoningBlocks.get(String(part.id ?? "reasoning"))
+          if (block && !block.ended) {
+            block.ended = true
+            yield { type: "block-end", index: block.index, block: { type: "reasoning", text: block.buffer } }
           }
           break
+        }
 
         case "tool-input-start": {
           const id = part.id as string
@@ -277,11 +281,19 @@ export async function* v3StreamToDshChunks(
     reader.releaseLock()
   }
 
-  if (textIndex !== undefined && !textEnded) {
-    yield { type: "block-end", index: textIndex, block: { type: "text", text: textBuffer } }
+  const openTextEnds = [...textBlocks.values()]
+    .filter((block) => block.started && !block.ended)
+    .sort((a, b) => a.index - b.index)
+  for (const block of openTextEnds) {
+    block.ended = true
+    yield { type: "block-end", index: block.index, block: { type: "text", text: block.buffer } }
   }
-  if (reasoningIndex !== undefined && !reasoningEnded) {
-    yield { type: "block-end", index: reasoningIndex, block: { type: "reasoning", text: reasoningBuffer } }
+  const openReasoningEnds = [...reasoningBlocks.values()]
+    .filter((block) => block.started && !block.ended)
+    .sort((a, b) => a.index - b.index)
+  for (const block of openReasoningEnds) {
+    block.ended = true
+    yield { type: "block-end", index: block.index, block: { type: "reasoning", text: block.buffer } }
   }
   for (const [id, idx] of toolIndices) {
     if (toolClosed.has(idx)) continue

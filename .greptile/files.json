@@ -1,0 +1,52 @@
+{
+  "files": [
+    {
+      "path": "docs/review-rules.md",
+      "description": "Review rubric: blockers, evidence, and how to write findings"
+    },
+    {
+      "path": "AGENTS.md",
+      "description": "OCP architecture, vendor/provider boundaries, three host families, and release gates",
+      "scope": ["packages/**", "test/**", "scripts/**", "package.json", "bun.lock"]
+    },
+    {
+      "path": "CONTRIBUTING.md",
+      "description": "Pull request scope, verification, Greptile, and Codecov requirements"
+    },
+    {
+      "path": "docs/tool-vocabulary.md",
+      "description": "Current host tool declarations and provider-facing vocabulary",
+      "scope": ["packages/**", "test/**", "docs/tool-vocabulary.md", "docs/hosts/**"]
+    },
+    {
+      "path": "docs/ocp/0.1.md",
+      "description": "OpenCode-clone facade protocol contract",
+      "scope": ["packages/adapter/**", "packages/facade-*/**", "packages/ocp/**", "packages/host-promise-v2/**", "packages/profile/**"]
+    },
+    {
+      "path": "packages/pi-bridge/README.md",
+      "description": "Pi-family bridge contract and config reference",
+      "scope": ["packages/pi-bridge/**", "packages/opencode-loader/**"]
+    },
+    {
+      "path": "packages/dsh-bridge/README.md",
+      "description": "DSH-family bridge contract and Cordis patch config",
+      "scope": ["packages/dsh-bridge/**", "packages/opencode-loader/**"]
+    },
+    {
+      "path": "docs/hosts/opencode-clones.md",
+      "description": "MiMo/Kilo/ZCode install, setup, and clone-host internals",
+      "scope": ["packages/adapter/**", "packages/facade-*/**", "packages/ocp/**", "scripts/ocp-dev/**"]
+    },
+    {
+      "path": "docs/hosts/pi-family.md",
+      "description": "pi/omp install and Pi-family verification",
+      "scope": ["packages/pi-bridge/**", "scripts/ocp-dev/**"]
+    },
+    {
+      "path": "docs/hosts/dsh-family.md",
+      "description": "DSH install, Cordis patch, and verification",
+      "scope": ["packages/dsh-bridge/**", "scripts/ocp-dev/**"]
+    }
+  ]
+}
