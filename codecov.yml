@@ -1,0 +1,202 @@
+# Codecov configuration for opencode-plugin-compat.
+# Modeled on cursor-opencode-provider's codecov.yml + Codecov common recipes:
+# https://docs.codecov.com/docs/common-recipe-list
+# Validate: curl -X POST --data-binary @codecov.yml https://codecov.io/validate
+
+codecov:
+  # Post coverage status even if other CI checks fail.
+  require_ci_to_pass: false
+  notify:
+    # Post as soon as the expected upload arrives; do not wait on CI.
+    wait_for_ci: false
+    after_n_builds: 1
+  # Drop stale uploads rather than mixing them into the commit graph.
+  max_report_age: 24
+  # Single Bun lcov upload per CI run.
+  disable_default_path_fixes: false
+
+github_checks:
+  annotations: true
+
+# Generated / non-runtime surfaces. Keep executable package sources in the report.
+ignore:
+  - "packages/*/dist/**"
+  - "coverage/**"
+  - "scripts/**"
+  - "docs/**"
+  - "fixtures/**"
+  - "test/**"
+  - "**/*.d.ts"
+  - "node_modules/**"
+
+# Bun emits lcov; treat partial lines as hits so patch status is not flaky on
+# TypeScript branches the reporter only partially attributes.
+parsers:
+  lcov:
+    partials_as_hits: true
+  javascript:
+    enable_partials: true
+
+# CI uploads with flags: unit (see .github/workflows/ci.yml). carryforward lets a
+# commit reuse the parent flag when a re-run or fork tokenless upload races the
+# same SHA; a re-upload of the flag replaces the prior session.
+flag_management:
+  default_rules:
+    carryforward: true
+  individual_flags:
+    - name: unit
+      paths:
+        - packages/*/src/
+      carryforward: true
+
+flags:
+  unit:
+    paths:
+      - packages/*/src/
+    carryforward: true
+
+# Path-scoped components for the PR comment (layout includes `components`).
+# Keep them aligned with the published train packages in AGENTS.md.
+component_management:
+  default_rules:
+    statuses:
+      - type: project
+        target: auto
+        threshold: 0%
+  individual_components:
+    - component_id: adapter
+      name: Adapter
+      paths:
+        - packages/adapter/src/**
+    - component_id: opencode_loader
+      name: OpenCode loader
+      paths:
+        - packages/opencode-loader/src/**
+    - component_id: pi_bridge
+      name: Pi bridge
+      paths:
+        - packages/pi-bridge/src/**
+    - component_id: dsh_bridge
+      name: DSH bridge
+      paths:
+        - packages/dsh-bridge/src/**
+    - component_id: profile
+      name: Profile
+      paths:
+        - packages/profile/src/**
+    - component_id: facade_sdk
+      name: Facade SDK
+      paths:
+        - packages/facade-sdk/src/**
+    - component_id: facade_plugin
+      name: Facade plugin
+      paths:
+        - packages/facade-plugin/src/**
+    - component_id: host_promise_v2
+      name: Host Promise v2
+      paths:
+        - packages/host-promise-v2/src/**
+    - component_id: cli
+      name: CLI
+      paths:
+        - packages/cli/src/**
+    - component_id: ocp
+      name: OCP umbrella
+      paths:
+        - packages/ocp/src/**
+    - component_id: migrate_zcode
+      name: Migrate ZCode
+      paths:
+        - packages/migrate-zcode/src/**
+
+comment:
+  # Show project + patch + per-package breakdown (recipe: show project coverage).
+  layout: "header, diff, flags, components, files"
+  behavior: default
+  require_changes: false
+  require_base: false
+  require_head: true
+  hide_project_coverage: false
+
+coverage:
+  precision: 2
+  round: down
+  # Green band for the coverage sunburst / totals.
+  range: "70...100"
+  status:
+    project:
+      default:
+        # Recipe: set project coverage checks on a pull request.
+        # auto = compare against the PR base / parent commit; do not allow drops.
+        target: auto
+        threshold: 0%
+        base: auto
+        if_ci_failed: error
+        if_not_found: success
+        only_pulls: false
+        informational: false
+        # Removing covered code should not fail the project check by itself.
+        removed_code_behavior: removals_only
+        flags:
+          - unit
+        paths:
+          - packages/*/src/
+      adapter:
+        target: auto
+        threshold: 0%
+        flags:
+          - unit
+        paths:
+          - packages/adapter/src/
+      opencode_loader:
+        target: auto
+        threshold: 0%
+        flags:
+          - unit
+        paths:
+          - packages/opencode-loader/src/
+      pi_bridge:
+        target: auto
+        threshold: 0%
+        flags:
+          - unit
+        paths:
+          - packages/pi-bridge/src/
+      dsh_bridge:
+        target: auto
+        threshold: 0%
+        flags:
+          - unit
+        paths:
+          - packages/dsh-bridge/src/
+      profile:
+        target: auto
+        threshold: 0%
+        flags:
+          - unit
+        paths:
+          - packages/profile/src/
+    patch:
+      default:
+        # Match litellm: auto + 0% means patch coverage must not regress vs base.
+        target: auto
+        threshold: 0%
+        base: auto
+        if_ci_failed: error
+        if_not_found: success
+        only_pulls: false
+        informational: false
+        flags:
+          - unit
+        paths:
+          - packages/*/src/
+    changes:
+      default:
+        if_ci_failed: error
+        if_not_found: success
+        only_pulls: false
+        informational: false
+        flags:
+          - unit
+        paths:
+          - packages/*/src/

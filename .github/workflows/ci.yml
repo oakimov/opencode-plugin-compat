@@ -1,0 +1,96 @@
+# PR / main CI: typecheck, unit tests with Codecov, and a post-build architecture scan.
+# Release publish (v* tags) stays in publish.yml.
+
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  # Required check. On a pull request it tests the merge with main (the
+  # checkout default), so a PR that no longer works on current main fails here.
+  test:
+    name: Typecheck, test, build
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+
+      - name: Install
+        run: bun install --frozen-lockfile
+
+      - name: Typecheck
+        run: bun run typecheck
+
+      # Same commands as `bun run test:coverage`, spelled out because the
+      # coverage job below checks out PR heads that may predate that script.
+      - name: Test
+        run: |
+          bun test ./test --coverage --coverage-reporter=lcov
+          bun scripts/strip-copied-coverage.ts
+
+      # On a push the tested commit is the one Codecov records. Pull requests
+      # upload from the coverage job below.
+      - name: Upload coverage to Codecov
+        if: github.event_name == 'push'
+        uses: codecov/codecov-action@v5
+        with:
+          token: ${{ secrets.CODECOV_TOKEN }}
+          files: ./coverage/lcov.info
+          flags: unit
+          name: unit
+          disable_search: true
+          fail_ci_if_error: true
+
+      - name: Build
+        run: bun run build
+
+      # architecture.test.ts skips dist/ when it is absent; re-run after tsc.
+      - name: Architecture checks on dist
+        run: bun test ./test/architecture.test.ts
+
+  # codecov-action files a pull request's report under the PR head SHA, and
+  # Codecov draws it on that commit's lines. Measured on the merge commit, a
+  # file main has also changed reports coverage at shifted line numbers, so
+  # measure the head itself.
+  coverage:
+    name: Coverage
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout PR head
+        uses: actions/checkout@v6
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+
+      - name: Install
+        run: bun install --frozen-lockfile
+
+      # Keep in step with the test job's commands.
+      - name: Test
+        run: |
+          bun test ./test --coverage --coverage-reporter=lcov
+          bun scripts/strip-copied-coverage.ts
+
+      - name: Upload coverage to Codecov
+        uses: codecov/codecov-action@v5
+        with:
+          token: ${{ secrets.CODECOV_TOKEN }}
+          files: ./coverage/lcov.info
+          flags: unit
+          name: unit
+          disable_search: true
+          fail_ci_if_error: true

@@ -11,6 +11,7 @@ The monorepo ships **one shared train version** across all eleven packages, so u
 - One current tool vocabulary records native and provider-facing calls, parameters, and declaration sources; host upgrades and tool changes require updating it in place.
 
 - Kilo and MiMo: the host path bridge now tells providers the host's own plan file for a session (`planFile`), so a Cursor plan is written where the host's plan review reads it and approved through that review.
+- PR and `main` CI runs typecheck, coverage tests, and Codecov upload (same dual-job merge/head pattern as the Cursor provider).
 
 ### Changed
 
