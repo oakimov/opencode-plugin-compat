@@ -158,6 +158,12 @@ async function buildHarness(harness: string): Promise<void> {
   run(harness, ["pnpm", "install"])
   console.log("ocp-dev: building dsh native-system")
   run(harness, ["pnpm", "run", "build:native-system"])
+  // Host Typert must precede host tsc: package `"./remote"` exports point at
+  // generated `lib/typert.remote-client.*`. The stock `host-libraries` script
+  // also runs unfiltered tsdown, which aborts on leftover empty package dirs —
+  // generate here, then keep OCP's filtered `runDshTsdown` for bundling.
+  console.log("ocp-dev: generating dsh Host Typert declarations")
+  run(harness, ["pnpm", "exec", "tsx", "scripts/generate-typert.ts"])
   console.log("ocp-dev: building dsh host lib (tsc + tsdown)")
   run(harness, ["node", "--max-old-space-size=8192", "./node_modules/typescript/bin/tsc", "-b", "tsconfig.host.json"])
   await runDshTsdown(harness, "host")

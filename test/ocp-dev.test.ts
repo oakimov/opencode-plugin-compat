@@ -351,6 +351,7 @@ describe("dsh discovery", () => {
     expect(source).toContain("buildHarness")
     expect(source).toContain('["pnpm", "install"]')
     expect(source).toContain('["pnpm", "run", "build:native-system"]')
+    expect(source).toContain('["pnpm", "exec", "tsx", "scripts/generate-typert.ts"]')
     expect(source).toContain('["pnpm", "run", "build:web"]')
     expect(source).toContain("runDshTsdown")
   })

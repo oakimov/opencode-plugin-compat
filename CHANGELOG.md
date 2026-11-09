@@ -6,6 +6,10 @@ The monorepo ships **one shared train version** across all eleven packages, so u
 
 ## [Unreleased]
 
+### Fixed
+
+- `ocp-dev` DSH local wiring generates Host Typert declarations before host `tsc`, so package `./remote` exports resolve and leftover empty package dirs no longer block a full reshim.
+
 ### Changed
 
 - `@opencode-compat/dsh-bridge` publishes a committed Cordis entry that re-exports the built `apply` surface, so source checkouts and scanners see the runtime export without a local `dist/` build.
