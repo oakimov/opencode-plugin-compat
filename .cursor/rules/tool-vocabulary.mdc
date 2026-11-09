@@ -1,0 +1,11 @@
+---
+description: High. Tool contract changes must update docs/tool-vocabulary.md.
+globs: packages/**,docs/tool-vocabulary.md,test/**
+alwaysApply: false
+---
+
+Greptile id: tool-vocabulary
+Severity: high
+Scope: packages/**, docs/tool-vocabulary.md, test/**
+
+Tool declaration, schema, validator, or host-upgrade changes must update docs/tool-vocabulary.md in the same change. Source or catalog drift without that update is a blocker.

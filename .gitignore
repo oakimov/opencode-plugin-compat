@@ -29,6 +29,9 @@ coverage/
 .codesearch.db/
 .playwright-mcp/
 
+# pending Cloud Agent / caeliq-reviewer artifacts
+.review-artifacts/
+
 .claude/settings.local.json
 
 # local plans / archived plan copies

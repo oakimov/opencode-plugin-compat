@@ -1,0 +1,11 @@
+---
+description: High. Do not leak owned streams, processes, or released state.
+globs: packages/**,scripts/**,test/**
+alwaysApply: false
+---
+
+Greptile id: resource-lifecycle
+Severity: high
+Scope: packages/**, scripts/**, test/**
+
+Do not leak streams, sessions, listeners, processes, workers, or writers the change starts. Abort and disposal must be explicit. Owned work must stop on completion, failure, and catchable cancellation; files or state must not be released while owned work can still use them.

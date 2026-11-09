@@ -6,6 +6,10 @@ The monorepo ships **one shared train version** across all eleven packages, so u
 
 ## [Unreleased]
 
+### Added
+
+- Manual Cursor Cloud Agent reviews can use the same Greptile-like `caeliq-reviewer` harness as the Cursor provider: isolated PR checks, structured preview approval, and optional `--token-env` publication.
+
 ### Fixed
 
 - `ocp-dev` DSH local wiring generates Host Typert declarations before host `tsc`, so package `./remote` exports resolve and leftover empty package dirs no longer block a full reshim.

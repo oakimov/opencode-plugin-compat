@@ -1,0 +1,11 @@
+---
+description: Medium. A runtime behavior change needs a bun test regression across affected families.
+globs: packages/**
+alwaysApply: false
+---
+
+Greptile id: behavior-test
+Severity: medium
+Scope: packages/**
+
+A runtime behavior change needs a regression test under test/ that bun test can run. Shared translation changes must cover every affected host family; one bridge's passing tests do not establish another family's acceptance.

@@ -1,0 +1,10 @@
+---
+description: Medium. User-facing OCP changes need an Unreleased changelog line.
+alwaysApply: true
+---
+
+Greptile id: changelog
+Severity: medium
+Scope: all files (Greptile rule had no scope)
+
+A user-facing behavior, public API, install/setup UX, host compatibility, or published package contract change needs a CHANGELOG.md line under ## [Unreleased].

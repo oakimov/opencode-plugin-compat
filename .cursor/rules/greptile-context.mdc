@@ -1,0 +1,22 @@
+---
+description: Read the review context files for paths the diff touches.
+alwaysApply: true
+---
+
+Greptile id: files-json
+Severity: context
+Scope: the paths listed below (from .greptile/files.json)
+
+These files are review context, including the paths recorded in `.greptile/files.json`. Read the ones whose scope the diff touches. They are in the repository.
+
+- `docs/review-rules.md` — every review. Review rubric, blockers, evidence, and how to write findings.
+- `docs/pr-review.md` — every review. Manual `caeliq-reviewer` procedure, isolated checks, and publication.
+- `CONTRIBUTING.md` — every review. Pull request scope, verification, Greptile/`caeliq-reviewer`, and Codecov requirements.
+- `AGENTS.md` — when the diff touches `packages/**`, `test/**`, `scripts/**`, `package.json`, or `bun.lock`. OCP architecture, vendor/provider boundaries, three host families, and release gates.
+- `docs/tool-vocabulary.md` — when the diff touches packages, tests, tool vocabulary, or host guides.
+- `docs/ocp/0.1.md` — when the diff touches adapter, facades, ocp, host-promise-v2, or profile.
+- `packages/pi-bridge/README.md` — when the diff touches pi-bridge or opencode-loader.
+- `packages/dsh-bridge/README.md` — when the diff touches dsh-bridge or opencode-loader.
+- Host guides under `docs/hosts/` — when the diff touches the matching family packages or `scripts/ocp-dev/**`.
+
+There is no `.greptile/rules.md` and no root `greptile.json` in this repository. `.greptile/config.json` is the rule source.

@@ -1,0 +1,11 @@
+---
+description: High. Preserve catalog tools and the cacheable prefix through translation.
+globs: packages/**,test/**
+alwaysApply: false
+---
+
+Greptile id: catalog-integrity
+Severity: high
+Scope: packages/**, test/**
+
+Preserve every enabled tool and the cacheable catalog prefix through translation. Sort the first nonempty catalog once by canonical name in UTF-16 order; append only sorted newcomer batches. Never invent or filter a catalog to accommodate one provider. Downstream call repairs cannot satisfy upstream required-key validation.

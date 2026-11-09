@@ -41,7 +41,7 @@ The dependency direction is one-way: **OCP may know consumer providers; consumer
 - **Architecture checks:** tests must cover at least one generic fake/Acme provider on clone and Pi paths, explicit optional Cursor activation, no Pi/DSH logic in clone runtime, no mandatory/static Cursor import in generic Pi or DSH code, and no Pi logic in `packages/dsh-bridge` clone-facing runtime (DSH must not import Pi host packages).
 
 Plugins are discovered through **OpenCode's own standard conventions** (`hooks.auth`, the `config` hook's `provider[id].models`, the root `createXxx()` AI-SDK factory). Never hardcode a specific plugin in generic bridge code and never sniff host versions to pick behavior.
-- Follow the [review rules](docs/review-rules.md), including every Greptile finding and applicable Codecov issue. CI and coverage policy live in [CONTRIBUTING.md](CONTRIBUTING.md) and [codecov.yml](codecov.yml).
+- Follow the [review rules](docs/review-rules.md), including every Greptile finding, every `caeliq-reviewer` review finding, and each applicable Codecov issue. Manual Cloud Agent reviews follow [docs/pr-review.md](docs/pr-review.md) and `.cursor/skills/review/SKILL.md`. Pending review artifacts use `review-publish.py start` and the gitignored `.review-artifacts/` store. CI and coverage policy live in [CONTRIBUTING.md](CONTRIBUTING.md) and [codecov.yml](codecov.yml).
 - **User delivery UX (locked):** one installable umbrella package (`@opencode-compat/ocp`) + **`ocp setup`** that writes install-tree overrides; users then add **consumer** plugins via host config (`plugin` / equivalent) unchanged. Listing OCP itself in `plugin` is optional bootstrap only — it does **not** intercept other plugins’ imports by itself.
 - Facades remapped in **plugin install trees / operator overrides** (not spoofing public `@opencode-ai` on npm). Publish **public** `@opencode-compat/*` — agent bump/publish runbook in this file; human guide `docs/guides/npm-publish.md`.
 - Scope: `@opencode-compat/*` — **host bridge packages** (internal) + umbrella UX package + named **companions** that must not redefine OCP success.
@@ -94,9 +94,10 @@ Tool calls and source drift: [docs/tool-vocabulary.md](docs/tool-vocabulary.md),
 3. `packages/dsh-bridge/README.md` — contract + Cordis patch config for the DSH family
 4. `docs/hosts/opencode-clones.md` (MiMo/Kilo/ZCode) / `docs/hosts/pi-family.md` (Pi) / `docs/hosts/dsh-family.md` (DSH) — one self-contained guide per host family; install lives **in** them, not in a separate top-level INSTALL doc
 5. Provider-maintained interactive acceptance checklist: `cursor-opencode-provider/docs/host-compat-acceptance.md`; run the OMP/Pi/DSH items against stock hosts before claiming interactive parity.
-6. `docs/review-rules.md` — PR review rubric (blockers, evidence, Greptile/Codecov readiness)
-7. `CHANGELOG.md` — user-facing release notes for the shared `@opencode-compat/*` train (see § Changelog).
-8. `docs/plans/**` — **historical**; shipped work, kept for provenance. Superseded by the above wherever they disagree; do not treat as a roadmap.
+6. `docs/review-rules.md` — PR review rubric (blockers, evidence, Greptile/`caeliq-reviewer`/Codecov readiness)
+7. `docs/pr-review.md` — manual Cloud Agent + `caeliq-reviewer` publication procedure
+8. `CHANGELOG.md` — user-facing release notes for the shared `@opencode-compat/*` train (see § Changelog).
+9. `docs/plans/**` — **historical**; shipped work, kept for provenance. Superseded by the above wherever they disagree; do not treat as a roadmap.
 
 ## Changelog
 
