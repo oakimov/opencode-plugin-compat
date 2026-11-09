@@ -1343,3 +1343,149 @@ else:
     }
   })
 })
+
+// Cancellation that reaches only the script's own pid, as a tool runner's
+// kill(pid) or subprocess.terminate() does. A process-group signal also
+// reaches the boundary directly and does not show whether the script passes
+// the cancellation on before its cleanup runs.
+describe("pid-targeted cancellation", () => {
+  const pause = () => new Promise((resolve) => setTimeout(resolve, 50))
+
+  // Visible to ps on the host for both the Linux namespace and macOS sandbox.
+  function commandAlive(marker: string): boolean {
+    const listing = spawnSync("ps", ["-A", "-o", "args="], { encoding: "utf8" })
+    if (listing.status !== 0) throw new Error(`ps failed: ${listing.stderr}`)
+    return listing.stdout.split("\n").some((line) => line.includes(marker))
+  }
+
+  type Exit = { code: number | null; signal: NodeJS.Signals | null; stdout: string; stderr: string; at: number }
+
+  async function cancelAfterReady(
+    args: string[],
+    readyFile: string,
+    signal: NodeJS.Signals,
+    env: NodeJS.ProcessEnv,
+  ): Promise<Exit & { unavailable: boolean; signalledAt: number }> {
+    const child = spawn("bash", args, { cwd: root, env: { ...env, PYTHONDONTWRITEBYTECODE: "1" } })
+    let stdout = ""
+    let stderr = ""
+    child.stdout.on("data", (chunk) => (stdout += chunk))
+    child.stderr.on("data", (chunk) => (stderr += chunk))
+    const exited = new Promise<Exit>((resolve) =>
+      child.on("exit", (code, exitSignal) => resolve({ code, signal: exitSignal, stdout, stderr, at: Date.now() })),
+    )
+    const started = Date.now()
+    try {
+      while (!fs.existsSync(readyFile)) {
+        if (child.exitCode !== null || child.signalCode !== null) {
+          const early = await exited
+          return { ...early, unavailable: /ISOLATION=unavailable/.test(early.stderr), signalledAt: early.at }
+        }
+        if (Date.now() - started > 15000) throw new Error(`command did not start\n${stdout}\n${stderr}`)
+        await pause()
+      }
+      const signalledAt = Date.now()
+      child.kill(signal)
+      const timeout = new Promise<never>((_, reject) =>
+        setTimeout(() => reject(new Error(`no exit after ${signal}\n${stdout}\n${stderr}`)), 20000),
+      )
+      const result = await Promise.race([exited, timeout])
+      return { ...result, unavailable: false, signalledAt }
+    } finally {
+      if (child.exitCode === null && child.signalCode === null) child.kill("SIGKILL")
+    }
+  }
+
+  function fixture(prefix: string) {
+    const base = fs.mkdtempSync(path.join(fs.realpathSync(os.tmpdir()), prefix))
+    const src = path.join(base, "src")
+    const tmp = path.join(base, "tmp")
+    fs.mkdirSync(src)
+    fs.mkdirSync(tmp)
+    const marker = `${prefix}${process.pid}-${Math.random().toString(36).slice(2)}`
+    return { base, src, tmp, marker }
+  }
+
+  it("isolate-run.sh kills a command that ignores TERM before removing its stage", async () => {
+    const { base, src, tmp, marker } = fixture("isolate-ignore-term-")
+    try {
+      const result = await cancelAfterReady(
+        [
+          "scripts/isolate-run.sh", "--src", src, "--",
+          "/bin/sh", "-c", 'trap "" TERM; echo ready > ready; while :; do sleep 0.1; done', marker,
+        ],
+        path.join(src, "ready"),
+        "SIGTERM",
+        { ...process.env, TMPDIR: tmp, ISOLATE_TERM_GRACE: "1" },
+      )
+      if (result.unavailable) return
+      // The command outlived TERM, so this exit must follow the grace-period kill.
+      expect(commandAlive(marker), `${result.stdout}\n${result.stderr}`).toBe(false)
+      expect(result.code, result.stderr).toBe(143)
+      expect(result.at - result.signalledAt).toBeGreaterThanOrEqual(900)
+      expect(fs.readdirSync(tmp)).toEqual([])
+    } finally {
+      fs.rmSync(base, { recursive: true, force: true })
+    }
+  })
+
+  it("isolate-run.sh forwards TERM so the command can stop itself", async () => {
+    const { base, src, tmp, marker } = fixture("isolate-forward-term-")
+    try {
+      const result = await cancelAfterReady(
+        [
+          "scripts/isolate-run.sh", "--src", src, "--",
+          "/bin/sh", "-c", 'trap "echo stopped > stopped; exit 0" TERM; echo ready > ready; while :; do sleep 0.1; done', marker,
+        ],
+        path.join(src, "ready"),
+        "SIGTERM",
+        { ...process.env, TMPDIR: tmp, ISOLATE_TERM_GRACE: "30" },
+      )
+      if (result.unavailable) return
+      expect(commandAlive(marker)).toBe(false)
+      expect(result.code, result.stderr).toBe(143)
+      expect(fs.readFileSync(path.join(src, "stopped"), "utf8")).toBe("stopped\n")
+      // Far below the grace period: the command stopped on the forwarded TERM.
+      expect(result.at - result.signalledAt).toBeLessThan(10000)
+      expect(fs.readdirSync(tmp)).toEqual([])
+    } finally {
+      fs.rmSync(base, { recursive: true, force: true })
+    }
+  })
+
+  for (const [signal, code] of [["SIGTERM", 143], ["SIGINT", 130]] as const) {
+    it(`isolated-check.sh waits for the boundary before removing the archive on ${signal}`, async () => {
+      const { base, src, tmp, marker } = fixture(`isolated-check-${signal.toLowerCase()}-`)
+      try {
+        const result = await cancelAfterReady(
+          [
+            "-c",
+            `
+            set -euo pipefail
+            source scripts/isolated-check.sh
+            worktree="$WT"
+            trap check_cleanup EXIT
+            cd "$WT"
+            check_step UNIT_TESTS /bin/sh -c 'trap "" TERM INT; echo ready > ready; while :; do sleep 0.1; done' "$MARKER" || true
+            echo after-step
+            `,
+          ],
+          path.join(src, "ready"),
+          signal,
+          { ...process.env, TMPDIR: tmp, ISOLATE_TERM_GRACE: "1", WT: src, MARKER: marker },
+        )
+        if (result.unavailable) return
+        expect(commandAlive(marker), `${result.stdout}\n${result.stderr}`).toBe(false)
+        expect(result.code, result.stderr).toBe(code)
+        expect(result.stderr).toContain(`Check cancelled by ${signal}.`)
+        // The cancelled check neither reports the step nor runs the next one.
+        expect(result.stdout).not.toContain("UNIT_TESTS=")
+        expect(result.stdout).not.toContain("after-step")
+        expect(fs.existsSync(src)).toBe(false)
+        expect(fs.readdirSync(tmp)).toEqual([])
+      } finally {
+        fs.rmSync(base, { recursive: true, force: true })
+      }
+    })
+  }
+})

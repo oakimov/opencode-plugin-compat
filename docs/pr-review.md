@@ -348,6 +348,8 @@ Ubuntu's AppArmor restriction on unprivileged user namespaces makes `unshare` fa
 
 Inside the boundary the command can see read-only `/usr` and `/etc`, the named tool binaries, and the archive at `/src` (read-write). A fresh tmpfs is `/tmp` and `/home/reviewer`. Host home, host temp, the parent checkout, agent sockets, and git metadata are not mounted. The environment starts empty except `PATH`, `HOME`, `TMPDIR`, `USER`, `LOGNAME`, `LANG`, and `CI`. Network stays available because install needs it. Review-posting credentials, including `REVIEW_APP_PRIVATE_KEY` and `REVIEW_APP_PRIVATE_KEY_FILE`, are not in the environment and their files are not mounted. Exit 0 means those checks passed. Exit 1 is a check failure. Exit 2 is a bad invocation or an unavailable isolation mechanism. `Check root:` and `Check commit:` are private and stay out of the public review.
 
+Cancelling a check is safe when the signal reaches only the script's own process, as a tool runner's `kill <pid>` does. `isolated-check.sh` passes TERM, INT, HUP, or QUIT on to `isolate-run.sh`, which forwards it to the boundary's session and kills that session if it is still running `ISOLATE_TERM_GRACE` seconds later (default 10). Only after the boundary has stopped does the check exit with 128 plus the signal number and remove the archive. SIGKILL cannot be forwarded; killing either script that way can still leave the boundary running.
+
 There is no `--live` path in this repository. Interactive stock-host acceptance remains a manual evidence requirement outside the isolated check.
 
 ## Greptile and caeliq-reviewer

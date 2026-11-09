@@ -15,7 +15,9 @@
 # evidence requirement outside this boundary.
 #
 # Exit 0 when the checks pass, 1 when a check fails, 2 when the invocation
-# or the isolation mechanism is unusable.
+# or the isolation mechanism is unusable, and 128 plus the signal number when
+# TERM, INT, HUP, or QUIT cancels a check. A cancelled check waits for the
+# boundary to stop before it removes the archive.
 set -euo pipefail
 export PYTHONDONTWRITEBYTECODE=1
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -91,13 +93,50 @@ check_begin_sandbox() {
   fi
 }
 
+check_child=""
+check_signal=""
+
+# Record the first cancellation signal and ask isolate-run.sh to stop. A
+# background job cannot trap INT or QUIT, so the request is always TERM.
+check_note_signal() {
+  [[ -n "$check_signal" ]] || check_signal="$1"
+  [[ -z "$check_child" ]] || kill -s TERM "$check_child" 2>/dev/null || true
+}
+
 # Run a command inside the filesystem and process boundary. The root and
 # package build/typecheck scripts call bunx, so it is mounted beside bun;
 # isolate-run.sh binds each tool under its requested name, which bun uses to
 # select its bunx entry point.
+#
+# isolate-run.sh runs in the background so that TERM, INT, HUP, or QUIT sent
+# only to this shell is passed on, and this shell waits until the boundary
+# has stopped. Only then does the cancelled check exit with 128 plus the
+# signal number, and its EXIT trap remove the archive. isolate-run.sh, not
+# this shell, kills a boundary that ignores the request.
 check_run_isolated() {
+  local status
+  check_signal=""
+  check_child=""
+  trap 'check_note_signal TERM' TERM
+  trap 'check_note_signal INT' INT
+  trap 'check_note_signal HUP' HUP
+  trap 'check_note_signal QUIT' QUIT
   "$ROOT/scripts/isolate-run.sh" --src "${ISOLATE_SRC:-$PWD}" \
-    --tool bun --tool bunx --tool node --tool git --tool python3 -- "$@"
+    --tool bun --tool bunx --tool node --tool git --tool python3 -- "$@" <&0 &
+  check_child=$!
+  [[ -z "$check_signal" ]] || kill -s TERM "$check_child" 2>/dev/null || true
+  while :; do
+    wait "$check_child"
+    status=$?
+    kill -0 "$check_child" 2>/dev/null || break
+  done
+  check_child=""
+  trap - TERM INT HUP QUIT
+  if [[ -n "$check_signal" ]]; then
+    echo "Check cancelled by SIG${check_signal}." >&2
+    exit $((128 + $(kill -l "$check_signal")))
+  fi
+  return "$status"
 }
 
 check_step() {
