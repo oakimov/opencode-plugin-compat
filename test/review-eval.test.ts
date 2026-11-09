@@ -788,7 +788,7 @@ describe("review ledger and score", () => {
       expect(python(["scripts/review-ledger.py", "check", "ledger.json"], prepared.mount).status).toBe(2)
       expect(python(["scripts/review-ledger.py", "compare", "ledger.json", "review.json"], prepared.mount).status).not.toBe(0)
       const badVerdict = structuredClone(ledger)
-      badVerdict.retries[0].verdict = "maybe"
+      badVerdict.retries[0]!.verdict = "maybe"
       writeJson(path.join(prepared.mount, "ledger.json"), badVerdict)
       const verdict = python(["scripts/review-ledger.py", "check", "ledger.json"], prepared.mount)
       expect(verdict.status).toBe(1)
@@ -910,20 +910,20 @@ describe("review ledger and score", () => {
       expect(python(["scripts/review-ledger.py", "compare", ledgerPath, reviewPath]).status).toBe(0)
 
       const observation = structuredClone(ledger)
-      observation.candidates[0].violation = ""
+      observation.candidates[0]!.violation = ""
       writeJson(ledgerPath, observation)
       expect(python(["scripts/review-ledger.py", "check", ledgerPath]).stderr).toContain("violation")
 
       const policy = structuredClone(ledger)
-      policy.candidates[0].disposition = "policy"
-      policy.candidates[0].violation = "prefer a different retry"
-      policy.candidates[0].provenance = "not-applicable"
+      policy.candidates[0]!.disposition = "policy"
+      policy.candidates[0]!.violation = "prefer a different retry"
+      policy.candidates[0]!.provenance = "not-applicable"
       writeJson(ledgerPath, policy)
       expect(python(["scripts/review-ledger.py", "check", ledgerPath]).stderr).toContain("violation")
 
       const liveClaim = structuredClone(ledger)
-      liveClaim.candidates[0].evidenceKind = "live"
-      liveClaim.candidates[0].setup = "synthetic"
+      liveClaim.candidates[0]!.evidenceKind = "live"
+      liveClaim.candidates[0]!.setup = "synthetic"
       writeJson(ledgerPath, liveClaim)
       expect(python(["scripts/review-ledger.py", "check", ledgerPath]).status).toBe(1)
 
@@ -939,28 +939,28 @@ describe("review ledger and score", () => {
 
       for (const note of ["see /tmp/review", "see ~/work/review"]) {
         const absolute = structuredClone(ledger)
-        absolute.behaviors[0].contract[0].note = note
+        absolute.behaviors[0]!.contract[0]!.note = note
         writeJson(ledgerPath, absolute)
         expect(python(["scripts/review-ledger.py", "check", ledgerPath]).stderr).toContain("private-path")
       }
       // A slash between numbers is not a path.
       const ratio = structuredClone(ledger)
-      ratio.behaviors[0].contract[0].note = "65 / 200 lines arrived"
+      ratio.behaviors[0]!.contract[0]!.note = "65 / 200 lines arrived"
       writeJson(ledgerPath, ratio)
       expect(python(["scripts/review-ledger.py", "check", ledgerPath]).stderr).not.toContain("private-path")
 
       const skipped = structuredClone(ledger)
-      skipped.behaviors[0].scenarios[0].evidence = "not-run"
-      skipped.behaviors[0].scenarios[0].applicable = false
-      skipped.behaviors[0].scenarios[0].reason = "not looked at"
-      skipped.behaviors[0].scenarios[0].expected = ""
-      skipped.behaviors[0].scenarios[0].observed = ""
-      skipped.behaviors[0].scenarios[0].downstream = ""
+      skipped.behaviors[0]!.scenarios[0]!.evidence = "not-run"
+      skipped.behaviors[0]!.scenarios[0]!.applicable = false
+      skipped.behaviors[0]!.scenarios[0]!.reason = "not looked at"
+      skipped.behaviors[0]!.scenarios[0]!.expected = ""
+      skipped.behaviors[0]!.scenarios[0]!.observed = ""
+      skipped.behaviors[0]!.scenarios[0]!.downstream = ""
       writeJson(ledgerPath, skipped)
       expect(python(["scripts/review-ledger.py", "check", ledgerPath]).stderr).toContain("omissions.coverage")
 
       const incident = structuredClone(review)
-      incident.findings[0].explanation = "The live model replied this in production."
+      incident.findings[0]!.explanation = "The live model replied this in production."
       writeJson(ledgerPath, ledger)
       writeJson(reviewPath, incident)
       expect(python(["scripts/review-ledger.py", "compare", ledgerPath, reviewPath]).stderr).toContain("evidence")
@@ -1081,7 +1081,7 @@ describe("review ledger and score", () => {
       const reviewPath = path.join(dir, "review.json")
       writeJson(reviewPath, {
         findings: [
-          review.findings[0],
+          review.findings[0]!,
           {
             id: "vague",
             path: "sync_index.py",
@@ -1111,7 +1111,7 @@ describe("review ledger and score", () => {
       expect(report.unadjudicated).toEqual(["elsewhere"])
       expect(report.falsePositives).toEqual([])
 
-      writeJson(reviewPath, { findings: [review.findings[0]] })
+      writeJson(reviewPath, { findings: [review.findings[0]!] })
       const fixed = JSON.parse(python(["scripts/review-eval.py", "score", "--case", "index-sync", "--variant", "fixed", "--review", reviewPath]).stdout)
       expect(fixed.detected).toEqual([])
       expect(fixed.falsePositives[0].claims).toContain("failed-refresh-skips-retry")

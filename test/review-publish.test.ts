@@ -645,7 +645,7 @@ function documentedPublishCommands(): string[] {
   const doc = fs.readFileSync(path.join(root, "docs/pr-review.md"), "utf8")
   const commands: string[] = []
   for (const block of doc.matchAll(/```bash\n([\s\S]*?)```/g)) {
-    for (const line of block[1].split("\n")) {
+    for (const line of block[1]!.split("\n")) {
       const trimmed = line.trim()
       if (trimmed.startsWith("python3 scripts/review-publish.py ")) commands.push(trimmed)
     }
