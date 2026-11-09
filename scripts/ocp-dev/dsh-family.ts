@@ -70,7 +70,12 @@ export function stageDshBridgeForForeignFileInstall(
   pkg.dependencies = deps
   writeFileSync(join(stageDir, "package.json"), `${JSON.stringify(pkg, null, 2)}\n`)
 
-  for (const name of ["cordis.patch.yml", "LICENSE", "README.md"] as const) {
+  // package.json main/exports `.` resolve to root `cordis-entry.js` (re-exports
+  // dist). Omitting it makes DSH fail: Cannot find module …/cordis-entry.js.
+  const entry = join(bridgeSrc, "cordis-entry.js")
+  if (!existsSync(entry)) throw new Error(`dsh-bridge cordis-entry.js missing: ${entry}`)
+  copyFileSync(entry, join(stageDir, "cordis-entry.js"))
+  for (const name of ["cordis.patch.yml", "LICENSE", "README.md", "SECURITY.md"] as const) {
     const from = join(bridgeSrc, name)
     if (existsSync(from)) copyFileSync(from, join(stageDir, name))
   }
@@ -131,7 +136,7 @@ export function syncInstalledFilePackage(sourcePkg: string, destPkg: string): bo
     const dstStat = statSync(destManifest)
     if (srcStat.ino !== dstStat.ino || srcStat.dev !== dstStat.dev) writeFileSync(destManifest, `${JSON.stringify(fresh, null, 2)}\n`)
   }
-  for (const name of ["cordis.patch.yml", "README.md"] as const) {
+  for (const name of ["cordis-entry.js", "cordis.patch.yml", "README.md", "SECURITY.md"] as const) {
     const from = join(sourcePkg, name)
     const to = join(destPkg, name)
     if (!existsSync(from)) continue
@@ -158,6 +163,12 @@ async function buildHarness(harness: string): Promise<void> {
   run(harness, ["pnpm", "install"])
   console.log("ocp-dev: building dsh native-system")
   run(harness, ["pnpm", "run", "build:native-system"])
+  // Host Typert must precede host tsc: package `"./remote"` exports point at
+  // generated `lib/typert.remote-client.*`. The stock `host-libraries` script
+  // also runs unfiltered tsdown, which aborts on leftover empty package dirs —
+  // generate here, then keep OCP's filtered `runDshTsdown` for bundling.
+  console.log("ocp-dev: generating dsh Host Typert declarations")
+  run(harness, ["pnpm", "exec", "tsx", "scripts/generate-typert.ts"])
   console.log("ocp-dev: building dsh host lib (tsc + tsdown)")
   run(harness, ["node", "--max-old-space-size=8192", "./node_modules/typescript/bin/tsc", "-b", "tsconfig.host.json"])
   await runDshTsdown(harness, "host")
