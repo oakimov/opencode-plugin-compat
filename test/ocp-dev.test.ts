@@ -260,7 +260,9 @@ describe("dsh discovery", () => {
       }
       expect(pkg.dependencies["@opencode-compat/opencode-loader"]).toBe(`file:${loader}`)
       expect(existsSync(join(staged, "dist"))).toBe(true)
+      expect(existsSync(join(staged, "cordis-entry.js"))).toBe(true)
       expect(existsSync(join(staged, "cordis.patch.yml"))).toBe(true)
+      expect(readFileSync(join(staged, "cordis-entry.js"), "utf8")).toContain('./dist/index.js')
     } finally {
       if (previous === undefined) delete process.env.OCP_DEV_STATE_DIR
       else process.env.OCP_DEV_STATE_DIR = previous
@@ -317,11 +319,13 @@ describe("dsh discovery", () => {
       writeFileSync(join(source, "package.json"), JSON.stringify({ exports: { "./token-meter": "./dist/token-meter.js" }, dependencies: { "@opencode-compat/opencode-loader": "0.4.3" } }))
       writeFileSync(join(dest, "package.json"), JSON.stringify({ exports: {}, dependencies: { "@opencode-compat/opencode-loader": "file:/workspace/loader" } }))
       writeFileSync(join(source, "cordis.patch.yml"), "- id: token-meter\n  disabled: true\n")
+      writeFileSync(join(source, "cordis-entry.js"), 'export { default } from "./dist/index.js"\n')
       expect(syncInstalledFilePackage(source, dest)).toBe(true)
       const installed = JSON.parse(readFileSync(join(dest, "package.json"), "utf8"))
       expect(installed.exports["./token-meter"]).toBe("./dist/token-meter.js")
       expect(installed.dependencies["@opencode-compat/opencode-loader"]).toBe("file:/workspace/loader")
       expect(readFileSync(join(dest, "cordis.patch.yml"), "utf8")).toContain("disabled: true")
+      expect(readFileSync(join(dest, "cordis-entry.js"), "utf8")).toContain('./dist/index.js')
     } finally { rmSync(root, { recursive: true, force: true }) }
   })
 

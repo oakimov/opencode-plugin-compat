@@ -4,6 +4,7 @@
 
 - Stock `build:lib:host` / `host-libraries` runs `scripts/generate-typert.ts` before host compilation because package `./remote` exports resolve to generated `lib/typert.remote-client.*`. ocp-dev must not jump straight to `tsc -b tsconfig.host.json`.
 - Do not call stock `host-libraries` end-to-end from ocp-dev: its unfiltered tsdown still aborts on leftover empty `packages/*/*` dirs without `package.json`. Keep generate-typert + host tsc, then OCP's filtered `runDshTsdown`.
+- After `cordis-entry.js` became package `main`/`exports["."]`, staging that only copies `dist` + `cordis.patch.yml` leaves Cordis unable to import `@opencode-compat/dsh-bridge` (`ERR_MODULE_NOT_FOUND` …/cordis-entry.js). Stage and profile sync must copy the root entry too.
 
 - A process-wide skills reader needs one shared async context across independently bundled runtimes. Reproduce with two distinct generated-bundle imports and interleave requests; source-module isolation alone misses reader replacement.
 - Retain the original path when claiming a reconciliation file; failure recovery should not reconstruct ownership from a regex suffix. Use direct separator scans for model-supplied paths.

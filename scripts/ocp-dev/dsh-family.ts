@@ -70,7 +70,12 @@ export function stageDshBridgeForForeignFileInstall(
   pkg.dependencies = deps
   writeFileSync(join(stageDir, "package.json"), `${JSON.stringify(pkg, null, 2)}\n`)
 
-  for (const name of ["cordis.patch.yml", "LICENSE", "README.md"] as const) {
+  // package.json main/exports `.` resolve to root `cordis-entry.js` (re-exports
+  // dist). Omitting it makes DSH fail: Cannot find module …/cordis-entry.js.
+  const entry = join(bridgeSrc, "cordis-entry.js")
+  if (!existsSync(entry)) throw new Error(`dsh-bridge cordis-entry.js missing: ${entry}`)
+  copyFileSync(entry, join(stageDir, "cordis-entry.js"))
+  for (const name of ["cordis.patch.yml", "LICENSE", "README.md", "SECURITY.md"] as const) {
     const from = join(bridgeSrc, name)
     if (existsSync(from)) copyFileSync(from, join(stageDir, name))
   }
@@ -131,7 +136,7 @@ export function syncInstalledFilePackage(sourcePkg: string, destPkg: string): bo
     const dstStat = statSync(destManifest)
     if (srcStat.ino !== dstStat.ino || srcStat.dev !== dstStat.dev) writeFileSync(destManifest, `${JSON.stringify(fresh, null, 2)}\n`)
   }
-  for (const name of ["cordis.patch.yml", "README.md"] as const) {
+  for (const name of ["cordis-entry.js", "cordis.patch.yml", "README.md", "SECURITY.md"] as const) {
     const from = join(sourcePkg, name)
     const to = join(destPkg, name)
     if (!existsSync(from)) continue
