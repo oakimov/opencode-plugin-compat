@@ -141,6 +141,7 @@ describe("cloud agent install", () => {
     }
     expect(environment.install).toBe(script)
     expect(environment.install).toContain("https://bun.sh/install")
+    expect(environment.install).toContain("/usr/bin/bunx")
     expect(environment.install).toContain("/usr/local/bin/bunx")
     expect(environment.install).toContain("bun install --frozen-lockfile")
     expect(environment.install).toContain("bun run build")
@@ -205,16 +206,19 @@ describe("cloud agent install", () => {
     const bin = path.join(directory, "bin")
     const bunBin = path.join(directory, ".bun", "bin")
     const localBin = path.join(directory, "local", "bin")
+    const usrBin = path.join(directory, "usr", "bin")
     const workspace = path.join(directory, "workspace")
     fs.mkdirSync(bin)
     fs.mkdirSync(bunBin, { recursive: true })
     fs.mkdirSync(localBin, { recursive: true })
+    fs.mkdirSync(usrBin, { recursive: true })
     fs.mkdirSync(path.join(workspace, "scripts"), { recursive: true })
-    // Redirect the absolute Cloud Agent bun path into the private home so the
-    // test never writes under the real /usr/local/bin.
+    // Redirect the absolute Cloud Agent bun paths into the private home so the
+    // test never writes under the real /usr/bin or /usr/local/bin.
     const script = fs
       .readFileSync(path.join(root, "scripts/cloud-agent-install.sh"), "utf8")
       .replaceAll("/usr/local/bin/bun", `${localBin}/bun`)
+      .replaceAll("/usr/bin/bun", `${usrBin}/bun`)
     fs.writeFileSync(path.join(workspace, "scripts/cloud-agent-install.sh"), script)
     fs.writeFileSync(
       path.join(bunBin, "bun"),
@@ -245,6 +249,10 @@ if [ "$1" = "ln" ]; then
   shift
   exec ln "$@"
 fi
+if [ "$1" = "install" ]; then
+  shift
+  exec install "$@"
+fi
 exit 0
 `,
     )
@@ -265,10 +273,19 @@ exit 0
       expect(fs.readFileSync(path.join(directory, "bun.log"), "utf8")).toContain("install --frozen-lockfile")
       expect(fs.readFileSync(path.join(directory, "bun.log"), "utf8")).toContain("run build")
       expect(fs.existsSync(path.join(workspace, "packages/profile/dist/index.js"))).toBe(true)
-      expect(fs.readFileSync(path.join(directory, "sudo.log"), "utf8")).toContain("ln -sf")
-      expect(fs.existsSync(path.join(localBin, "bun"))).toBe(true)
-      // Workspace build/typecheck scripts call bunx; the isolated check mounts it by that name.
-      expect(fs.realpathSync(path.join(localBin, "bunx"))).toBe(fs.realpathSync(path.join(bunBin, "bun")))
+      expect(fs.readFileSync(path.join(directory, "sudo.log"), "utf8")).toContain("install -m 0755")
+      expect(fs.readFileSync(path.join(directory, "sudo.log"), "utf8")).toContain("ln -sfn")
+      expect(fs.lstatSync(path.join(usrBin, "bun")).isSymbolicLink()).toBe(false)
+      expect(fs.readlinkSync(path.join(usrBin, "bunx"))).toBe("bun")
+      expect(fs.realpathSync(path.join(usrBin, "bunx"))).toBe(fs.realpathSync(path.join(usrBin, "bun")))
+      expect(fs.realpathSync(path.join(localBin, "bun"))).toBe(fs.realpathSync(path.join(usrBin, "bun")))
+      expect(fs.realpathSync(path.join(localBin, "bunx"))).toBe(fs.realpathSync(path.join(usrBin, "bun")))
+      const bash = fs.existsSync("/bin/bash") ? "/bin/bash" : "/usr/bin/bash"
+      const resolved = run(bash, ["--noprofile", "--norc", "-c", "command -v bun; command -v bunx"], {
+        env: { PATH: usrBin },
+      })
+      expect(resolved.status, resolved.stderr).toBe(0)
+      expect(resolved.stdout).toBe(`${usrBin}/bun\n${usrBin}/bunx\n`)
     } finally {
       fs.rmSync(directory, { recursive: true, force: true })
     }
@@ -279,14 +296,17 @@ exit 0
     const bin = path.join(directory, "bin")
     const bunBin = path.join(directory, ".bun", "bin")
     const localBin = path.join(directory, "local", "bin")
+    const usrBin = path.join(directory, "usr", "bin")
     const workspace = path.join(directory, "workspace")
     fs.mkdirSync(bin)
     fs.mkdirSync(bunBin, { recursive: true })
     fs.mkdirSync(localBin, { recursive: true })
+    fs.mkdirSync(usrBin, { recursive: true })
     fs.mkdirSync(path.join(workspace, "scripts"), { recursive: true })
     const script = fs
       .readFileSync(path.join(root, "scripts/cloud-agent-install.sh"), "utf8")
       .replaceAll("/usr/local/bin/bun", `${localBin}/bun`)
+      .replaceAll("/usr/bin/bun", `${usrBin}/bun`)
     fs.writeFileSync(path.join(workspace, "scripts/cloud-agent-install.sh"), script)
     fs.writeFileSync(
       path.join(bunBin, "bun"),
@@ -300,6 +320,7 @@ exit 0
       path.join(bin, "sudo"),
       `#!/bin/sh
 if [ "$1" = "ln" ]; then shift; exec ln "$@"; fi
+if [ "$1" = "install" ]; then shift; exec install "$@"; fi
 exit 0
 `,
     )
@@ -1095,6 +1116,19 @@ print("SAW=" + str(found))
     const base = result.stdout.trim()
     expect(fs.readdirSync(base)).toEqual([])
     fs.rmSync(base, { recursive: true, force: true })
+  })
+
+  it("names the program when the sandbox cannot exec it", () => {
+    const src = fs.mkdtempSync(path.join(os.tmpdir(), "review-missing-program-"))
+    try {
+      const result = run("bash", ["scripts/isolate-run.sh", "--src", src, "--", "not-a-real-program-a977"])
+      if (result.status === 2 && /ISOLATION=unavailable/.test(result.stderr)) return
+      expect(result.status, `${result.stdout}\n${result.stderr}`).toBe(127)
+      expect(result.stderr).toContain("cannot run not-a-real-program-a977:")
+      expect(result.stderr).not.toContain("Traceback")
+    } finally {
+      fs.rmSync(src, { recursive: true, force: true })
+    }
   })
 
   it("runs a command when no tools or environment names are passed", () => {

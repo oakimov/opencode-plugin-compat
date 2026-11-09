@@ -19,10 +19,15 @@ install_main() {
   if [[ ! -x "$HOME/.bun/bin/bun" ]]; then
     curl -fsSL https://bun.sh/install | bash
   fi
-  sudo ln -sf "$HOME/.bun/bin/bun" /usr/local/bin/bun
-  # Workspace build/typecheck scripts call bunx. Bun selects that entry point
-  # from argv[0], and scripts/isolated-check.sh mounts it by this name.
-  sudo ln -sf "$HOME/.bun/bin/bun" /usr/local/bin/bunx
+  # Non-interactive bash skips the installer's ~/.bashrc PATH edit, and the
+  # isolate-run PATH is /opt/tools:/usr/bin:/bin:/usr/sbin. /usr/local/bin is
+  # not on that PATH, and a symlink from there into $HOME is not mounted.
+  # Copy the binary into /usr/bin, which both search, and point bunx at it.
+  # Workspace build/typecheck scripts call bunx; Bun selects that entry from argv[0].
+  sudo install -m 0755 "$HOME/.bun/bin/bun" /usr/bin/bun
+  sudo ln -sfn bun /usr/bin/bunx
+  sudo ln -sfn /usr/bin/bun /usr/local/bin/bun
+  sudo ln -sfn /usr/bin/bun /usr/local/bin/bunx
 
   if ! command -v zsh >/dev/null 2>&1; then
     sudo apt-get update

@@ -12,6 +12,8 @@ The monorepo ships **one shared train version** across all eleven packages, so u
 
 ### Fixed
 
+- Cloud Agent setup copies `bun` and `bunx` onto `/usr/bin`, so non-interactive shells and the isolated-check sandbox can run them without `~/.bashrc`.
+- The isolated-check sandbox names the program it could not start.
 - `ocp-dev` DSH local wiring generates Host Typert declarations before host `tsc`, so package `./remote` exports resolve and leftover empty package dirs no longer block a full reshim.
 - `ocp-dev` DSH file-stage and profile sync include root `cordis-entry.js`, so Cordis can import `@opencode-compat/dsh-bridge` after a local reshim.
 
