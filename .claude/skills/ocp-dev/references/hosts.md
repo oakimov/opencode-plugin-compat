@@ -51,7 +51,7 @@ Bridge checkout: `packages/pi-bridge`. Host `pi-ai` may be symlinked under `pack
 |---|---|---|
 | `dsh` | `$DSH_HARNESS_ROOT` or OCP sibling `../deepseek-harness`, then `node <harness>/apps/cli/lib/bin.js` (built CLI; not checkout `pnpm dsh` / tsx). CLI fallback `~/.local/bin/dsh` | `$DSH_HOME/profiles/web/cordis.patch.yml` or `~/.dsh/profiles/web/cordis.patch.yml` |
 
-Local: `pnpm install` plus the harness documented build (`build:native-system`, host/client lib, `build:web`; tsdown only for directories with `package.json`), then `dsh plugin --profile web add file:<packages/dsh-bridge>` and patch `providers[].package` is each provider checkout `dist/index.js` (Cursor plus Devin when `../devin-opencode-provider` or `$OCP_DEV_DEVIN_PROVIDER_PATH` exists). Launch the built CLI (`node <harness>/apps/cli/lib/bin.js web`), not checkout `pnpm dsh web`.
+Local: `pnpm install` plus the harness documented build (`build:native-system`, Host Typert via `scripts/generate-typert.ts`, host/client lib, `build:web`; tsdown only for directories with `package.json`), then `dsh plugin --profile web add file:<packages/dsh-bridge>` and patch `providers[].package` is each provider checkout `dist/index.js` (Cursor plus Devin when `../devin-opencode-provider` or `$OCP_DEV_DEVIN_PROVIDER_PATH` exists). Launch the built CLI (`node <harness>/apps/cli/lib/bin.js web`), not checkout `pnpm dsh web`.
 Npm: `@opencode-compat/dsh-bridge` plus `providers[]` rows for `cursor-opencode-provider` and `devin-opencode-provider`.
 
 Bridge checkout: `packages/dsh-bridge`. Do not edit DSH host source; `run` may write gitignored `lib/` / `dist/` via the harness's own build scripts.
