@@ -50,6 +50,26 @@ function bashHere(script: string, env?: NodeJS.ProcessEnv): { status: number; st
   return run("bash", ["-c", script], { env })
 }
 
+describe("review script helpers", () => {
+  it("does not treat a shell-looking checkout path as a command", () => {
+    const parent = fs.mkdtempSync(path.join(os.tmpdir(), "review-literal-"))
+    const marker = path.join(parent, "not-created")
+    const directory = path.join(parent, `dir with space ' ; $(touch ${marker})`)
+    fs.mkdirSync(path.join(directory, "scripts"), { recursive: true })
+    fs.writeFileSync(path.join(directory, "scripts/probe.sh"), "#!/usr/bin/env bash\necho ok\n")
+    fs.chmodSync(path.join(directory, "scripts/probe.sh"), 0o755)
+    try {
+      // root / cwd are argv or spawnSync options, not shell words. shell:true is absent.
+      const result = run("bash", [path.join(directory, "scripts/probe.sh")], { cwd: directory })
+      expect(result.status, result.stderr).toBe(0)
+      expect(result.stdout.trim()).toBe("ok")
+      expect(fs.existsSync(marker)).toBe(false)
+    } finally {
+      fs.rmSync(parent, { recursive: true, force: true })
+    }
+  })
+})
+
 describe("cloud agent install", () => {
   it("matches the environment install string", () => {
     const script = fs.readFileSync(path.join(root, "scripts/cloud-agent-install.sh"), "utf8")
