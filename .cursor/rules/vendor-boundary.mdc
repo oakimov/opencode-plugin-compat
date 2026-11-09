@@ -1,0 +1,10 @@
+---
+description: High. Never patch a host checkout or vendor source as part of OCP work.
+alwaysApply: true
+---
+
+Greptile id: vendor-boundary
+Severity: high
+Scope: all files (Greptile rule had no scope)
+
+Never patch a host checkout, installed host binary, host package, or vendor source as part of OCP work. Compatibility fixes must live entirely in this repository and work against the stock installed host through public or host-injected extension/runtime seams. Proposing a vendor patch is a blocker.

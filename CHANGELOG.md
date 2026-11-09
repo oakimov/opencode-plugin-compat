@@ -6,6 +6,10 @@ The monorepo ships **one shared train version** across all eleven packages, so u
 
 ## [Unreleased]
 
+### Added
+
+- Manual Cursor Cloud Agent reviews can use the same Greptile-like `caeliq-reviewer` harness as the Cursor provider: isolated PR checks, structured preview approval, and optional `--token-env` publication.
+
 ### Changed
 
 - `@opencode-compat/dsh-bridge` publishes a committed Cordis entry that re-exports the built `apply` surface, so source checkouts and scanners see the runtime export without a local `dist/` build.

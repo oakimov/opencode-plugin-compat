@@ -1,0 +1,11 @@
+---
+description: Medium. Interactive host flows need stock-host acceptance, not only unit tests.
+globs: packages/**
+alwaysApply: false
+---
+
+Greptile id: interactive-acceptance
+Severity: medium
+Scope: packages/**
+
+Mode switches, approval dialogs, plan review, or execution handoffs need interactive acceptance on the stock host. Unit or type tests alone are not proof for those paths.

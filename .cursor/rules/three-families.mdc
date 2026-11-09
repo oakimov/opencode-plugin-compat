@@ -1,0 +1,11 @@
+---
+description: High. Keep clone, Pi, and DSH mechanisms separate; never ocp-dev-shim OpenCode.
+globs: packages/adapter/**,packages/pi-bridge/**,packages/dsh-bridge/**,packages/opencode-loader/**,test/**
+alwaysApply: false
+---
+
+Greptile id: three-families
+Severity: high
+Scope: packages/adapter/**, packages/pi-bridge/**, packages/dsh-bridge/**, packages/opencode-loader/**, test/**
+
+Keep the three host mechanisms separate. packages/adapter must not contain Pi, OMP, or DSH ids, paths, env variables, packages, or tool roles. packages/dsh-bridge must not import Pi host packages. Do not unify clone, Pi, and DSH into one path. Do not wrap stock OpenCode with an ocp-dev shim.

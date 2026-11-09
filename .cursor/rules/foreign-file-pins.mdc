@@ -1,0 +1,11 @@
+---
+description: Medium. pi-bridge and dsh-bridge must keep exact train pins.
+globs: packages/pi-bridge/package.json,packages/dsh-bridge/package.json,bun.lock,scripts/**
+alwaysApply: false
+---
+
+Greptile id: foreign-file-pins
+Severity: medium
+Scope: packages/pi-bridge/package.json, packages/dsh-bridge/package.json, bun.lock, scripts/**
+
+pi-bridge and dsh-bridge @opencode-compat/* dependencies must stay exact train pins, never workspace:*. Foreign file-install consumers cannot resolve workspace protocol.

@@ -18,7 +18,8 @@ install, local development, per-host internals, and verification.
 
 | Path | Role |
 |------|------|
-| [`review-rules.md`](./review-rules.md) | PR review rubric (Greptile + human): blockers, evidence, OCP boundaries |
+| [`review-rules.md`](./review-rules.md) | PR review rubric (Greptile + `caeliq-reviewer` + human): blockers, evidence, OCP boundaries |
+| [`pr-review.md`](./pr-review.md) | Manual Cloud Agent review, isolated checks, and `caeliq-reviewer` publication |
 | [`tool-vocabulary.md`](./tool-vocabulary.md) | Current host tool declarations and provider-facing vocabulary |
 | [`ocp/0.1.md`](./ocp/0.1.md) | **Canonical** OCP contract (`0.1.x` train) — HostProfile, classic hooks, tiers, Promise v2, conformance |
 | [`../packages/pi-bridge/README.md`](../packages/pi-bridge/README.md) | pi-bridge config reference + pi/omp host-difference table |
