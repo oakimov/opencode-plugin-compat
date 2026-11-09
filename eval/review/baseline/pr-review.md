@@ -11,7 +11,7 @@ GitHub authentication for posting is a GitHub App installation token. `post` rea
 Launch a Cursor Cloud Agent on this repository with this instruction, substituting the pull request:
 
 ```text
-Review https://github.com/oakimov/opencode-plugin-compat/pull/N.
+Review https://github.com/oakimov/cursor-opencode-provider/pull/N.
 Follow .cursor/skills/review/SKILL.md and docs/pr-review.md.
 Read the diff, the files it changes, their callers, docs/review-rules.md, and the existing review threads.
 Run scripts/isolated-check.sh on that pull request.

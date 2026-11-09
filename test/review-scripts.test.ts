@@ -52,21 +52,78 @@ function bashHere(script: string, env?: NodeJS.ProcessEnv): { status: number; st
 
 describe("review script helpers", () => {
   it("does not treat a shell-looking checkout path as a command", () => {
-    const parent = fs.mkdtempSync(path.join(os.tmpdir(), "review-literal-"))
+    // The review scripts derive ROOT from their own location and take file
+    // paths as arguments. Run the real scripts from a checkout whose path is
+    // shell syntax; any word splitting or evaluation would create the marker.
+    const parent = fs.mkdtempSync(path.join(fs.realpathSync(os.tmpdir()), "review-literal-"))
     const marker = path.join(parent, "not-created")
-    const directory = path.join(parent, `dir with space ' ; $(touch ${marker})`)
+    const directory = path.join(parent, `dir with space ' ; $(touch ${marker}) \`touch ${marker}\``)
     fs.mkdirSync(path.join(directory, "scripts"), { recursive: true })
-    fs.writeFileSync(path.join(directory, "scripts/probe.sh"), "#!/usr/bin/env bash\necho ok\n")
-    fs.chmodSync(path.join(directory, "scripts/probe.sh"), 0o755)
+    for (const name of ["isolated-check.sh", "isolate-run.sh", "review-ledger.py"]) {
+      fs.copyFileSync(path.join(root, "scripts", name), path.join(directory, "scripts", name))
+    }
+    const ledger = path.join(directory, "ledger $(touch marker).json")
+    fs.writeFileSync(ledger, "{}\n")
     try {
       // root / cwd are argv or spawnSync options, not shell words. shell:true is absent.
-      const result = run("bash", [path.join(directory, "scripts/probe.sh")], { cwd: directory })
-      expect(result.status, result.stderr).toBe(0)
-      expect(result.stdout.trim()).toBe("ok")
+      const usage = run("bash", [path.join(directory, "scripts/isolated-check.sh")], { cwd: directory })
+      expect(usage.status, usage.stderr).toBe(2)
+      expect(usage.stderr).toContain("Usage: scripts/isolated-check.sh")
+
+      const sourced = bashHere(
+        `
+        set -euo pipefail
+        source "$DIR/scripts/isolated-check.sh"
+        printf 'root=%s\\n' "$ROOT"
+        declare -F check_run_isolated >/dev/null
+      `,
+        { ...process.env, DIR: directory },
+      )
+      expect(sourced.status, sourced.stderr).toBe(0)
+      expect(sourced.stdout).toBe(`root=${directory}\n`)
+
+      const checked = run("python3", [path.join(directory, "scripts/review-ledger.py"), "check", ledger], {
+        cwd: directory,
+      })
+      expect(checked.status, checked.stderr).toBe(1)
+      expect(checked.stderr).not.toBe("")
+
       expect(fs.existsSync(marker)).toBe(false)
+      expect(fs.existsSync(path.join(directory, "marker"))).toBe(false)
     } finally {
       fs.rmSync(parent, { recursive: true, force: true })
     }
+  })
+})
+
+describe("cursor review rules", () => {
+  it("mirror every Greptile rule's id, severity, scope, and text", () => {
+    type Rule = { id: string; severity: string; scope?: string[]; rule: string }
+    const greptile = JSON.parse(fs.readFileSync(path.join(root, ".greptile/config.json"), "utf8")) as { rules: Rule[] }
+    const directory = path.join(root, ".cursor/rules")
+    const mirrored = new Set<string>()
+    for (const name of fs.readdirSync(directory).filter((file) => file.endsWith(".mdc"))) {
+      const text = fs.readFileSync(path.join(directory, name), "utf8")
+      const id = text.match(/^Greptile id: (\S+)$/m)?.[1]
+      expect(id, name).toBeTruthy()
+      if (id === "files-json") continue
+      const rule = greptile.rules.find((candidate) => candidate.id === id)
+      expect(rule, `${name}: ${id}`).toBeDefined()
+      mirrored.add(id!)
+      expect(text.match(/^Severity: (\S+)$/m)?.[1], name).toBe(rule!.severity)
+      const globs = text.match(/^globs: (.*)$/m)?.[1]
+      const alwaysApply = text.match(/^alwaysApply: (\S+)$/m)?.[1]
+      // A Greptile rule without scope applies to every file, so the Cursor rule must too.
+      if (rule!.scope === undefined) {
+        expect(alwaysApply, name).toBe("true")
+        expect(globs, name).toBeUndefined()
+      } else {
+        expect(alwaysApply, name).toBe("false")
+        expect(globs?.split(","), name).toEqual(rule!.scope)
+      }
+      expect(text.trimEnd().endsWith(`\n\n${rule!.rule}`), name).toBe(true)
+    }
+    expect([...mirrored].sort()).toEqual(greptile.rules.map((rule) => rule.id).sort())
   })
 })
 
@@ -84,6 +141,7 @@ describe("cloud agent install", () => {
     }
     expect(environment.install).toBe(script)
     expect(environment.install).toContain("https://bun.sh/install")
+    expect(environment.install).toContain("/usr/local/bin/bunx")
     expect(environment.install).toContain("bun install --frozen-lockfile")
     expect(environment.install).toContain("bun run build")
     expect(environment.install).toContain("packages/*/dist/*.js")
@@ -209,6 +267,8 @@ exit 0
       expect(fs.existsSync(path.join(workspace, "packages/profile/dist/index.js"))).toBe(true)
       expect(fs.readFileSync(path.join(directory, "sudo.log"), "utf8")).toContain("ln -sf")
       expect(fs.existsSync(path.join(localBin, "bun"))).toBe(true)
+      // Workspace build/typecheck scripts call bunx; the isolated check mounts it by that name.
+      expect(fs.realpathSync(path.join(localBin, "bunx"))).toBe(fs.realpathSync(path.join(bunBin, "bun")))
     } finally {
       fs.rmSync(directory, { recursive: true, force: true })
     }
@@ -499,6 +559,95 @@ describe("isolated check", () => {
       expect(result.stdout).not.toContain("HOME=/home/reviewer")
     }
     expect(fs.existsSync(home!)).toBe(false)
+  })
+
+  it("mounts every command the workspace build and typecheck scripts start with", () => {
+    // A missing entry point fails BUILD with exit 127 inside the boundary even
+    // though the same command passes in CI, where setup-bun puts bunx on PATH.
+    const manifests = [
+      path.join(root, "package.json"),
+      ...fs
+        .readdirSync(path.join(root, "packages"))
+        .map((name) => path.join(root, "packages", name, "package.json"))
+        .filter((file) => fs.existsSync(file)),
+    ]
+    const commands = new Set<string>()
+    for (const file of manifests) {
+      const scripts = (JSON.parse(fs.readFileSync(file, "utf8")) as { scripts?: Record<string, string> }).scripts ?? {}
+      for (const name of ["build", "typecheck"]) {
+        for (const part of (scripts[name] ?? "").split(/&&|\|\||;/)) {
+          const first = part.trim().split(/\s+/)[0]
+          if (first) commands.add(first)
+        }
+      }
+    }
+    expect(commands.has("bunx")).toBe(true)
+    const checker = fs.readFileSync(path.join(root, "scripts/isolated-check.sh"), "utf8")
+    for (const command of commands) expect(checker, command).toContain(`--tool ${command}`)
+
+    const directory = fs.mkdtempSync(path.join(fs.realpathSync(os.tmpdir()), "review-bunx-"))
+    const src = path.join(directory, "src")
+    const bin = path.join(directory, "bin")
+    const install = path.join(directory, "install")
+    fs.mkdirSync(src)
+    fs.mkdirSync(bin)
+    fs.mkdirSync(install)
+    // Like Bun, one file serves both names and selects its entry point from argv[0].
+    const entry = path.join(install, "bun")
+    fs.writeFileSync(entry, '#!/bin/sh\nprintf "entry=%s\\n" "${0##*/}"\n')
+    fs.chmodSync(entry, 0o755)
+    fs.symlinkSync(entry, path.join(bin, "bun"))
+    fs.symlinkSync(entry, path.join(bin, "bunx"))
+    try {
+      const result = bashHere(
+        `
+        set -euo pipefail
+        source scripts/isolated-check.sh
+        ISOLATE_SRC="$SRC" check_run_isolated /bin/sh -c 'bun; bunx'
+      `,
+        { ...process.env, PATH: `${bin}:${process.env.PATH ?? "/usr/bin:/bin"}`, SRC: src },
+      )
+      if (result.status === 2 && /ISOLATION=unavailable/.test(result.stderr)) return
+      expect(result.status, `${result.stdout}\n${result.stderr}`).toBe(0)
+      expect(result.stdout).toContain("entry=bun\n")
+      expect(result.stdout).toContain("entry=bunx\n")
+    } finally {
+      fs.rmSync(directory, { recursive: true, force: true })
+    }
+  })
+
+  it("allows user namespaces before every workflow test step, with one probe", () => {
+    const read = (relative: string) => fs.readFileSync(path.join(root, relative), "utf8")
+    const probeOf = (text: string, label: string): string => {
+      const lines = text
+        .split("\n")
+        .map((line) => line.trim())
+        .filter((line) => line !== "")
+      const start = lines.indexOf("probe() {")
+      expect(start, label).toBeGreaterThanOrEqual(0)
+      const end = lines.indexOf("exit 1", start)
+      expect(end, label).toBeGreaterThan(start)
+      return lines.slice(start, end + 1).join("\n")
+    }
+    const local = probeOf(read("scripts/ci-enable-userns.sh"), "scripts/ci-enable-userns.sh")
+    expect(local).toContain("kernel.apparmor_restrict_unprivileged_userns")
+    for (const workflow of [".github/workflows/ci.yml", ".github/workflows/publish.yml"]) {
+      const yaml = read(workflow)
+      // The coverage job checks out the PR head, which may lack the script.
+      expect(yaml, workflow).not.toContain("bash scripts/ci-enable-userns.sh")
+      expect(probeOf(yaml, workflow), workflow).toBe(local)
+      let allowed = false
+      let tests = 0
+      for (const line of yaml.split("\n")) {
+        if (/^\s*runs-on:/.test(line)) allowed = false
+        if (/name: Allow user namespaces|\*userns-step/.test(line)) allowed = true
+        if (/\bbun (test|run test)\b/.test(line)) {
+          tests += 1
+          expect(allowed, `${workflow}: ${line.trim()}`).toBe(true)
+        }
+      }
+      expect(tests, workflow).toBeGreaterThan(0)
+    }
   })
 
   it("does not archive a commit other than the trusted one", () => {

@@ -1,6 +1,6 @@
 ---
 name: review
-description: Review a opencode-plugin-compat pull request by tracing changed behavior and challenging its contracts with counterexamples, then corroborating findings with isolated checks. Apply .cursor/rules and distinguish fixture evidence from affected live behavior.
+description: Review a cursor-opencode-provider pull request by tracing changed behavior and challenging its contracts with counterexamples, then corroborating findings with isolated checks. Apply .cursor/rules and distinguish fixture evidence from affected live behavior.
 ---
 
 # Review a pull request

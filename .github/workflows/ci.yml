@@ -31,7 +31,8 @@ jobs:
       # ubuntu-latest denies unprivileged user namespaces. The isolation
       # tests require them and fail closed when unshare cannot create one.
       # Inlined so a pull request head that predates scripts/ci-enable-userns.sh
-      # can still run. Keep this probe in sync with that script for local use.
+      # can still run. publish.yml carries the same probe;
+      # test/review-scripts.test.ts keeps all three copies in sync.
       - &userns-step
         name: Allow user namespaces
         run: |

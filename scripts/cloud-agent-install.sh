@@ -20,6 +20,9 @@ install_main() {
     curl -fsSL https://bun.sh/install | bash
   fi
   sudo ln -sf "$HOME/.bun/bin/bun" /usr/local/bin/bun
+  # Workspace build/typecheck scripts call bunx. Bun selects that entry point
+  # from argv[0], and scripts/isolated-check.sh mounts it by this name.
+  sudo ln -sf "$HOME/.bun/bin/bun" /usr/local/bin/bunx
 
   if ! command -v zsh >/dev/null 2>&1; then
     sudo apt-get update

@@ -15,7 +15,11 @@ in `private/` is not copied. One variant is applied, so the other variant is
 not in the mount.
 
 `prepare --skill baseline` copies `eval/review/baseline/`, the procedure at
-harness commit `eval/review/baseline/SOURCE_SHA`. `prepare --skill revised`
+harness commit `eval/review/baseline/SOURCE_SHA`. This harness was ported from
+[cursor-opencode-provider](https://github.com/oakimov/cursor-opencode-provider),
+so that commit is in that repository, not this one, and the snapshot is kept
+byte-for-byte as it was there. Its provider-specific rules are part of the
+historical baseline, not OCP policy. `prepare --skill revised`
 copies the current skill and the two guides. Use the same model, runtime, and
 case revision for both, and record whether the review finished. Both receive
 the same offline adapter in `PROMPT.txt`, policy context, and ledger validator.
@@ -30,13 +34,15 @@ python3 scripts/review-eval.py verify-mount <dir>/mount
 
 The calibration mount is one reviewed revision and its diff. Its prompt is the
 same text as the other cases. It does not include the adjudication in
-`private/calibration.json`. This manual integration needs the two pinned commit
-objects from that file, which a shallow CI checkout does not contain. Fetch
-them explicitly before preparing it; the preparation command performs no fetch
-and refuses missing objects before creating its output directory:
+`private/calibration.json`. The calibration subject is a reviewed
+cursor-opencode-provider revision, so this manual integration needs the two
+pinned commit objects from that repository; this repository's `origin` does
+not contain them. Fetch them explicitly before preparing it; the preparation
+command performs no fetch and refuses missing objects before creating its
+output directory:
 
 ```bash
-git fetch --no-tags origin fcf331e8ceb3a169f6f72205e5df262991bf9e1f f122fe36afe85500ee0164ec2a24ebdfd23b13dc
+git fetch --no-tags https://github.com/oakimov/cursor-opencode-provider.git fcf331e8ceb3a169f6f72205e5df262991bf9e1f f122fe36afe85500ee0164ec2a24ebdfd23b13dc
 python3 scripts/review-eval.py prepare-calibration --skill revised --out <dir>
 ```
 

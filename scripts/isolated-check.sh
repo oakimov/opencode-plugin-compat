@@ -91,24 +91,13 @@ check_begin_sandbox() {
   fi
 }
 
-check_tool_path() {
-  local tool dir path="/usr/bin:/bin"
-  for tool in bun git python3 node; do
-    if command -v "$tool" >/dev/null 2>&1; then
-      dir="$(dirname "$(command -v "$tool")")"
-      case ":${path}:" in
-        *":${dir}:"*) ;;
-        *) path="${path}:${dir}" ;;
-      esac
-    fi
-  done
-  printf '%s' "$path"
-}
-
-# Run a command inside the filesystem and process boundary.
+# Run a command inside the filesystem and process boundary. The root and
+# package build/typecheck scripts call bunx, so it is mounted beside bun;
+# isolate-run.sh binds each tool under its requested name, which bun uses to
+# select its bunx entry point.
 check_run_isolated() {
   "$ROOT/scripts/isolate-run.sh" --src "${ISOLATE_SRC:-$PWD}" \
-    --tool bun --tool node --tool git --tool python3 -- "$@"
+    --tool bun --tool bunx --tool node --tool git --tool python3 -- "$@"
 }
 
 check_step() {

@@ -5,8 +5,8 @@
 # can be created. Exit 1 when it still cannot.
 #
 # CI does not run this file. The coverage job checks out the pull request
-# head, which may predate it, so .github/workflows/ci.yml inlines the same
-# probe. Keep the two copies in sync.
+# head, which may predate it, so .github/workflows/ci.yml and publish.yml
+# inline the same probe. test/review-scripts.test.ts keeps the copies in sync.
 set -euo pipefail
 
 probe() {

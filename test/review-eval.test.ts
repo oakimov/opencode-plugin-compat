@@ -635,6 +635,23 @@ print(json.dumps(module.harness_metadata()))
     }
   })
 
+  test("documents where the ported baseline and calibration commits live", () => {
+    // Both pins are cursor-opencode-provider commits; this repository's origin cannot fetch them.
+    const readme = fs.readFileSync(path.join(ROOT, "eval/review/README.md"), "utf8")
+    const calibration = JSON.parse(fs.readFileSync(path.join(ROOT, "eval/review/private/calibration.json"), "utf8"))
+    const fetch = readme.split("\n").find((line) => line.startsWith("git fetch ") && line.includes(calibration.revision))
+    expect(fetch).toBeDefined()
+    expect(fetch).toContain(calibration.base)
+    expect(fetch).toContain("https://github.com/oakimov/cursor-opencode-provider.git")
+    expect(fetch).not.toMatch(/\borigin\b/)
+    expect(fs.readFileSync(path.join(ROOT, "eval/review/baseline/SOURCE_SHA"), "utf8").trim()).toMatch(/^[0-9a-f]{40}$/)
+    expect(readme).toContain("byte-for-byte")
+    // A mechanical rename would no longer be the procedure at SOURCE_SHA.
+    for (const name of ["SKILL.md", "pr-review.md", "review-rules.md"]) {
+      expect(fs.readFileSync(path.join(ROOT, "eval/review/baseline", name), "utf8")).not.toContain("opencode-plugin-compat")
+    }
+  })
+
   test("calibration archives the pinned revision and diff without unrelated repository history", () => {
     const repository = outDir()
     const out = outDir()
@@ -767,6 +784,9 @@ describe("review ledger and score", () => {
       ]) expect(fs.existsSync(path.join(prepared.mount, relative))).toBe(true)
       // Later incident lessons describe the calibration subject and must stay out.
       expect(fs.existsSync(path.join(prepared.mount, "tasks/lessons/opencode.md"))).toBe(false)
+      // This repository's own lessons exist in the source tree and must stay out too.
+      expect(fs.existsSync(path.join(ROOT, "tasks/lessons.md"))).toBe(true)
+      expect(fs.existsSync(path.join(prepared.mount, "tasks"))).toBe(false)
       const prompt = fs.readFileSync(path.join(prepared.mount, "PROMPT.txt"), "utf8")
       expect(prompt).toContain("offline local review")
       expect(prompt).toContain('head "local"')

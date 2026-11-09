@@ -1,11 +1,10 @@
 ---
 description: High. Consumer providers must not know OCP.
-globs: packages/**,test/**,package.json
-alwaysApply: false
+alwaysApply: true
 ---
 
 Greptile id: provider-boundary
 Severity: high
-Scope: packages/**, test/**, package.json
+Scope: all files (Greptile rule had no scope)
 
 Do not solve compatibility by adding OCP imports, OCP detection, fork environment variables, alternate tool names, or host-specific schemas to a consumer provider. OCP may know consumer providers; consumer providers must not know OCP. Provider-specific OCP behavior must use an explicit package match in a clearly named optional module.

@@ -10,7 +10,7 @@ Cite `file:line`. State the concrete consequence. Confirm the finding is in the 
 
 - A new path logs, persists, fixtures, or sends a token, API key, refresh token, or device identifier.
 - Device-id or client-identity derivation changes.
-- The package entrypoint contract breaks. `CursorPluginV2` stays off the root export. The 1.18 plugin loads through `opencode-plugin-compat/plugin/v2`. OpenCode 2.x loads through `opencode-plugin-compat/plugin/opencode2`.
+- The package entrypoint contract breaks. `CursorPluginV2` stays off the root export. The 1.18 plugin loads through `cursor-opencode-provider/plugin/v2`. OpenCode 2.x loads through `cursor-opencode-provider/plugin/opencode2`.
 - `src/`, tests, package metadata, the lockfile, or published `dist/` import a compatibility package, detect another host, or alias another provider. Unknown advertised tool names may pass through. Recognizing another host's tool, schema, or result is a blocker.
 - Protocol encode or decode changes without an independent fixture or captured wire bytes. A test that only round-trips through the same schema is not evidence.
 - The change widens what the provider can execute or access without an explicit documented option.
