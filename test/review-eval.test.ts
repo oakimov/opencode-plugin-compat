@@ -154,12 +154,20 @@ if ignore:
     signal.signal(signal.SIGTERM, signal.SIG_IGN)
 (state / "descendant.pid").write_text(str(os.getpid()))
 (state / "workspace").write_text(os.getcwd())
+# Create the heartbeat once, before ready. Appending with O_CREAT can
+# recreate the file in the window between the runner's unlink and rmdir,
+# which makes rmdir fail with ENOTEMPTY and the probe exit 1 instead of the
+# cancelled status.
+open("heartbeat", "a").close()
 (state / "descendant.ready").write_text("1")
 deadline = time.monotonic() + 20
 while time.monotonic() < deadline and not (state / "stop").exists():
     try:
-        with open("heartbeat", "a") as handle:
-            handle.write("x")
+        handle = os.open("heartbeat", os.O_WRONLY | os.O_APPEND)
+        try:
+            os.write(handle, b"x")
+        finally:
+            os.close(handle)
     except OSError:
         pass
     time.sleep(0.05)
