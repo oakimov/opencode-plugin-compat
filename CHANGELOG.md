@@ -8,12 +8,13 @@ The monorepo ships **one shared train version** across all eleven packages, so u
 
 ### Added
 
-- Manual Cursor Cloud Agent reviews can use the same Greptile-like `caeliq-reviewer` harness as the Cursor provider: isolated PR checks, structured preview approval, and optional `--token-env` publication.
+- Manual Cursor Cloud Agent reviews can use the same Greptile-like `caeliq-reviewer` harness as the Cursor provider: isolated PR checks, structured preview approval, and optional `--token-env` on `post`, `threads`, and `complete-resolutions.py`.
 
 ### Fixed
 
 - macOS review checks stop same-session children that change process groups before removing their staging files.
 - Cancelling `scripts/isolated-check.sh` or `scripts/isolate-run.sh` with TERM, INT, HUP, or QUIT sent only to the script's process stops the sandboxed command before the archive or staging files are removed, including when the signal arrives before session creation, before the session leader is known or just before the wait. A boundary still running `ISOLATE_TERM_GRACE` seconds later (default 10) is killed. SIGKILL still cannot be forwarded.
+- `post`, `threads`, and `complete-resolutions.py` send one GitHub credential on every `gh` call: the `--token-env` personal access token when that option is set, otherwise the App installation token. The named token wins over an ambient `GH_TOKEN` or `GITHUB_TOKEN`.
 - Cloud Agent setup copies `bun` and `bunx` onto `/usr/bin`, so non-interactive shells and the isolated-check sandbox can run them without `~/.bashrc`.
 - The isolated-check sandbox names the program it could not start.
 - `ocp-dev` DSH local wiring generates Host Typert declarations before host `tsc`, so package `./remote` exports resolve and leftover empty package dirs no longer block a full reshim.
