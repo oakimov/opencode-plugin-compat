@@ -91,6 +91,47 @@ isolate_sup_leader=""
 isolate_sup_signal=""
 isolate_sup_stopping=""
 isolate_sup_grace=10
+isolate_sup_darwin=""
+
+# A macOS session can contain several process groups. Signal its members,
+# and on final KILL wait until none can still use the staging files. Linux
+# instead owns a pid namespace, whose death stops even new-session children.
+isolate_sup_darwin_session() {
+  [[ "$isolate_sup_darwin" == 1 ]] || return 0
+  python3 - "$isolate_sup_leader" "$1" "$2" <<'PY'
+import os, signal, subprocess, sys, time
+session = int(sys.argv[1])
+signum = getattr(signal, "SIG" + sys.argv[2])
+settle = sys.argv[3] == "1"
+# Repeated catchable cancellation must not interrupt the final ownership
+# check and let the caller remove files under a surviving writer.
+for name in ("SIGTERM", "SIGINT", "SIGHUP", "SIGQUIT"):
+    signal.signal(getattr(signal, name), signal.SIG_IGN)
+while True:
+    try:
+        listing = subprocess.run(["ps", "-A", "-o", "pid=,stat="], check=True, capture_output=True, text=True)
+    except (OSError, subprocess.SubprocessError):
+        if not settle:
+            break
+        time.sleep(0.01)
+        continue
+    members = []
+    for row in listing.stdout.splitlines():
+        fields = row.split()
+        if len(fields) < 2 or fields[1].startswith("Z"):
+            continue
+        pid = int(fields[0])
+        try:
+            if os.getsid(pid) == session:
+                members.append(pid)
+                os.kill(pid, signum)
+        except ProcessLookupError:
+            pass
+    if not settle or not members:
+        break
+    time.sleep(0.01)
+PY
+}
 
 # Record the first cancellation signal and run the stop sequence. A bash
 # trap taken between two commands does not interrupt the wait that follows,
@@ -114,10 +155,15 @@ isolate_sup_stop() {
   while kill -0 "$isolate_sup_leader" 2>/dev/null; do
     if [[ -z "$sent" ]] && kill -s "$isolate_sup_signal" -- "-$isolate_sup_leader" 2>/dev/null; then
       sent=1
+      isolate_sup_darwin_session "$isolate_sup_signal" 0
     fi
     if [[ -z "$killed" && "$ticks" -le 0 ]]; then
-      kill -s KILL -- "-$isolate_sup_leader" 2>/dev/null || true
-      killed=1
+      # Cancellation can beat the starter's setsid(), including while the
+      # starter is stopped. Its process group does not exist yet; kill the
+      # owned child directly in that case. Never latch an unsuccessful kill.
+      if kill -s KILL -- "-$isolate_sup_leader" 2>/dev/null || kill -s KILL "$isolate_sup_leader" 2>/dev/null; then
+        killed=1
+      fi
     fi
     sleep 0.1 || true
     ticks=$((ticks - 1))
@@ -143,6 +189,8 @@ isolate_supervise() {
   shift
   isolate_sup_grace="${ISOLATE_TERM_GRACE:-10}"
   [[ "$isolate_sup_grace" =~ ^[0-9]+$ ]] || isolate_sup_grace=10
+  isolate_sup_darwin=""
+  [[ "$(uname -s)" != Darwin ]] || isolate_sup_darwin=1
   command -v python3 >/dev/null 2>&1 || isolate_unavailable "python3 is required to supervise the command." || return 2
   isolate_sup_signal=""
   isolate_sup_stopping=""
@@ -178,6 +226,7 @@ os.execvp(sys.argv[1], sys.argv[1:])
   # The Linux boundary's leader is unshare, which ignores TERM. Killing its
   # process group ends the pid namespace and every process inside it.
   kill -s KILL -- "-$isolate_sup_leader" 2>/dev/null || true
+  isolate_sup_darwin_session KILL 1
   trap - TERM INT HUP QUIT
   if [[ -n "$isolate_sup_signal" ]]; then
     status=$((128 + $(kill -l "$isolate_sup_signal")))

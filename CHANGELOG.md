@@ -12,7 +12,8 @@ The monorepo ships **one shared train version** across all eleven packages, so u
 
 ### Fixed
 
-- Cancelling `scripts/isolated-check.sh` or `scripts/isolate-run.sh` with TERM, INT, HUP, or QUIT sent only to the script's process stops the sandboxed command before the archive or staging files are removed, including when the signal arrives before the session leader is known or just before the wait. A boundary still running `ISOLATE_TERM_GRACE` seconds later (default 10) is killed. SIGKILL still cannot be forwarded.
+- macOS review checks stop same-session children that change process groups before removing their staging files.
+- Cancelling `scripts/isolated-check.sh` or `scripts/isolate-run.sh` with TERM, INT, HUP, or QUIT sent only to the script's process stops the sandboxed command before the archive or staging files are removed, including when the signal arrives before session creation, before the session leader is known or just before the wait. A boundary still running `ISOLATE_TERM_GRACE` seconds later (default 10) is killed. SIGKILL still cannot be forwarded.
 - Cloud Agent setup copies `bun` and `bunx` onto `/usr/bin`, so non-interactive shells and the isolated-check sandbox can run them without `~/.bashrc`.
 - The isolated-check sandbox names the program it could not start.
 - `ocp-dev` DSH local wiring generates Host Typert declarations before host `tsc`, so package `./remote` exports resolve and leftover empty package dirs no longer block a full reshim.

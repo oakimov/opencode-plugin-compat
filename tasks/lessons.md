@@ -3,6 +3,8 @@
 ## 2026-11-10 — A trap before wait does not stop an isolation boundary
 
 - TERM sent only to the pid of `isolate-run.sh`, before the session leader is stored or just before `wait`, leaves the script blocked on a command that ignores TERM. The trap must run the whole stop sequence: signal the session, kill it after `ISOLATE_TERM_GRACE`, and return only when the leader is gone. Prove it by signalling the script pid at those command boundaries with a `BASH_ENV` DEBUG hook, and check with `ps` that the command is gone after the script exits.
+- A failed process-group kill does not establish cancellation: the owned starter may not have called `setsid` yet. Fall back to its child pid at the grace deadline, and latch only a successful kill. Pause the starter before session creation to prove bounded cancellation independently of scheduler timing.
+- A session can contain multiple process groups. On macOS, check and settle the full owned session after the leader exits; killing only the original group leaves children that called `setpgrp` alive. Prove success, nonzero exit, and cancellation with an acknowledged child in a different group.
 - SIGKILL of `isolated-check.sh` or `isolate-run.sh` cannot be forwarded. macOS has no pid namespace, so a process that starts its own session inside `sandbox-exec` is not stopped with the boundary. This repository has no live OpenCode path, so there is no key-holding live boundary to supervise.
 
 ## 2026-11-09 — DSH ocp-dev host tsc needs Typert before package `./remote` imports

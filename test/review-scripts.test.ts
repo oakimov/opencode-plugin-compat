@@ -1124,7 +1124,8 @@ print("SAW=" + str(found))
       const result = run("bash", ["scripts/isolate-run.sh", "--src", src, "--", "not-a-real-program-a977"])
       if (result.status === 2 && /ISOLATION=unavailable/.test(result.stderr)) return
       expect(result.status, `${result.stdout}\n${result.stderr}`).toBe(127)
-      expect(result.stderr).toContain("cannot run not-a-real-program-a977:")
+      const diagnostic = process.platform === "darwin" ? "env: not-a-real-program-a977:" : "cannot run not-a-real-program-a977:"
+      expect(result.stderr).toContain(diagnostic)
       expect(result.stderr).not.toContain("Traceback")
     } finally {
       fs.rmSync(src, { recursive: true, force: true })
@@ -1495,6 +1496,56 @@ describe("pid-targeted cancellation", () => {
       expect(result.at - result.signalledAt).toBeLessThan(10000)
       expect(fs.readdirSync(tmp)).toEqual([])
     } finally {
+      killMarked(marker)
+      fs.rmSync(base, { recursive: true, force: true })
+    }
+  })
+
+  it("stops a paused starter before its process group exists", async () => {
+    const { base, src, marker } = fixture("isolate-pre-session-")
+    const hook = path.join(base, "hook.sh")
+    const ready = path.join(base, "ready")
+    fs.writeFileSync(hook, [
+      "unset BASH_ENV",
+      "set -o functrace",
+      `trap 'if [[ ! -e "$PROBE_READY" && "$BASH_SUBSHELL" == 1 && "$BASH_COMMAND" == cd* && "\${FUNCNAME[0]:-}" == isolate_supervise ]]; then echo "$BASHPID" > "$PROBE_READY"; kill -STOP "$BASHPID"; fi' DEBUG`,
+      "",
+    ].join("\n"))
+    const child = spawn("bash", ["-c", `
+      source scripts/isolate-run.sh
+      set +e
+      isolate_supervise "$PROBE_SRC" /bin/sh -c 'exit 0' "$PROBE_MARKER"
+    `, "starter-probe", marker], {
+      cwd: root,
+      env: { ...process.env, BASH_ENV: hook, PROBE_READY: ready, PROBE_SRC: src, PROBE_MARKER: marker, ISOLATE_TERM_GRACE: "0" },
+    })
+    child.stdout.resume()
+    let stderr = ""
+    child.stderr.on("data", (chunk) => (stderr += chunk))
+    const exited = new Promise<number | null>((resolve) => child.on("exit", resolve))
+    let timer: ReturnType<typeof setTimeout> | undefined
+    try {
+      const deadline = Date.now() + 5000
+      while (!fs.existsSync(ready)) {
+        if (child.exitCode !== null || child.signalCode !== null || Date.now() > deadline) {
+          throw new Error(`starter did not acknowledge its pause: ${stderr}`)
+        }
+        await pause()
+      }
+      child.kill("SIGTERM")
+      const status = await Promise.race([
+        exited,
+        new Promise<never>((_, reject) => { timer = setTimeout(() => reject(new Error(`starter survived cancellation: ${stderr}`)), 3000) }),
+      ])
+      expect(status, stderr).toBe(143)
+      expect(commandAlive(marker), stderr).toBe(false)
+    } finally {
+      clearTimeout(timer)
+      if (fs.existsSync(ready)) {
+        try { process.kill(Number(fs.readFileSync(ready, "utf8")), "SIGKILL") } catch { /* already gone */ }
+      }
+      if (child.exitCode === null && child.signalCode === null) child.kill("SIGKILL")
+      await exited
       killMarked(marker)
       fs.rmSync(base, { recursive: true, force: true })
     }
