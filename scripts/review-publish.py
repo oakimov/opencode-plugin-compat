@@ -11,13 +11,13 @@ head, identity, preview digest, and approval generation. A denial or a
 different approval is not sent, even when the replacement is valid by
 itself. After the reviews lookup, and immediately before it sends, post
 reads the pull request again and then re-reads that pinned operation.
-Without --token-env, it mints a GitHub App installation token and reads
-the approval once more. The review author is that app's bot. A client
-secret and the ambient gh login are not used.
+Before the first GitHub lookup, it selects one GitHub App installation
+token unless --token-env is set. The review author is that app's bot
+when using the App. A client secret and the ambient gh login are not used.
 --token-env NAME instead reads a GitHub personal access token (ghp_ or
 github_pat_) from the environment variable NAME and uses that token for
-the review POST and resolveReviewThread. The token value is never taken
-from the command line. A moved base or head is not sent; refresh the
+every gh call, including the review POST and resolveReviewThread. The
+token value is never taken from the command line. A moved base or head is not sent; refresh the
 review and approve it again.
 A push after that read can still land on the approved commit. A request
 that was already sent is not cancelled. A send that does not confirm

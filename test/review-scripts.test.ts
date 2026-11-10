@@ -1124,7 +1124,8 @@ print("SAW=" + str(found))
       const result = run("bash", ["scripts/isolate-run.sh", "--src", src, "--", "not-a-real-program-a977"])
       if (result.status === 2 && /ISOLATION=unavailable/.test(result.stderr)) return
       expect(result.status, `${result.stdout}\n${result.stderr}`).toBe(127)
-      expect(result.stderr).toContain("cannot run not-a-real-program-a977:")
+      const diagnostic = process.platform === "darwin" ? "env: not-a-real-program-a977:" : "cannot run not-a-real-program-a977:"
+      expect(result.stderr).toContain(diagnostic)
       expect(result.stderr).not.toContain("Traceback")
     } finally {
       fs.rmSync(src, { recursive: true, force: true })
