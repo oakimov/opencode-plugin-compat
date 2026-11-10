@@ -512,7 +512,14 @@ if [[ -f /home/reviewer/env ]]; then
 fi
 set +a
 cd /src
-exec python3 -c 'import json, os; args = json.load(open("/argv.json")); os.execvp(args[0], args)'
+exec python3 -c 'import json, os, sys
+args = json.load(open("/argv.json"))
+try:
+    os.execvp(args[0], args)
+except OSError as error:
+    sys.stderr.write("cannot run %s: %s\n" % (args[0], error.strerror))
+    raise SystemExit(127)
+'
 EOF
   chmod 0755 "$root/init" "$root/enter-command"
   cat >"$root/drop-caps.py" <<'EOF'
