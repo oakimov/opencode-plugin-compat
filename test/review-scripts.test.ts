@@ -1386,10 +1386,21 @@ describe("pid-targeted cancellation", () => {
   const pause = () => new Promise((resolve) => setTimeout(resolve, 50))
 
   // Visible to ps on the host for both the Linux namespace and macOS sandbox.
-  function commandAlive(marker: string): boolean {
-    const listing = spawnSync("ps", ["-A", "-o", "args="], { encoding: "utf8" })
+  function marked(marker: string): number[] {
+    const listing = spawnSync("ps", ["-A", "-o", "pid=,args="], { encoding: "utf8" })
     if (listing.status !== 0) throw new Error(`ps failed: ${listing.stderr}`)
-    return listing.stdout.split("\n").some((line) => line.includes(marker))
+    return listing.stdout.split("\n").filter((line) => line.includes(marker)).map((line) => Number.parseInt(line, 10))
+  }
+
+  function commandAlive(marker: string): boolean {
+    return marked(marker).length > 0
+  }
+
+  // A failed assertion must not leave the command it found running.
+  function killMarked(marker: string): void {
+    for (const pid of marked(marker)) {
+      try { process.kill(pid, "SIGKILL") } catch { /* already gone */ }
+    }
   }
 
   type Exit = { code: number | null; signal: NodeJS.Signals | null; stdout: string; stderr: string; at: number }
@@ -1459,6 +1470,7 @@ describe("pid-targeted cancellation", () => {
       expect(result.at - result.signalledAt).toBeGreaterThanOrEqual(900)
       expect(fs.readdirSync(tmp)).toEqual([])
     } finally {
+      killMarked(marker)
       fs.rmSync(base, { recursive: true, force: true })
     }
   })
@@ -1483,9 +1495,74 @@ describe("pid-targeted cancellation", () => {
       expect(result.at - result.signalledAt).toBeLessThan(10000)
       expect(fs.readdirSync(tmp)).toEqual([])
     } finally {
+      killMarked(marker)
       fs.rmSync(base, { recursive: true, force: true })
     }
   })
+
+  // bash takes a trap between two commands, and a `wait` that starts after
+  // the trap does not end early for it. The hook, read through BASH_ENV,
+  // sends TERM to the script just before the named command, so the trap is
+  // taken at exactly that boundary rather than while the script waits.
+  for (const [boundary, when] of [
+    ["isolate_sup_leader=$!", "before the session leader is known"],
+    ['wait "$isolate_sup_leader"', "just before the wait starts"],
+  ] as const) {
+    it(`isolate-run.sh stops a command when TERM is trapped ${when}`, async () => {
+      const { base, src, tmp, marker } = fixture("isolate-trap-boundary-")
+      const hook = path.join(base, "hook.sh")
+      const sent = path.join(base, "sent")
+      fs.writeFileSync(
+        hook,
+        [
+          "unset BASH_ENV",
+          "set -o functrace",
+          `trap 'if [[ ! -e "$BOUNDARY_SENT" && "$BASH_COMMAND" == "$BOUNDARY_COMMAND" ]]; then echo sent > "$BOUNDARY_SENT"; kill -s TERM $$; fi' DEBUG`,
+          "",
+        ].join("\n"),
+      )
+      const child = spawn(
+        "bash",
+        ["scripts/isolate-run.sh", "--src", src, "--", "/bin/sh", "-c", 'trap "" TERM; while :; do sleep 0.1; done', marker],
+        {
+          cwd: root,
+          env: {
+            ...process.env,
+            TMPDIR: tmp,
+            ISOLATE_TERM_GRACE: "1",
+            PYTHONDONTWRITEBYTECODE: "1",
+            BASH_ENV: hook,
+            BOUNDARY_COMMAND: boundary,
+            BOUNDARY_SENT: sent,
+          },
+        },
+      )
+      let stderr = ""
+      child.stdout.resume()
+      child.stderr.on("data", (chunk) => (stderr += chunk))
+      try {
+        const code = await new Promise<number | null>((resolve, reject) => {
+          const timer = setTimeout(
+            () => reject(new Error(`no exit; TERM sent: ${fs.existsSync(sent)}\n${stderr}`)),
+            15000,
+          )
+          child.on("exit", (exitCode) => {
+            clearTimeout(timer)
+            resolve(exitCode)
+          })
+        })
+        if (/ISOLATION=unavailable/.test(stderr)) return
+        expect(fs.existsSync(sent), stderr).toBe(true)
+        expect(commandAlive(marker), stderr).toBe(false)
+        expect(code, stderr).toBe(143)
+        expect(fs.readdirSync(tmp)).toEqual([])
+      } finally {
+        if (child.exitCode === null && child.signalCode === null) child.kill("SIGKILL")
+        killMarked(marker)
+        fs.rmSync(base, { recursive: true, force: true })
+      }
+    })
+  }
 
   for (const [signal, code] of [["SIGTERM", 143], ["SIGINT", 130]] as const) {
     it(`isolated-check.sh waits for the boundary before removing the archive on ${signal}`, async () => {
@@ -1518,6 +1595,7 @@ describe("pid-targeted cancellation", () => {
         expect(fs.existsSync(src)).toBe(false)
         expect(fs.readdirSync(tmp)).toEqual([])
       } finally {
+        killMarked(marker)
         fs.rmSync(base, { recursive: true, force: true })
       }
     })

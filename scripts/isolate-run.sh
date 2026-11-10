@@ -24,7 +24,9 @@
 # QUIT sent to this script's pid alone is forwarded to that session, and the
 # script removes its staging files only after the session has stopped,
 # killing it after ISOLATE_TERM_GRACE seconds (default 10). A cancelled run
-# exits 128 plus the signal number.
+# exits 128 plus the signal number. SIGKILL of this script cannot be
+# forwarded. On macOS there is no pid namespace, so a process that starts
+# its own session inside sandbox-exec is not stopped with the boundary.
 #
 #   scripts/isolate-run.sh --src DIR [--tool NAME] [--ro-bind HOST:DEST] \
 #     [--env NAME] [--set NAME=VALUE] -- COMMAND...
@@ -87,14 +89,39 @@ isolate_unavailable() {
 # scope, so these are globals.
 isolate_sup_leader=""
 isolate_sup_signal=""
-isolate_sup_sent=""
+isolate_sup_stopping=""
+isolate_sup_grace=10
 
-# Record the first cancellation signal and pass it to the whole session.
+# Record the first cancellation signal and run the stop sequence. A bash
+# trap taken between two commands does not interrupt the wait that follows,
+# so recording the signal and waiting for that wait to return leaves the
+# script blocked when the session ignores TERM.
 isolate_sup_note() {
   [[ -n "$isolate_sup_signal" ]] || isolate_sup_signal="$1"
-  if [[ -n "$isolate_sup_leader" ]] && kill -s "$isolate_sup_signal" -- "-$isolate_sup_leader" 2>/dev/null; then
-    isolate_sup_sent=1
-  fi
+  isolate_sup_stop
+}
+
+# Signal the session, kill it after the grace period, and return only once
+# the session leader is gone. A second call, including one after a trap that
+# already stopped the session, returns immediately. Count 0.1 s sleeps rather
+# than whole-second SECONDS ticks, which can end a one-second grace almost
+# at once.
+isolate_sup_stop() {
+  local ticks sent="" killed=""
+  [[ -n "$isolate_sup_leader" && -z "$isolate_sup_stopping" ]] || return 0
+  isolate_sup_stopping=1
+  ticks=$((isolate_sup_grace * 10))
+  while kill -0 "$isolate_sup_leader" 2>/dev/null; do
+    if [[ -z "$sent" ]] && kill -s "$isolate_sup_signal" -- "-$isolate_sup_leader" 2>/dev/null; then
+      sent=1
+    fi
+    if [[ -z "$killed" && "$ticks" -le 0 ]]; then
+      kill -s KILL -- "-$isolate_sup_leader" 2>/dev/null || true
+      killed=1
+    fi
+    sleep 0.1 || true
+    ticks=$((ticks - 1))
+  done
 }
 
 # Run COMMAND in DIR as the leader of a new session and wait for it.
@@ -112,13 +139,13 @@ isolate_sup_note() {
 # A cancelled run returns 128 plus the signal number. SIGKILL to this shell
 # cannot be forwarded.
 isolate_supervise() {
-  local dir="$1" status=0 grace ticks killed=""
+  local dir="$1" status=0
   shift
-  grace="${ISOLATE_TERM_GRACE:-10}"
-  [[ "$grace" =~ ^[0-9]+$ ]] || grace=10
+  isolate_sup_grace="${ISOLATE_TERM_GRACE:-10}"
+  [[ "$isolate_sup_grace" =~ ^[0-9]+$ ]] || isolate_sup_grace=10
   command -v python3 >/dev/null 2>&1 || isolate_unavailable "python3 is required to supervise the command." || return 2
   isolate_sup_signal=""
-  isolate_sup_sent=""
+  isolate_sup_stopping=""
   isolate_sup_leader=""
   trap 'isolate_sup_note TERM' TERM
   trap 'isolate_sup_note INT' INT
@@ -139,24 +166,17 @@ os.execvp(sys.argv[1], sys.argv[1:])
 ' "$@"
   ) <&0 &
   isolate_sup_leader=$!
-  wait "$isolate_sup_leader"
-  status=$?
-  if [[ -n "$isolate_sup_signal" ]]; then
-    # Count 0.1 s sleeps rather than whole-second SECONDS ticks, which can
-    # end a one-second grace almost at once.
-    ticks=$((grace * 10))
-    while kill -0 "$isolate_sup_leader" 2>/dev/null; do
-      # The signal can arrive before the session exists; send it once it does.
-      [[ -n "$isolate_sup_sent" ]] || isolate_sup_note "$isolate_sup_signal"
-      if [[ -z "$killed" && "$ticks" -le 0 ]]; then
-        kill -s KILL -- "-$isolate_sup_leader" 2>/dev/null || true
-        killed=1
-      fi
-      sleep 0.1 || true
-      ticks=$((ticks - 1))
-    done
-    wait "$isolate_sup_leader" 2>/dev/null || true
+  if [[ -z "$isolate_sup_signal" ]]; then
+    wait "$isolate_sup_leader"
+    status=$?
+  else
+    # The trap ran before this pid was known, so it could not signal the
+    # session. Stop it now instead of waiting on a command that ignores TERM.
+    isolate_sup_stop
   fi
+  [[ -z "$isolate_sup_signal" ]] || wait "$isolate_sup_leader" 2>/dev/null || true
+  # The Linux boundary's leader is unshare, which ignores TERM. Killing its
+  # process group ends the pid namespace and every process inside it.
   kill -s KILL -- "-$isolate_sup_leader" 2>/dev/null || true
   trap - TERM INT HUP QUIT
   if [[ -n "$isolate_sup_signal" ]]; then

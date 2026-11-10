@@ -17,7 +17,8 @@
 # Exit 0 when the checks pass, 1 when a check fails, 2 when the invocation
 # or the isolation mechanism is unusable, and 128 plus the signal number when
 # TERM, INT, HUP, or QUIT cancels a check. A cancelled check waits for the
-# boundary to stop before it removes the archive.
+# boundary to stop before it removes the archive. SIGKILL of this script
+# cannot be forwarded and can leave the boundary running.
 set -euo pipefail
 export PYTHONDONTWRITEBYTECODE=1
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
