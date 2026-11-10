@@ -8,10 +8,11 @@ The monorepo ships **one shared train version** across all eleven packages, so u
 
 ### Added
 
-- Manual Cursor Cloud Agent reviews can use the same Greptile-like `caeliq-reviewer` harness as the Cursor provider: isolated PR checks, structured preview approval, and optional `--token-env` publication.
+- Manual Cursor Cloud Agent reviews can use the same Greptile-like `caeliq-reviewer` harness as the Cursor provider: isolated PR checks, structured preview approval, and optional `--token-env` on `post`, `threads`, and `complete-resolutions.py`.
 
 ### Fixed
 
+- `post`, `threads`, and `complete-resolutions.py` send one GitHub credential on every `gh` call: the `--token-env` personal access token when that option is set, otherwise the App installation token. The named token wins over an ambient `GH_TOKEN` or `GITHUB_TOKEN`.
 - Cloud Agent setup copies `bun` and `bunx` onto `/usr/bin`, so non-interactive shells and the isolated-check sandbox can run them without `~/.bashrc`.
 - The isolated-check sandbox names the program it could not start.
 - `ocp-dev` DSH local wiring generates Host Typert declarations before host `tsc`, so package `./remote` exports resolve and leftover empty package dirs no longer block a full reshim.
