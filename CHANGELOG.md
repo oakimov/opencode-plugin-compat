@@ -11,6 +11,7 @@ The monorepo ships **one shared train version** across all eleven packages, so u
 - Experimental `ocp zcode` bridge: serves an unchanged Classic OpenCode provider plugin to stock ZCode as a loopback Anthropic Messages Personal provider, with install/credential/check/models/auth/serve commands and a `probe` that records a redacted wire transcript. It is source-verified against ZCode 3.18.2 and not yet accepted on a shipped ZCode build; see `docs/hosts/zcode-bridge.md`.
 - `ocp zcode` plugins can set `"models": "catalog"` to serve every model their own `config` hook publishes, including catalogs that appear only after login.
 - `./scripts/ocp-dev.sh run zcode` / `unshim zcode` wire a downloaded ZCode release to this OCP checkout and a local provider checkout (or `--mode npm` to published packages) by adding one Personal provider to ZCode's `provider_config.json`.
+- `scripts/isolated-check.sh` runs trusted harness contracts (AGENTS.md boundaries, catalog order, `ocp zcode` bridge wire) against the PR head and its merge base; a failure already on the base is reported as pre-existing instead of failing the check. Re-reviews update the existing summary post and keep current-diff findings as native inline threads. Maintainer setup is documented in `docs/review-harness.md`.
 - Manual Cursor Cloud Agent reviews can use the same Greptile-like `caeliq-reviewer` harness as the Cursor provider: isolated PR checks, structured preview approval, and optional `--token-env` on `post`, `threads`, and `complete-resolutions.py`.
 
 ### Fixed
