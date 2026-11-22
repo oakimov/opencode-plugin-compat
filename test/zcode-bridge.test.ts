@@ -624,6 +624,44 @@ describe("zcode CLI recovery", () => {
     }
   })
 
+  test("the probe handles SIGTERM as soon as it announces readiness", async () => {
+    const root = mkdtempSync(join(tmpdir(), "ocp-zcode-probe-signal-"))
+    const listener = Bun.serve({ hostname: "127.0.0.1", port: 0, fetch: () => new Response() })
+    const port = String(listener.port)
+    await listener.stop(true)
+    const transcript = join(root, "trace.jsonl")
+    const entry = resolve(import.meta.dir, "../packages/cli/src/zcode/cli.ts")
+    const child = Bun.spawn([process.execPath, "--eval", `
+      import { runZcodeCli } from ${JSON.stringify(entry)}
+      const print = console.log
+      console.log = (...args) => {
+        print(...args)
+        // Hold the startup caller after its last write but before it returns.
+        if (args[0] === "Stop with Ctrl-C.") Bun.sleepSync(300)
+      }
+      process.exitCode = await runZcodeCli(["probe", "--port", ${JSON.stringify(port)}, "--transcript", ${JSON.stringify(transcript)}])
+    `], { env: { ...process.env, HOME: root, TMPDIR: root }, stdout: "pipe", stderr: "ignore" })
+    const ready = async () => {
+      let output = ""
+      for await (const chunk of child.stdout) {
+        output += new TextDecoder().decode(chunk)
+        if (output.includes("Stop with Ctrl-C.")) return true
+      }
+      return false
+    }
+    try {
+      expect(await Promise.race([ready(), Bun.sleep(2000).then(() => false)])).toBe(true)
+      child.kill("SIGTERM")
+      expect(await Promise.race([child.exited, Bun.sleep(2000).then(() => null)])).toBe(0)
+      expect(readdirSync(root).filter(name => name.startsWith("ocp-zcode-probe-"))).toEqual([])
+      expect(await Bun.file(transcript).exists()).toBe(true)
+    } finally {
+      if (child.exitCode === null) child.kill("SIGKILL")
+      await child.exited
+      rmSync(root, { recursive: true, force: true })
+    }
+  })
+
   test("a port conflict leaves the private transcript and removes the temporary probe file", async () => {
     const root = mkdtempSync(join(tmpdir(), "ocp-zcode-probe-conflict-"))
     const listener = Bun.serve({ hostname: "127.0.0.1", port: 0, fetch: () => new Response() })

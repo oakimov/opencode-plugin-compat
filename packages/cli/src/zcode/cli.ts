@@ -298,11 +298,6 @@ async function runServe(flags: Flags, paths: ZcodePaths): Promise<number> {
     console.error(error instanceof ListenerConflictError ? error.message : String(error))
     return 1
   }
-  // The serve log omits local paths; `check` shows them on request.
-  for (const line of describeGeneration(generation, { paths: false })) console.error(line)
-  console.error(`ocp-zcode ${OCP_VERSION} ready gen=${generation.id} listening ${server.url}`)
-  console.error(TELEMETRY_NOTE)
-
   // Build each replacement fully and keep serving the old generation on any
   // failure. Reloads run one at a time; a signal during a reload schedules one
   // more pass, which rereads the file, so the newest configuration publishes last.
@@ -323,7 +318,12 @@ async function runServe(flags: Flags, paths: ZcodePaths): Promise<number> {
       printIssues(error)
     }
   }
-  return waitForSignal(server, coalescingRunner(reloadOnce))
+  const stopped = waitForSignal(server, coalescingRunner(reloadOnce))
+  // The serve log omits local paths; `check` shows them on request.
+  for (const line of describeGeneration(generation, { paths: false })) console.error(line)
+  console.error(`ocp-zcode ${OCP_VERSION} ready gen=${generation.id} listening ${server.url}`)
+  console.error(TELEMETRY_NOTE)
+  return stopped
 }
 
 /**
@@ -390,13 +390,14 @@ async function runProbe(flags: Flags, paths: ZcodePaths): Promise<number> {
       console.error(error instanceof ListenerConflictError ? error.message : String(error))
       return 1
     }
+    const stopped = waitForSignal(server)
     console.log(`ZCode Personal provider: format Anthropic Messages, base URL ${server.url}`)
     console.log(`API key: ${credential}`)
     console.log(`Model ID: ${PROBE_MODEL_ALIAS}`)
     console.log(`Then send any message (expect OCP-PROBE-TEXT), and one containing "${PROBE_READ_TRIGGER}" (expect a native Read, then OCP-PROBE-OK).`)
     console.log(`Transcript (private): ${transcriptFile}`)
     console.log("Stop with Ctrl-C.")
-    return await waitForSignal(server)
+    return await stopped
   } finally {
     rmSync(probeDir, { recursive: true, force: true })
   }
