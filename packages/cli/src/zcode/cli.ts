@@ -82,10 +82,10 @@ function printIssues(error: unknown): void {
   }
 }
 
-function describeGeneration(generation: Generation): string[] {
+function describeGeneration(generation: Generation, options: { paths: boolean }): string[] {
   const lines: string[] = []
   for (const binding of generation.bindings) {
-    lines.push(`binding ${binding.spec.id} workspace=${binding.spec.workspace}`)
+    lines.push(`binding ${binding.spec.id}${options.paths ? ` workspace=${binding.spec.workspace}` : ""}`)
     for (const plugin of binding.plugins) {
       lines.push(`  plugin ${plugin.spec.id} ${plugin.resolved.name}@${plugin.resolved.version} contract=${plugin.spec.contract} provider=${plugin.providerId} auth=${plugin.authReadiness()}`)
       lines.push(`    entry sha256=${plugin.resolved.sha256}`)
@@ -102,7 +102,7 @@ async function runCheck(flags: Flags, paths: ZcodePaths): Promise<number> {
   if (!config) return 1
   try {
     const generation = await buildGeneration(config, { paths })
-    for (const line of describeGeneration(generation)) console.log(line)
+    for (const line of describeGeneration(generation, { paths: true })) console.log(line)
     const loginRequired = generation.bindings.flatMap(binding => binding.plugins).filter(plugin => plugin.authReadiness() === "login-required")
     for (const plugin of loginRequired) console.log(`auth required: ocp zcode auth --binding ${plugin.binding.id} --plugin ${plugin.spec.id}`)
     console.log(`listen http://${config.listen.host}:${config.listen.port}/v1`)
@@ -293,16 +293,20 @@ async function runServe(flags: Flags, paths: ZcodePaths): Promise<number> {
     console.error(error instanceof ListenerConflictError ? error.message : String(error))
     return 1
   }
-  for (const line of describeGeneration(generation)) console.error(line)
+  // The serve log omits local paths; `check` shows them on request.
+  for (const line of describeGeneration(generation, { paths: false })) console.error(line)
   console.error(`ocp-zcode ${OCP_VERSION} ready gen=${generation.id} listening ${server.url}`)
   console.error(TELEMETRY_NOTE)
 
-  return waitForSignal(server, async () => {
-    // Build the replacement fully; keep serving the old generation on any failure.
+  // Build each replacement fully and keep serving the old generation on any
+  // failure. Reloads run one at a time; a signal during a reload schedules one
+  // more pass, which rereads the file, so the newest configuration publishes last.
+  const reloadOnce = async () => {
     const next = loadConfigOrReport(file)
     if (!next) return
-    if (next.listen.host !== config.listen.host || next.listen.port !== config.listen.port) {
-      console.error("reload rejected: listen address changes need a restart")
+    const fixed = (value: ZcodeBridgeConfig) => JSON.stringify([value.listen, value.limits.maxBodyBytes, value.limits.maxSessions])
+    if (fixed(next) !== fixed(config)) {
+      console.error("reload rejected: listen, limits.maxBodyBytes and limits.maxSessions changes need a restart")
       return
     }
     try {
@@ -313,7 +317,34 @@ async function runServe(flags: Flags, paths: ZcodePaths): Promise<number> {
       console.error("reload rejected; previous generation keeps serving")
       printIssues(error)
     }
-  })
+  }
+  return waitForSignal(server, coalescingRunner(reloadOnce))
+}
+
+/**
+ * Run `task` one at a time. A call while it runs schedules exactly one more
+ * pass after it, so the last trigger is always followed by a complete run.
+ */
+export function coalescingRunner(task: () => Promise<void>): () => Promise<void> {
+  let running: Promise<void> | undefined
+  let again = false
+  return () => {
+    if (running) {
+      again = true
+      return running
+    }
+    running = (async () => {
+      try {
+        do {
+          again = false
+          await task()
+        } while (again)
+      } finally {
+        running = undefined
+      }
+    })()
+    return running
+  }
 }
 
 async function runProbe(flags: Flags, paths: ZcodePaths): Promise<number> {
@@ -335,7 +366,7 @@ async function runProbe(flags: Flags, paths: ZcodePaths): Promise<number> {
     bindings: [{ id: "probe", workspace: resolve(file.path, ".."), credentials: { model: { env: "OCP_ZCODE_PROBE_CREDENTIAL" } }, plugins: [] }],
   }
   const transcript = createTranscript(transcriptFile, {
-    ocpVersion: OCP_VERSION, platform: process.platform, arch: process.arch, port, callId: model.callId, probeFile: file.path,
+    ocpVersion: OCP_VERSION, platform: process.platform, arch: process.arch, port, callId: model.callId,
   })
   const generation = await buildGeneration(config, {
     paths,

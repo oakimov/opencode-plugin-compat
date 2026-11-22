@@ -140,7 +140,8 @@ function sessionKey(binding: BindingRuntime, attribution: RequestSummary["attrib
 export function startBridgeServer(options: BridgeServerOptions): BridgeServer {
   let generation = options.generation
   const log = options.log ?? ((line: string) => process.stderr.write(`${line}\n`))
-  const catalog = createSessionToolCatalog()
+  // Retention is fixed for the listener's lifetime; reloads that change it are refused.
+  const catalog = createSessionToolCatalog(generation.config.limits.maxSessions)
   const active = new Set<AbortController>()
   let stopping = false
   const { host, port: configuredPort } = generation.config.listen
@@ -246,49 +247,13 @@ export function startBridgeServer(options: BridgeServerOptions): BridgeServer {
     if (active.size >= current.config.limits.maxConcurrentRequests) {
       return reject(429, "rate_limit_error", "concurrency", "ocp: too many concurrent requests")
     }
-
-    const declaredLength = Number(request.headers.get("content-length") ?? "0")
-    if (Number.isFinite(declaredLength) && declaredLength > current.config.limits.maxBodyBytes) {
-      return reject(413, "request_too_large", "body-size", `ocp: request body exceeds ${current.config.limits.maxBodyBytes} bytes`)
-    }
-    let body: unknown
-    try {
-      body = await request.json()
-    } catch {
-      return reject(400, "invalid_request_error", "json", "ocp: request body is not valid JSON")
-    }
-    summarizeBody(summary, body)
-
-    let parsed: ReturnType<typeof parseMessagesRequest>
-    try {
-      parsed = parseMessagesRequest(body)
-    } catch (error) {
-      return reject(400, "invalid_request_error", "translate", `ocp: ${error instanceof Error ? error.message : String(error)}`)
-    }
-    const route = binding.routes.get(parsed.model)
-    if (!route) return reject(404, "not_found_error", "model", `ocp: unknown model "${parsed.model}" for this credential`)
-    if (route.plugin?.authReadiness() === "login-required") {
-      return reject(403, "permission_error", "login-required",
-        `ocp: upstream login required — run: ocp zcode auth --binding ${binding.spec.id} --plugin ${route.plugin.spec.id}`)
-    }
-
-    let toolMap: ReturnType<ReturnType<typeof createSessionToolCatalog>>
-    let callOptions: LanguageModelV3CallOptions
-    try {
-      // The catalog is frozen per (binding, ZCode session, session type) inside OCP.
-      // The session is not forwarded: ZCode's request carries no verified workspace
-      // identity, so no canonical x-opencode-session-id is asserted to the provider.
-      toolMap = catalog(parsed.nativeTools, sessionKey(binding, attribution))
-      const built = parsed.build(toolMap)
-      callOptions = built.options
-      if (built.ignored.length > 0) summary.ignoredFields = built.ignored
-    } catch (error) {
-      const known = error instanceof RequestTranslationError || error instanceof ToolMappingError
-      return reject(400, "invalid_request_error", "translate", `ocp: ${known ? error.message : String(error)}`)
-    }
-
+    // Reserve the attempt slot before awaiting the body, so concurrent requests
+    // cannot all pass the limit check. Every exit below releases it once.
     const controller = new AbortController()
+    let released = false
     const release = () => {
+      if (released) return
+      released = true
       active.delete(controller)
       request.signal.removeEventListener("abort", onAbort)
     }
@@ -300,24 +265,70 @@ export function startBridgeServer(options: BridgeServerOptions): BridgeServer {
     }
     request.signal.addEventListener("abort", onAbort, { once: true })
     active.add(controller)
-    callOptions = { ...callOptions, abortSignal: controller.signal, headers: {} }
+    // Set once a response path owns `release` (and aborting on failure).
+    let handedOff = false
 
-    const run = <T>(work: () => Promise<T>) => route.plugin ? route.plugin.withAuthOperation(work) : work()
     try {
+      const declaredLength = Number(request.headers.get("content-length") ?? "0")
+      if (Number.isFinite(declaredLength) && declaredLength > current.config.limits.maxBodyBytes) {
+        return reject(413, "request_too_large", "body-size", `ocp: request body exceeds ${current.config.limits.maxBodyBytes} bytes`)
+      }
+      let body: unknown
+      try {
+        body = await request.json()
+      } catch {
+        return reject(400, "invalid_request_error", "json", "ocp: request body is not valid JSON")
+      }
+      summarizeBody(summary, body)
+
+      let parsed: ReturnType<typeof parseMessagesRequest>
+      try {
+        parsed = parseMessagesRequest(body)
+      } catch (error) {
+        return reject(400, "invalid_request_error", "translate", `ocp: ${error instanceof Error ? error.message : String(error)}`)
+      }
+      const route = binding.routes.get(parsed.model)
+      if (!route) return reject(404, "not_found_error", "model", `ocp: unknown model "${parsed.model}" for this credential`)
+      if (route.plugin?.authReadiness() === "login-required") {
+        return reject(403, "permission_error", "login-required",
+          `ocp: upstream login required — run: ocp zcode auth --binding ${binding.spec.id} --plugin ${route.plugin.spec.id}`)
+      }
+
+      let toolMap: ReturnType<ReturnType<typeof createSessionToolCatalog>>
+      let callOptions: LanguageModelV3CallOptions
+      try {
+        // The catalog is frozen per (binding, ZCode session, session type) inside OCP.
+        // The session is not forwarded: ZCode's request carries no verified workspace
+        // identity, so no canonical x-opencode-session-id is asserted to the provider.
+        toolMap = catalog(parsed.nativeTools, sessionKey(binding, attribution))
+        const built = parsed.build(toolMap)
+        callOptions = built.options
+        if (built.ignored.length > 0) summary.ignoredFields = built.ignored
+      } catch (error) {
+        const known = error instanceof RequestTranslationError || error instanceof ToolMappingError
+        return reject(400, "invalid_request_error", "translate", `ocp: ${known ? error.message : String(error)}`)
+      }
+      callOptions = { ...callOptions, abortSignal: controller.signal, headers: {} }
+      const providerOptions = route.providerOptions()
+      if (providerOptions) callOptions.providerOptions = providerOptions as LanguageModelV3CallOptions["providerOptions"]
+
+      const run = <T>(work: () => Promise<T>) => route.plugin ? route.plugin.withAuthOperation(work) : work()
       return await run(async () => {
         let model: LanguageModelV3
         try {
           model = await route.languageModel()
         } catch (error) {
-          release()
           return reject(502, "api_error", "provider-resolve", `ocp: provider model could not be created: ${error instanceof Error ? error.message : String(error)}`)
         }
+        handedOff = true
         if (parsed.stream) return streamResponse(model, parsed.model, toolMap, callOptions, controller, release, summary, started)
         return generateResponse(model, parsed.model, toolMap, callOptions, controller, release, summary, started)
       })
     } catch (error) {
-      release()
+      controller.abort(error)
       return reject(500, "api_error", "internal", `ocp: ${error instanceof Error ? error.message : String(error)}`)
+    } finally {
+      if (!handedOff) release()
     }
   }
 
@@ -335,8 +346,11 @@ export function startBridgeServer(options: BridgeServerOptions): BridgeServer {
     try {
       result = await model.doStream(callOptions)
     } catch (error) {
+      const closed = controller.signal.aborted
+      // Stop anything the provider started for this attempt.
+      controller.abort(error)
       release()
-      if (controller.signal.aborted) {
+      if (closed) {
         finish(summary, started, 499, { errorCode: "client-closed", closedByClient: true })
         return errorResponse(499, "api_error", "ocp: client closed the request")
       }
@@ -350,9 +364,11 @@ export function startBridgeServer(options: BridgeServerOptions): BridgeServer {
       signal: controller.signal,
       ...(options.pingIntervalMs !== undefined ? { pingIntervalMs: options.pingIntervalMs } : {}),
       onOutcome: (outcome: StreamOutcome) => {
-        release()
         const closed = outcome.aborted || controller.signal.aborted
-        if (closed && !controller.signal.aborted) controller.abort()
+        // A failed or abandoned stream stops the provider's work; a completed
+        // one leaves provider-owned continuation state alone.
+        if ((closed || outcome.error !== undefined) && !controller.signal.aborted) controller.abort()
+        release()
         finish(summary, started, 200, {
           ...(outcome.stopReason ? { stopReason: outcome.stopReason } : {}),
           ...(outcome.error ? { errorCode: "stream" } : {}),
@@ -385,7 +401,9 @@ export function startBridgeServer(options: BridgeServerOptions): BridgeServer {
       finish(summary, started, 200, { stopReason: encoded.stopReason, ...(encoded.toolCallIds.length ? { toolCallIds: encoded.toolCallIds } : {}) })
       return json(200, encoded.body)
     } catch (error) {
-      if (controller.signal.aborted) {
+      const closed = controller.signal.aborted
+      controller.abort(error)
+      if (closed) {
         finish(summary, started, 499, { errorCode: "client-closed", closedByClient: true })
         return errorResponse(499, "api_error", "ocp: client closed the request")
       }

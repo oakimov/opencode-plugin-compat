@@ -34,7 +34,7 @@ import { installZcodePathBridge } from "./path-bridge.js"
 
 export class PluginLoadError extends Error {
   constructor(
-    readonly code: "not-installed" | "version-mismatch" | "entry-unresolved" | "contract-unsupported" | "factory-failed" | "unknown-upstream-model",
+    readonly code: "not-installed" | "version-mismatch" | "entry-unresolved" | "contract-unsupported" | "factory-failed" | "unknown-upstream-model" | "restart-required",
     message: string,
   ) {
     super(message)
@@ -84,6 +84,8 @@ export type ModelInfo = {
   maxOutputTokens?: number
   input: ("text" | "image")[]
   reasoning: boolean
+  /** The OpenCode entry's own `options`, sent as provider options on every call. */
+  entryOptions?: Record<string, unknown>
 }
 
 export type AuthReadiness = "not-required" | "ready" | "login-required"
@@ -102,6 +104,11 @@ export type LoadedPlugin = {
   authHook?: OpenCodeAuthHook
   authStore: DurableAuthStore
   models: Map<string, ModelInfo>
+  /**
+   * Provider options for an alias, keyed the way OpenCode keys them (the
+   * catalog's provider id): the model entry's own `options`.
+   */
+  providerOptions(alias: string): Record<string, Record<string, unknown>> | undefined
   authReadiness(): AuthReadiness
   /** Resolve the AI-SDK model for an alias (runs `auth.loader` with the stored credential). */
   languageModel(alias: string): Promise<LanguageModelV3>
@@ -112,6 +119,13 @@ export type LoadedPlugin = {
 }
 
 type ImportModule = (url: string) => Promise<Record<string, unknown>>
+
+/**
+ * Entries this process has imported. ESM caches a module by URL, so importing
+ * a changed file at the same path would silently return the old code; such a
+ * load fails with `restart-required` instead.
+ */
+const importedEntries = new Map<string, { version: string; sha256: string }>()
 
 export type LoadPluginOptions = {
   paths: ZcodePaths
@@ -134,6 +148,7 @@ function catalogInfo(alias: string, upstream: string, entry: OpenCodeModelEntry 
     ...(entry?.limit?.output !== undefined ? { maxOutputTokens: entry.limit.output } : {}),
     input: input.length > 0 ? input : ["text"],
     reasoning: entry?.reasoning ?? false,
+    ...(entry?.options && Object.keys(entry.options).length > 0 ? { entryOptions: { ...entry.options } } : {}),
   }
 }
 
@@ -147,8 +162,16 @@ export async function loadPlugin(binding: BindingSpec, spec: PluginSpec, options
   const resolved = (options.resolvePackage ?? (s => resolveInstalledPackage(options.paths.installRoot, s)))(spec)
   installZcodePathBridge(options.paths)
 
+  const previous = importedEntries.get(resolved.entry)
+  if (previous && (previous.sha256 !== resolved.sha256 || previous.version !== resolved.version)) {
+    throw new PluginLoadError(
+      "restart-required",
+      `plugin "${spec.id}": ${resolved.name} changed on disk (${previous.version} → ${resolved.version}) since this process loaded it; restart ocp zcode serve to load the new code`,
+    )
+  }
   const importModule: ImportModule = options.importModule ?? (url => import(url) as Promise<Record<string, unknown>>)
   const moduleExports = await importModule(pathToFileURL(resolved.entry).href)
+  importedEntries.set(resolved.entry, { version: resolved.version, sha256: resolved.sha256 })
   const loaded = inspectOpenCodePluginModule(moduleExports, {
     packageSpecifier: spec.package,
     label: "ocp-zcode",
@@ -187,6 +210,7 @@ export async function loadPlugin(binding: BindingSpec, spec: PluginSpec, options
   const withAuthOperation = <T>(run: () => Promise<T>) => operation.run(generationAuthView(authStore), run)
 
   const models = new Map<string, ModelInfo>()
+  let optionsKey = providerId
   const refreshCatalog = async () => {
     const catalog = hooks
       ? await withAuthOperation(async () => {
@@ -197,6 +221,7 @@ export async function loadPlugin(binding: BindingSpec, spec: PluginSpec, options
       })
       : undefined
     models.clear()
+    optionsKey = catalog?.providerId ?? providerId
     for (const model of spec.models) {
       models.set(model.alias, catalogInfo(model.alias, model.upstream, catalog?.entries[model.upstream]))
     }
@@ -238,6 +263,10 @@ export async function loadPlugin(binding: BindingSpec, spec: PluginSpec, options
     ...(authHook ? { authHook } : {}),
     authStore,
     models,
+    providerOptions(alias) {
+      const options = models.get(alias)?.entryOptions
+      return options ? { [optionsKey]: structuredClone(options) } : undefined
+    },
     authReadiness,
     languageModel,
     refreshCatalog,

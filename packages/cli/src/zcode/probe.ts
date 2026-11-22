@@ -10,11 +10,14 @@
  *      request advertises canonical `read` → one complete `read` call for the
  *      probe file with the known call id, finishing with `tool-calls`.
  *   3. Else → the plain text `OCP-PROBE-TEXT`.
- * The transcript records header names, ZCode attribution values, protocol
- * headers, block types, tool names, stop reasons and verdicts — no prompt
- * text, file contents or credentials.
+ * The transcript records header names, protocol headers, block types, tool
+ * names, stop reasons and verdicts. ZCode session/query/request/trace ids are
+ * stored only as keyed hashes (HMAC with a per-run key that is never
+ * written), so equality across requests stays comparable while the ids
+ * themselves are not persisted. No prompt text, file contents, local paths or
+ * credentials are written.
  */
-import { randomBytes } from "node:crypto"
+import { createHmac, randomBytes } from "node:crypto"
 import { appendFileSync, chmodSync, mkdtempSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
@@ -147,14 +150,22 @@ export const PROBE_MODEL_INFO: ModelInfo = {
   reasoning: false,
 }
 
+/** Attribution headers that carry identifiers; the rest are labels. */
+const IDENTIFIER_HEADERS = new Set(["x-session-id", "x-query-id", "x-request-id", "x-zcode-trace-id"])
+
 /** Append-only private JSONL transcript. */
 export function createTranscript(file: string, header: Record<string, unknown>) {
+  const key = randomBytes(32)
+  const pseudonym = (value: string) => `hmac:${createHmac("sha256", key).update(value).digest("hex").slice(0, 16)}`
   writeFileSync(file, `${JSON.stringify({ kind: "probe-start", ...header })}\n`, { mode: 0o600, flag: "w" })
   chmodSync(file, 0o600)
   return {
     file,
+    pseudonym,
     record(record: RequestRecord, extra: Record<string, unknown> = {}) {
-      appendFileSync(file, `${JSON.stringify({ kind: "request", at: new Date().toISOString(), ...record, ...extra })}\n`)
+      const attribution = Object.fromEntries(Object.entries(record.attribution).map(([name, value]) =>
+        [name, value !== undefined && IDENTIFIER_HEADERS.has(name) ? pseudonym(value) : value]))
+      appendFileSync(file, `${JSON.stringify({ kind: "request", at: new Date().toISOString(), ...record, attribution, ...extra })}\n`)
     },
   }
 }

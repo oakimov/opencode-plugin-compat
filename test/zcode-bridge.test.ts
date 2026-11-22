@@ -269,6 +269,7 @@ async function startHarness(extra: { probe?: ReturnType<typeof createProbeModel>
           { id: "loop", package: "zcode-loop-provider", version: "1.0.0", contract: "classic", models: [
             { alias: "loop", upstream: "loop-1" }, { alias: "plain", upstream: "plain" },
             { alias: "slow", upstream: "slow" }, { alias: "truncated", upstream: "truncated" },
+            { alias: "error-stream", upstream: "error-stream" },
           ] },
           { id: "acme", package: "pi-bridge-acme-provider", version: "1.0.0", contract: "classic", models: [{ alias: "acme", upstream: "acme-large" }] },
         ],
@@ -344,6 +345,8 @@ describe("zcode bridge on the Anthropic Messages wire", () => {
     const seen1 = recordedCalls()[0]!
     expect(seen1.tools?.map(tool => tool.name)).toEqual(["read"])
     expect(seen1.headers).toEqual({})
+    // The model entry's own options reach the provider under its provider id.
+    expect(seen1.providerOptions).toEqual({ loop: { wireModel: "loop-1-wire" } })
 
     const turn2 = await model.doStream({
       prompt: [
@@ -425,6 +428,58 @@ describe("zcode bridge on the Anthropic Messages wire", () => {
     const signal = recordedCalls()[0]!.abortSignal!
     for (let i = 0; i < 50 && !signal.aborted; i++) await Bun.sleep(10)
     expect(signal.aborted).toBe(true)
+  })
+
+  test("a provider error part aborts the provider and cancels its stream", async () => {
+    const model = zcodeClient(harness.server).languageModel("error-stream")
+    const parts = await drain((await model.doStream({ prompt: [{ role: "user", content: [{ type: "text", text: "hi" }] }] } as LanguageModelV3CallOptions)).stream)
+    expect(parts.some(part => part.type === "error")).toBe(true)
+    const signal = recordedCalls()[0]!.abortSignal!
+    for (let i = 0; i < 50 && !signal.aborted; i++) await Bun.sleep(10)
+    expect(signal.aborted).toBe(true)
+  })
+
+  test("the concurrency limit holds while request bodies are still arriving", async () => {
+    // Every body is held open, so each request is past the limit check while
+    // its body is pending — the slot must already be reserved by then.
+    const gates: Array<() => void> = []
+    const send = () => {
+      const payload = new TextEncoder().encode(JSON.stringify({ model: "slow", max_tokens: 10, stream: true, messages: [{ role: "user", content: "hi" }] }))
+      const body = new ReadableStream<Uint8Array>({
+        start(controller) {
+          gates.push(() => {
+            try {
+              controller.enqueue(payload)
+              controller.close()
+            } catch {
+              // Refused before its body was read: the server already closed it.
+            }
+          })
+        },
+      })
+      return fetch(`${harness.server.url}/messages`, {
+        method: "POST",
+        headers: { "x-api-key": CREDENTIAL, "content-type": "application/json", "content-length": String(payload.length) },
+        body,
+        duplex: "half",
+      } as RequestInit)
+    }
+    const before = harness.records.length
+    const pending = Array.from({ length: 6 }, send)
+    await Bun.sleep(100)
+    for (const open of gates) open()
+    // A refused request may surface as a 429 or, because its body was never
+    // read, as a reset socket; the server's own records are authoritative.
+    const settled = await Promise.allSettled(pending)
+    const responses = settled.flatMap(result => result.status === "fulfilled" ? [result.value] : [])
+    expect(responses.filter(response => response.status === 200)).toHaveLength(4)
+    expect(responses.every(response => response.status === 200 || response.status === 429)).toBe(true)
+    const refused = harness.records.slice(before).filter(record => record.errorCode === "concurrency")
+    expect(refused).toHaveLength(2)
+    expect(recordedCalls().length).toBe(4)
+    for (const response of responses) await response.body?.cancel().catch(() => undefined)
+    for (let i = 0; i < 50 && recordedCalls().some(call => !call.abortSignal?.aborted); i++) await Bun.sleep(10)
+    expect(recordedCalls().every(call => call.abortSignal?.aborted)).toBe(true)
   })
 
   test("a provider stream that ends without finish surfaces an error, not a successful stop", async () => {
@@ -551,6 +606,148 @@ describe("zcode auth view writes", () => {
       await other.get()
       await other.set({ type: "api", key: "k2" })
       expect(store.read()).toMatchObject({ generation: generation + 1, auth: { key: "k2" } })
+    } finally {
+      rmSync(dir, { recursive: true, force: true })
+    }
+  })
+})
+
+describe("zcode review regressions", () => {
+  test("collectStream cancels its source when the provider reports an error", async () => {
+    const { collectStream } = await import("../packages/cli/src/zcode/anthropic-response.ts")
+    let cancelled = false
+    const stream = new ReadableStream<LanguageModelV3StreamPart>({
+      start(controller) {
+        controller.enqueue({ type: "error", error: new Error("boom") })
+      },
+      cancel() {
+        cancelled = true
+      },
+    })
+    await expect(collectStream(stream)).rejects.toThrow("boom")
+    expect(cancelled).toBe(true)
+  })
+
+  test("auth files never collide across binding/plugin/provider tuples", () => {
+    const a = DurableAuthStore.forPlugin("/state", "a__b", "c", "p").file
+    const b = DurableAuthStore.forPlugin("/state", "a", "b__c", "p").file
+    const c = DurableAuthStore.forPlugin("/state", "a", "b", "c__p").file
+    expect(new Set([a, b, c]).size).toBe(3)
+  })
+
+  test("another process (as serve vs auth) cannot replace the record while the lock is held", async () => {
+    const { withFileLock } = await import("../packages/cli/src/zcode/auth-store.ts")
+    const dir = mkdtempSync(join(tmpdir(), "ocp-zcode-lock-"))
+    try {
+      const file = join(dir, "auth.json")
+      await new DurableAuthStore(file).replace({ type: "api", key: "seed" })
+      const generation = new DurableAuthStore(file).read().generation
+      const script = join(dir, "writer.ts")
+      writeFileSync(script, [
+        `import { DurableAuthStore } from ${JSON.stringify(resolve(import.meta.dir, "../packages/cli/src/zcode/auth-store.ts"))}`,
+        `const applied = await new DurableAuthStore(process.argv[2]!).replace({ type: "api", key: "from-child" }, Number(process.argv[3]))`,
+        "console.log(applied)",
+      ].join("\n"))
+      let child: ReturnType<typeof Bun.spawn> | undefined
+      await withFileLock(`${file}.lock`, async () => {
+        child = Bun.spawn([process.execPath, script, file, String(generation)], { stdout: "pipe", stderr: "inherit" })
+        await Bun.sleep(400)
+        // The child is blocked on the lock: nothing was written meanwhile.
+        expect(new DurableAuthStore(file).read()).toMatchObject({ generation, auth: { key: "seed" } })
+      })
+      expect(await child!.exited).toBe(0)
+      expect((await new Response(child!.stdout as ReadableStream).text()).trim()).toBe("true")
+      expect(new DurableAuthStore(file).read()).toMatchObject({ generation: generation + 1, auth: { key: "from-child" } })
+    } finally {
+      rmSync(dir, { recursive: true, force: true })
+    }
+  })
+
+  test("a lock left by a dead process is recovered; a live holder is waited for", async () => {
+    const { withFileLock } = await import("../packages/cli/src/zcode/auth-store.ts")
+    const dir = mkdtempSync(join(tmpdir(), "ocp-zcode-lock2-"))
+    try {
+      const lock = join(dir, "x.lock")
+      writeFileSync(lock, `999999 ${Date.now()} dead`)
+      expect(await withFileLock(lock, () => "ran")).toBe("ran")
+      const order: string[] = []
+      const first = withFileLock(lock, async () => {
+        order.push("first-start")
+        await Bun.sleep(60)
+        order.push("first-end")
+      })
+      await Bun.sleep(5)
+      await withFileLock(lock, () => {
+        order.push("second")
+      })
+      await first
+      expect(order).toEqual(["first-start", "first-end", "second"])
+    } finally {
+      rmSync(dir, { recursive: true, force: true })
+    }
+  })
+
+  test("a changed entry at an already imported path requires a restart", async () => {
+    const { loadPlugin, PluginLoadError } = await import("../packages/cli/src/zcode/plugin-host.ts")
+    const dir = mkdtempSync(join(tmpdir(), "ocp-zcode-reload-"))
+    try {
+      const paths: ZcodePaths = { configFile: "", installRoot: join(dir, "p"), stateDir: join(dir, "s"), cacheDir: join(dir, "c") }
+      const binding = { id: "r", workspace: dir, credentials: { model: { env: "X" } }, plugins: [] }
+      const spec = { id: "loop", package: "zcode-loop-provider", version: "1.0.0", contract: "classic" as const, models: [{ alias: "loop", upstream: "loop-1" }] }
+      const resolved = (sha256: string, version = "1.0.0") => () => ({ name: spec.package, version, entry: LOOP, sha256 })
+      await loadPlugin(binding, spec, { paths, resolvePackage: resolved("sha-loop") })
+      const failure = await loadPlugin(binding, spec, { paths, resolvePackage: resolved("sha-upgraded", "1.0.1") }).catch((error: unknown) => error)
+      expect(failure).toBeInstanceOf(PluginLoadError)
+      expect((failure as { code: string }).code).toBe("restart-required")
+    } finally {
+      rmSync(dir, { recursive: true, force: true })
+    }
+  })
+
+  test("reloads run one at a time and a trigger during a run gets one more full pass", async () => {
+    const { coalescingRunner } = await import("../packages/cli/src/zcode/cli.ts")
+    const log: string[] = []
+    let n = 0
+    const run = coalescingRunner(async () => {
+      const id = ++n
+      log.push(`start${id}`)
+      await Bun.sleep(20)
+      log.push(`end${id}`)
+    })
+    const first = run()
+    run()
+    run()
+    await first
+    expect(log).toEqual(["start1", "end1", "start2", "end2"])
+  })
+
+  test("maxSessions bounds retained session catalogs", () => {
+    const catalog = createSessionToolCatalog(1)
+    const z = { name: "zeta", input_schema: { type: "object" } }
+    const a = { name: "alpha", input_schema: { type: "object" } }
+    expect(catalog([z], "s1").tools.map(tool => tool.name)).toEqual(["zeta"])
+    expect(catalog([z], "s2").tools.map(tool => tool.name)).toEqual(["zeta"])
+    // s1 was evicted, so its next catalog is a fresh, sorted first catalog.
+    expect(catalog([a, z], "s1").tools.map(tool => tool.name)).toEqual(["alpha", "zeta"])
+  })
+
+  test("the probe transcript stores ids only as per-run keyed hashes", async () => {
+    const { createTranscript } = await import("../packages/cli/src/zcode/probe.ts")
+    const dir = mkdtempSync(join(tmpdir(), "ocp-zcode-transcript-"))
+    try {
+      const file = join(dir, "t.jsonl")
+      const transcript = createTranscript(file, { port: 1 })
+      const record = { route: "/v1/messages", method: "POST", headerNames: [], protocol: {}, status: 200, durationMs: 1,
+        attribution: { "x-session-id": "sess-secret-1", "x-zcode-session-type": "main", "x-request-id": "req-secret-2" } } as RequestRecord
+      transcript.record(record)
+      transcript.record(record)
+      const text = (await Bun.file(file).text())
+      expect(text).not.toContain("sess-secret-1")
+      expect(text).not.toContain("req-secret-2")
+      const [, one, two] = text.trim().split("\n").map(line => JSON.parse(line))
+      expect(one.attribution["x-zcode-session-type"]).toBe("main")
+      expect(one.attribution["x-session-id"]).toMatch(/^hmac:[0-9a-f]{16}$/)
+      expect(one.attribution["x-session-id"]).toBe(two.attribution["x-session-id"])
     } finally {
       rmSync(dir, { recursive: true, force: true })
     }

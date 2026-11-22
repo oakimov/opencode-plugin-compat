@@ -128,9 +128,12 @@ export type RequestToolMap = {
   canonicalInput(nativeName: string, input: unknown): unknown
 }
 
-/** Per-session frozen ordering, shared across requests of one bridge process. */
-export function createSessionToolCatalog() {
-  const order = createToolCatalogOrder<CanonicalTool>()
+/**
+ * Per-session frozen ordering, shared across requests of one bridge process.
+ * At most `maxSessions` session catalogs are retained (least recently used out).
+ */
+export function createSessionToolCatalog(maxSessions?: number) {
+  const order = createToolCatalogOrder<CanonicalTool>(maxSessions)
 
   return (nativeTools: readonly NativeTool[], sessionKey: string | undefined): RequestToolMap => {
     const current = new Map<string, { tool: CanonicalTool; mapping?: VerifiedMapping }>()

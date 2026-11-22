@@ -17,6 +17,8 @@ export type ModelRoute = {
   /** Identity of the routed target; changes when an alias is repointed on reload. */
   targetKey: string
   languageModel(): Promise<LanguageModelV3>
+  /** Per-call provider options from the model's catalog entry. */
+  providerOptions(): Record<string, Record<string, unknown>> | undefined
 }
 
 /** A model source that is not an OpenCode plugin (the Step 0 probe). */
@@ -89,6 +91,7 @@ export async function buildGeneration(config: ZcodeBridgeConfig, options: BuildO
             model,
             targetKey: `${spec.id}\u0000${pluginSpec.id}\u0000${plugin.resolved.sha256}\u0000${model.upstream}`,
             languageModel: () => plugin.languageModel(model.alias),
+            providerOptions: () => plugin.providerOptions(model.alias),
           })
         }
       } catch (error) {
@@ -106,6 +109,7 @@ export async function buildGeneration(config: ZcodeBridgeConfig, options: BuildO
         model: source.info,
         targetKey: `${spec.id}\u0000static\u0000${source.info.alias}`,
         languageModel: source.languageModel,
+        providerOptions: () => undefined,
       })
     }
     bindings.push({ spec, modelCredential, ...(mcpCredential ? { mcpCredential } : {}), routes, plugins })

@@ -53,7 +53,7 @@ ocp zcode credential --file ~/.local/share/opencode-compat/zcode/state/model-cre
 
 - `listen.host` must be loopback. Credentials are `{ "env": "NAME" }` or `{ "file": "/abs/path" }` references. Each binding needs a distinct model credential, which selects the binding.
 - Optional plugin fields: `entry` (an `exports` subpath), `factoryExport`, `pluginExport`, `providerId` and `options` (AI-SDK factory options; `$apiKey` is substituted).
-- Optional `limits`: `maxBodyBytes`, `maxConcurrentRequests`, `maxSessions`.
+- Optional `limits`: `maxBodyBytes`, `maxConcurrentRequests`, `maxSessions` (retained per-session tool catalogs). A reload that changes `listen`, `maxBodyBytes` or `maxSessions` is refused until restart.
 - Unknown fields, duplicate binding or plugin ids, duplicate aliases, shared credential references and version ranges are rejected with the JSON path.
 
 ```bash
@@ -61,6 +61,7 @@ ocp zcode check          # readiness: package version, entry sha256, auth, model
 ocp zcode auth --binding main --plugin provider [--method oauth|api]
 ocp zcode models         # IDs, limits and modalities to enter in ZCode
 ocp zcode serve          # SIGHUP reloads; a failed reload keeps the old generation serving
+                         # an upgraded plugin package needs a restart, not a reload
 ```
 
 Upstream auth is stored privately per binding/plugin/provider (`$XDG_DATA_HOME/opencode-compat/zcode/state/auth/`, 0600). A refresh made by an in-flight request never overwrites a newer login.
@@ -84,7 +85,7 @@ This serves a deterministic built-in model (`ocp-probe`) through the same endpoi
 - Send any message. Expect `OCP-PROBE-TEXT`.
 - Send a message containing `ocp probe read`. Expect a native `Read` of a generated temp file, then `OCP-PROBE-OK` once the next request carries the matching result.
 
-The private transcript (0600 JSONL) records header names, ZCode attribution values (`x-session-id`, `x-zcode-session-type`, `x-zcode-query-source`, `x-request-id`, …), protocol headers, block types, tool names, stop reasons and verdicts. It contains no prompt text, file contents or credentials.
+The private transcript (0600 JSONL) records header names, protocol headers, ZCode attribution labels (`x-zcode-session-type`, `x-zcode-query-source`), block types, tool names, stop reasons and verdicts. Session, query, request and trace ids are stored only as keyed hashes. The key is per run and never written, so ids can be compared within one run but are not persisted. The transcript contains no prompt text, file contents, local paths or credentials.
 
 ## Privacy and telemetry
 

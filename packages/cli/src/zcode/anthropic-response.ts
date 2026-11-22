@@ -337,36 +337,48 @@ export function encodeAnthropicMessage(model: string, toolMap: RequestToolMap, r
   }
 }
 
-/** Aggregate a V3 stream into a generate result (for providers without a usable doGenerate). */
+/**
+ * Aggregate a V3 stream into a generate result (for providers without a usable
+ * doGenerate). The source is cancelled whenever aggregation does not complete.
+ */
 export async function collectStream(parts: ReadableStream<LanguageModelV3StreamPart>): Promise<GenerateResultLike> {
   const content: LanguageModelV3Content[] = []
   const texts = new Map<string, { type: "text" | "reasoning"; text: string }>()
   let finish: { finishReason: LanguageModelV3FinishReason; usage: LanguageModelV3Usage } | undefined
   const reader = parts.getReader()
-  while (true) {
-    const next = await reader.read()
-    if (next.done) break
-    const part = next.value
-    if (part.type === "text-start" || part.type === "reasoning-start") {
-      const entry = { type: part.type === "text-start" ? "text" as const : "reasoning" as const, text: "" }
-      texts.set(`${entry.type}:${part.id}`, entry)
-      content.push(entry as LanguageModelV3Content)
-    } else if (part.type === "text-delta" || part.type === "reasoning-delta") {
-      const kind = part.type === "text-delta" ? "text" : "reasoning"
-      let entry = texts.get(`${kind}:${part.id}`)
-      if (!entry) {
-        entry = { type: kind, text: "" }
-        texts.set(`${kind}:${part.id}`, entry)
+  let completed = false
+  try {
+    while (true) {
+      const next = await reader.read()
+      if (next.done) break
+      const part = next.value
+      if (part.type === "text-start" || part.type === "reasoning-start") {
+        const entry = { type: part.type === "text-start" ? "text" as const : "reasoning" as const, text: "" }
+        texts.set(`${entry.type}:${part.id}`, entry)
         content.push(entry as LanguageModelV3Content)
+      } else if (part.type === "text-delta" || part.type === "reasoning-delta") {
+        const kind = part.type === "text-delta" ? "text" : "reasoning"
+        let entry = texts.get(`${kind}:${part.id}`)
+        if (!entry) {
+          entry = { type: kind, text: "" }
+          texts.set(`${kind}:${part.id}`, entry)
+          content.push(entry as LanguageModelV3Content)
+        }
+        entry.text += part.delta
+      } else if (part.type === "tool-call") {
+        content.push(part)
+      } else if (part.type === "error") {
+        throw part.error instanceof Error ? part.error : new Error(String(part.error))
+      } else if (part.type === "finish") {
+        finish = { finishReason: part.finishReason, usage: part.usage }
       }
-      entry.text += part.delta
-    } else if (part.type === "tool-call") {
-      content.push(part)
-    } else if (part.type === "error") {
-      throw part.error instanceof Error ? part.error : new Error(String(part.error))
-    } else if (part.type === "finish") {
-      finish = { finishReason: part.finishReason, usage: part.usage }
     }
+    completed = true
+  } finally {
+    // An error part or a throw leaves the source open: cancel it so the
+    // provider's connection and background work stop with the request.
+    if (!completed) await reader.cancel().catch(() => undefined)
+    reader.releaseLock()
   }
   if (!finish) throw new Error("provider stream ended without a finish")
   return { content, ...finish }

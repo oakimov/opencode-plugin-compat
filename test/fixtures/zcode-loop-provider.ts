@@ -12,6 +12,7 @@ export const LOOP_CALL_ID = "call_loop_1"
 
 type Options = {
   prompt: Array<{ role: string; content: unknown }>
+  providerOptions?: Record<string, Record<string, unknown>>
   tools?: Array<{ name: string }>
   headers?: Record<string, string | undefined>
   abortSignal?: AbortSignal
@@ -79,6 +80,17 @@ export function createLoop(options: Record<string, unknown> = {}) {
               }),
             }
           }
+          if (modelId === "error-stream") {
+            // Emits an error part, then would keep running until cancelled.
+            return {
+              stream: new ReadableStream({
+                start(controller) {
+                  controller.enqueue({ type: "text-start", id: "t" })
+                  controller.enqueue({ type: "error", error: new Error("upstream exploded") })
+                },
+              }),
+            }
+          }
           if (modelId === "truncated") {
             return {
               stream: new ReadableStream({
@@ -123,7 +135,8 @@ export async function LoopPlugin() {
       config.provider.loop = {
         name: "Loop",
         models: {
-          "loop-1": { name: "Loop One", limit: { context: 64_000, output: 4_000 }, modalities: { input: ["text"], output: ["text"] } },
+          "loop-1": { name: "Loop One", limit: { context: 64_000, output: 4_000 }, modalities: { input: ["text"], output: ["text"] }, options: { wireModel: "loop-1-wire" } },
+          "error-stream": { name: "Error stream" },
           plain: { name: "Plain" },
           slow: { name: "Slow" },
           truncated: { name: "Truncated" },
