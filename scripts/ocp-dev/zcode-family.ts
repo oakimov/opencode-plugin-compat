@@ -175,6 +175,18 @@ function ruleIndexes(root: ReturnType<typeof parseJsonc>, providerId: string): n
   return indexes
 }
 
+function ownedRuleIndexes(root: ReturnType<typeof parseJsonc>, providerId: string, credential: string | undefined): number[] {
+  const indexes = ruleIndexes(root, providerId)
+  for (const index of indexes) {
+    const rule = toValue(getNode(root, [...RULES_PATH, index])!) as Partial<ZcodeProviderRule>
+    if (!credential || rule.providerName !== "OCP (ocp-dev)" ||
+        rule.config?.api?.type !== "anthropic-messages" || rule.config.access?.apiKey !== credential) {
+      throw new Error(`ZCode provider id "${providerId}" is already in use by a Personal provider outside this shim`)
+    }
+  }
+  return indexes
+}
+
 /**
  * Insert or replace this shim's provider rule in an existing
  * provider_config.json. The file is never created here: ZCode imports a
@@ -189,7 +201,7 @@ export function upsertZcodeProvider(configPath: string, rule: ZcodeProviderRule)
   const mode = fileMode(configPath) ?? 0o600
   let text = readProviderConfig(configPath).text
   const root = parseJsonc(text)
-  const existing = ruleIndexes(root, rule.providerId)
+  const existing = ownedRuleIndexes(root, rule.providerId, rule.config.access.apiKey)
   if (existing.length === 0) {
     text = pushPath(text, RULES_PATH, rule)
   } else {
@@ -217,14 +229,15 @@ export type ZcodeRemoval = { removedRules: number; removedModelRules: number; re
  * providerOrder entry (only when this shim appended it) and a default model
  * selection that points at it. Everything else is left byte-for-byte.
  */
-export function removeZcodeProvider(configPath: string, providerId: string, options: { removeOrder: boolean }): ZcodeRemoval {
+export function removeZcodeProvider(configPath: string, providerId: string, options: { removeOrder: boolean; credential: string | undefined }): ZcodeRemoval {
   const result: ZcodeRemoval = { removedRules: 0, removedModelRules: 0, removedOrder: false, clearedSelection: false }
   if (!existsSync(configPath)) return result
   const mode = fileMode(configPath)
   const loaded = readProviderConfig(configPath)
   let text = loaded.text
   const root = loaded.root
-  const rules = ruleIndexes(root, providerId)
+  const rules = ownedRuleIndexes(root, providerId, options.credential)
+  if (rules.length === 0) return result
   for (let i = rules.length - 1; i >= 0; i -= 1) text = deletePath(text, [...RULES_PATH, rules[i]!])
   result.removedRules = rules.length
 
@@ -384,6 +397,7 @@ export async function runZcode(mode: WireMode): Promise<void> {
   if (!existsSync(configPath)) {
     throw new Error(`${configPath} does not exist. Start ZCode once (it creates the file and imports any legacy provider settings), quit it, then rerun.`)
   }
+  ownedRuleIndexes(readProviderConfig(configPath).root, ZCODE_PROVIDER_ID, readText(credentialPath())?.trim())
   const plugin = pluginName()
   const port = Number(process.env.OCP_DEV_ZCODE_PORT || ZCODE_DEFAULT_PORT)
   if (!Number.isInteger(port) || port < 1 || port > 65_535) throw new Error("OCP_DEV_ZCODE_PORT must be an integer between 1 and 65535")
@@ -453,7 +467,10 @@ export async function unshimZcode(): Promise<void> {
   const manifestText = readText(manifestPath("zcode"))
   const manifest = manifestText ? JSON.parse(manifestText) as { appendedOrder?: boolean; configPath?: string } : {}
   const configPath = manifest.configPath ?? configFile("zcode")
-  const removal = removeZcodeProvider(configPath, ZCODE_PROVIDER_ID, { removeOrder: manifest.appendedOrder === true })
+  const removal = removeZcodeProvider(configPath, ZCODE_PROVIDER_ID, {
+    removeOrder: manifest.appendedOrder === true,
+    credential: readText(credentialPath())?.trim(),
+  })
   if (removal.removedRules > 0) console.log(`ocp-dev: removed Personal provider "${ZCODE_PROVIDER_ID}" from ${configPath}`)
   if (removal.clearedSelection) console.log("ocp-dev: the default model pointed at it; ZCode falls back to its own default")
   for (const path of [join(zcodeStateDir(), "bin"), join(zcodeStateDir(), "npm"), installRoot(), join(zcodeHome(), "config"), join(zcodeHome(), "cache")]) {

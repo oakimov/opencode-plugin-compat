@@ -283,7 +283,7 @@ export function encodeAnthropicStream(options: EncodeStreamOptions): ReadableStr
             return
           }
           case "error": {
-            failWith(`provider error: ${part.error instanceof Error ? part.error.message : typeof part.error === "string" ? part.error : JSON.stringify(part.error)}`)
+            failWith("provider reported a stream error")
             return
           }
           // Streamed tool input is only forwarded as a complete, converted call.
@@ -358,18 +358,21 @@ export function encodeAnthropicMessage(model: string, toolMap: RequestToolMap, r
 
 /**
  * Aggregate a V3 stream into a generate result (for providers without a usable
- * doGenerate). The source is cancelled whenever aggregation does not complete.
+ * doGenerate). Like the SSE encoder, stop at the first finish and cancel the
+ * remaining source on finish, error, or request abort.
  */
-export async function collectStream(parts: ReadableStream<LanguageModelV3StreamPart>): Promise<GenerateResultLike> {
+export async function collectStream(parts: ReadableStream<LanguageModelV3StreamPart>, signal?: AbortSignal): Promise<GenerateResultLike> {
   const content: LanguageModelV3Content[] = []
   const texts = new Map<string, { type: "text" | "reasoning"; text: string }>()
-  let finish: { finishReason: LanguageModelV3FinishReason; usage: LanguageModelV3Usage } | undefined
   const reader = parts.getReader()
-  let completed = false
+  const cancelSource = () => { void reader.cancel().catch(() => undefined) }
+  signal?.addEventListener("abort", cancelSource, { once: true })
   try {
+    signal?.throwIfAborted()
     while (true) {
       const next = await reader.read()
-      if (next.done) break
+      signal?.throwIfAborted()
+      if (next.done) throw new Error("provider stream ended without a finish")
       const part = next.value
       if (part.type === "text-start" || part.type === "reasoning-start") {
         const entry = { type: part.type === "text-start" ? "text" as const : "reasoning" as const, text: "" }
@@ -389,16 +392,14 @@ export async function collectStream(parts: ReadableStream<LanguageModelV3StreamP
       } else if (part.type === "error") {
         throw part.error instanceof Error ? part.error : new Error(String(part.error))
       } else if (part.type === "finish") {
-        finish = { finishReason: part.finishReason, usage: part.usage }
+        return { content, finishReason: part.finishReason, usage: part.usage }
       }
     }
-    completed = true
   } finally {
-    // An error part or a throw leaves the source open: cancel it so the
-    // provider's connection and background work stop with the request.
-    if (!completed) await reader.cancel().catch(() => undefined)
+    signal?.removeEventListener("abort", cancelSource)
+    // Cancellation releases pending reads immediately. The provider's cleanup
+    // promise may itself need the attempt's abort signal to settle.
+    cancelSource()
     reader.releaseLock()
   }
-  if (!finish) throw new Error("provider stream ended without a finish")
-  return { content, ...finish }
 }

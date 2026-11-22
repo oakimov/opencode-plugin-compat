@@ -10,10 +10,11 @@
  * - Each HTTP attempt owns an AbortController; client disconnect and shutdown
  *   cancel the in-flight provider call. A finished `tool_use` response ends
  *   the attempt and leaves provider-owned continuation state to the provider.
- * - Default logs carry route, binding, model alias, ZCode request id, status,
- *   sanitized error code and version — never secrets, header values, prompt
- *   bodies or file contents.
+ * - Default logs carry route, binding, model alias, a per-process request id
+ *   pseudonym, status, sanitized error code and version — never secrets, raw
+ *   header values, prompt bodies or file contents.
  */
+import { createHmac, randomBytes } from "node:crypto"
 import type { LanguageModelV3, LanguageModelV3CallOptions } from "@ai-sdk/provider"
 import { OCP_VERSION } from "@opencode-compat/profile"
 import { parseMessagesRequest, RequestTranslationError } from "./anthropic-request.js"
@@ -112,16 +113,19 @@ function blockTypes(content: unknown): string[] {
 function summarizeBody(summary: RequestSummary, body: unknown): void {
   if (!body || typeof body !== "object") return
   const value = body as Record<string, unknown>
-  if (typeof value.model === "string") summary.model = value.model
   summary.stream = value.stream === true
-  if (Array.isArray(value.tools)) summary.toolNames = value.tools.map(tool => String((tool as { name?: unknown })?.name ?? "?"))
-  if (value.tool_choice && typeof value.tool_choice === "object") summary.toolChoice = String((value.tool_choice as { type?: unknown }).type)
+  if (Array.isArray(value.tools)) summary.toolNames = value.tools.map(tool => {
+    const name = (tool as { name?: unknown } | null)?.name
+    return typeof name === "string" ? name : "?"
+  })
+  const choice = (value.tool_choice as { type?: unknown } | null)?.type
+  if (typeof choice === "string") summary.toolChoice = choice
   if (value.system !== undefined) summary.systemBlocks = typeof value.system === "string" ? 1 : Array.isArray(value.system) ? value.system.length : 0
   if (Array.isArray(value.messages)) {
-    summary.messages = value.messages.map(message => ({
-      role: String((message as { role?: unknown })?.role ?? "?"),
-      blocks: blockTypes((message as { content?: unknown })?.content),
-    }))
+    summary.messages = value.messages.map(message => {
+      const { role, content } = (message as { role?: unknown; content?: unknown } | null) ?? {}
+      return { role: typeof role === "string" ? role : "?", blocks: blockTypes(content) }
+    })
     summary.toolResultIds = value.messages.flatMap(message => {
       const content = (message as { content?: unknown })?.content
       return Array.isArray(content)
@@ -143,6 +147,7 @@ export function startBridgeServer(options: BridgeServerOptions): BridgeServer {
   // Retention is fixed for the listener's lifetime; reloads that change it are refused.
   const catalog = createSessionToolCatalog(generation.config.limits.maxSessions)
   const active = new Set<AbortController>()
+  const requestLogKey = randomBytes(32)
   let stopping = false
   const { host, port: configuredPort } = generation.config.listen
   const allowedHosts = (port: number) => new Set([
@@ -151,14 +156,15 @@ export function startBridgeServer(options: BridgeServerOptions): BridgeServer {
 
   const finish = (summary: RequestSummary, started: number, status: number, extra: Partial<RequestRecord> = {}) => {
     const record: RequestRecord = { ...summary, status, durationMs: Date.now() - started, ...extra }
+    const requestId = record.attribution["x-request-id"]
     log([
       "ocp-zcode",
       `v=${OCP_VERSION}`,
       `gen=${generation.id}`,
-      `route=${record.route}`,
+      `route=${["/v1/messages", "/v1/models", "/health"].includes(record.route) ? record.route : "unknown"}`,
       ...(record.binding ? [`binding=${record.binding}`] : []),
-      ...(record.model ? [`model=${record.model}`] : []),
-      ...(record.attribution["x-request-id"] ? [`request=${record.attribution["x-request-id"]}`] : []),
+      ...(record.model ? [`model=${JSON.stringify(record.model)}`] : []),
+      ...(requestId ? [`request=hmac:${createHmac("sha256", requestLogKey).update(requestId).digest("hex").slice(0, 16)}`] : []),
       `status=${record.status}`,
       ...(record.errorCode ? [`error=${record.errorCode}`] : []),
       ...(record.stopReason ? [`stop=${record.stopReason}`] : []),
@@ -297,6 +303,7 @@ export function startBridgeServer(options: BridgeServerOptions): BridgeServer {
       }
       const route = binding.routes.get(parsed.model)
       if (!route) return reject(404, "not_found_error", "model", `ocp: unknown model "${parsed.model}" for this credential`)
+      summary.model = route.model.alias
       if (route.plugin?.authReadiness() === "login-required") {
         return reject(403, "permission_error", "login-required",
           `ocp: upstream login required — run: ocp zcode auth --binding ${binding.spec.id} --plugin ${route.plugin.spec.id}`)
@@ -328,8 +335,11 @@ export function startBridgeServer(options: BridgeServerOptions): BridgeServer {
         } catch (error) {
           return reject(502, "api_error", "provider-resolve", `ocp: provider model could not be created: ${error instanceof Error ? error.message : String(error)}`)
         }
-        handedOff = true
-        if (parsed.stream) return streamResponse(model, parsed.model, toolMap, callOptions, controller, release, summary, started)
+        if (parsed.stream) {
+          const response = await streamResponse(model, parsed.model, toolMap, callOptions, controller, release, summary, started)
+          handedOff = true
+          return response
+        }
         return generateResponse(model, parsed.model, toolMap, callOptions, controller, release, summary, started)
       })
     } catch (error) {
@@ -404,7 +414,7 @@ export function startBridgeServer(options: BridgeServerOptions): BridgeServer {
     try {
       const result = typeof model.doGenerate === "function"
         ? await model.doGenerate(callOptions)
-        : await collectStream((await model.doStream(callOptions)).stream)
+        : await collectStream((await model.doStream(callOptions)).stream, controller.signal)
       const encoded = encodeAnthropicMessage(alias, toolMap, result)
       finish(summary, started, 200, { stopReason: encoded.stopReason, ...(encoded.toolCallIds.length ? { toolCallIds: encoded.toolCallIds } : {}) })
       return json(200, encoded.body)

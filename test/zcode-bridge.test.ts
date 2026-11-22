@@ -5,7 +5,7 @@
  * (apps/zcode-cli/packages/adapters/src/model/model-execution.ts:341-349).
  */
 import { afterAll, afterEach, beforeAll, describe, expect, test } from "bun:test"
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs"
+import { mkdirSync, mkdtempSync, readdirSync, rmSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join, resolve } from "node:path"
 import { createAnthropic } from "@ai-sdk/anthropic"
@@ -139,6 +139,13 @@ describe("zcode tool catalog mapping", () => {
     expect(() => map.toNativeCall("write", "{}")).toThrow("did not advertise")
   })
 
+  test("pass-through calls still require a complete JSON object", () => {
+    const map = createSessionToolCatalog()([{ name: "Custom", input_schema: { type: "object" } }], undefined)
+    expect(map.toNativeCall("Custom", '{"argument":1}')).toEqual({ name: "Custom", input: '{"argument":1}' })
+    expect(() => map.toNativeCall("Custom", '{"argument":')).toThrow("not valid JSON")
+    expect(() => map.toNativeCall("Custom", "[]")).toThrow("must be a JSON object")
+  })
+
   test("a native Read whose schema drifted from the verified shape passes through unmapped", () => {
     const drifted = { ...read, input_schema: { type: "object", properties: { path: { type: "string" } }, required: ["path"] } }
     const map = createSessionToolCatalog()([drifted], undefined)
@@ -253,7 +260,7 @@ describe("zcode auth store", () => {
 
 type Harness = { server: BridgeServer; records: RequestRecord[]; dir: string; paths: ZcodePaths }
 
-async function startHarness(extra: { probe?: ReturnType<typeof createProbeModel>; seedAcme?: boolean } = {}): Promise<Harness> {
+async function startHarness(extra: { probe?: ReturnType<typeof createProbeModel>; seedAcme?: boolean; log?: (line: string) => void } = {}): Promise<Harness> {
   const dir = mkdtempSync(join(tmpdir(), "ocp-zcode-wire-"))
   const paths: ZcodePaths = { configFile: join(dir, "config.json"), installRoot: join(dir, "plugins"), stateDir: join(dir, "state"), cacheDir: join(dir, "cache") }
   const config: ZcodeBridgeConfig = {
@@ -269,7 +276,7 @@ async function startHarness(extra: { probe?: ReturnType<typeof createProbeModel>
           { id: "loop", package: "zcode-loop-provider", version: "1.0.0", contract: "classic", models: [
             { alias: "loop", upstream: "loop-1" }, { alias: "plain", upstream: "plain" },
             { alias: "slow", upstream: "slow" }, { alias: "truncated", upstream: "truncated" },
-            { alias: "error-stream", upstream: "error-stream" },
+            { alias: "error-stream", upstream: "error-stream" }, { alias: "locked-stream", upstream: "locked-stream" },
           ] },
           { id: "acme", package: "pi-bridge-acme-provider", version: "1.0.0", contract: "classic", models: [{ alias: "acme", upstream: "acme-large" }] },
         ],
@@ -287,7 +294,7 @@ async function startHarness(extra: { probe?: ReturnType<typeof createProbeModel>
     ...(extra.probe ? { staticRoutes: new Map([["other", [{ info: PROBE_MODEL_INFO, languageModel: async () => extra.probe! }]]]) } : {}),
   })
   const records: RequestRecord[] = []
-  const server = startBridgeServer({ generation, log: () => {}, observer: record => records.push(record), pingIntervalMs: 0 })
+  const server = startBridgeServer({ generation, log: extra.log ?? (() => {}), observer: record => records.push(record), pingIntervalMs: 0 })
   return { server, records, dir, paths }
 }
 
@@ -319,7 +326,7 @@ async function drain(stream: ReadableStream<LanguageModelV3StreamPart>): Promise
 describe("zcode bridge on the Anthropic Messages wire", () => {
   let harness: Harness
   beforeAll(async () => {
-    harness = await startHarness({ seedAcme: true, probe: createProbeModel(createProbeFile(mkdtempSync(join(tmpdir(), "ocp-zcode-probe-")))) })
+    harness = await startHarness({ seedAcme: true })
   })
   afterAll(async () => {
     await harness.server.stop()
@@ -419,6 +426,16 @@ describe("zcode bridge on the Anthropic Messages wire", () => {
     expect(await bad.json()).toMatchObject({ error: { type: "invalid_request_error", message: "ocp: mcp_servers: unsupported request field" } })
   })
 
+  test("malformed metadata is rejected by the translator with a 400", async () => {
+    const response = await fetch(`${harness.server.url}/messages`, {
+      method: "POST",
+      headers: { "x-api-key": CREDENTIAL },
+      body: JSON.stringify({ model: "plain", max_tokens: 10, messages: [], tool_choice: { type: { toString: 0 } } }),
+    })
+    expect(response.status).toBe(400)
+    expect(await response.json()).toMatchObject({ error: { type: "invalid_request_error" } })
+  })
+
   test("client disconnect aborts the provider call", async () => {
     const controller = new AbortController()
     const model = zcodeClient(harness.server).languageModel("slow")
@@ -442,6 +459,21 @@ describe("zcode bridge on the Anthropic Messages wire", () => {
     const signal = recordedCalls()[0]!.abortSignal!
     for (let i = 0; i < 50 && !signal.aborted; i++) await Bun.sleep(10)
     expect(signal.aborted).toBe(true)
+  })
+
+  test("a provider stream rejected during SSE setup releases the attempt slot", async () => {
+    const attempts = harness.server.generation().config.limits.maxConcurrentRequests + 1
+    for (let index = 0; index < attempts; index++) {
+      const response = await fetch(`${harness.server.url}/messages`, {
+        method: "POST",
+        headers: { "x-api-key": CREDENTIAL },
+        body: JSON.stringify({ model: "locked-stream", max_tokens: 10, stream: true, messages: [] }),
+      })
+      expect(response.status).toBe(500)
+      await response.text()
+    }
+    expect(recordedCalls()).toHaveLength(attempts)
+    expect(recordedCalls().every(call => call.abortSignal?.aborted)).toBe(true)
   })
 
   test("the concurrency limit holds while request bodies are still arriving", async () => {
@@ -521,7 +553,8 @@ describe("zcode bridge on the Anthropic Messages wire", () => {
   })
 
   test("Step 0 probe: plain text, then a native Read whose replayed result yields the marker", async () => {
-    const probeFile = createProbeFile(mkdtempSync(join(tmpdir(), "ocp-zcode-probe2-")))
+    const probeDir = mkdtempSync(join(tmpdir(), "ocp-zcode-probe2-"))
+    const probeFile = createProbeFile(probeDir)
     const probe = createProbeModel(probeFile)
     const local = await startHarness({ probe })
     try {
@@ -549,6 +582,64 @@ describe("zcode bridge on the Anthropic Messages wire", () => {
     } finally {
       await local.server.stop()
       rmSync(local.dir, { recursive: true, force: true })
+      rmSync(probeDir, { recursive: true, force: true })
+    }
+  })
+})
+
+describe("zcode CLI recovery", () => {
+  const cli = resolve(import.meta.dir, "../packages/ocp/bin/ocp.ts")
+
+  test("explicit logout works when the old credential prevents catalog discovery", async () => {
+    const root = mkdtempSync(join(tmpdir(), "ocp-zcode-auth-recovery-"))
+    try {
+      const dataHome = join(root, "data")
+      const paths = { ...process.env, HOME: root, XDG_DATA_HOME: dataHome, TMPDIR: root }
+      const packageDir = join(dataHome, "opencode-compat/zcode/plugins/node_modules/test-provider")
+      mkdirSync(packageDir, { recursive: true })
+      writeFileSync(join(packageDir, "package.json"), JSON.stringify({ name: "test-provider", version: "1.0.0", exports: "./index.js" }))
+      writeFileSync(join(packageDir, "index.js"), `
+        export function createTest() { return { languageModel() { throw new Error("unexpected model call") } } }
+        export default async () => ({
+          auth: {
+            provider: "fixture",
+            methods: [{ type: "api", label: "Test" }],
+            async loader() { throw new Error("expired credential"); },
+          },
+          async config() { throw new Error("unexpected catalog discovery"); },
+        });
+      `)
+      const config = join(root, "config.json")
+      writeFileSync(config, JSON.stringify({
+        version: 1, bindings: [{ id: "main", workspace: root, credentials: { model: { env: "OCP_UNUSED_TEST_ENV" } },
+          plugins: [{ id: "test", package: "test-provider", version: "1.0.0", contract: "classic", models: "catalog" }] }],
+      }))
+      const store = DurableAuthStore.forPlugin(join(dataHome, "opencode-compat/zcode/state"), "main", "test", "fixture")
+      await store.replace({ type: "api", key: "expired-fixture-key" })
+      const result = Bun.spawnSync([process.execPath, cli, "zcode", "auth", "--config", config, "--binding", "main", "--plugin", "test", "--logout"], { env: paths, timeout: 5000 })
+      expect(result.exitCode, result.stderr.toString()).toBe(0)
+      expect(store.read()).toEqual({ generation: 2 })
+    } finally {
+      rmSync(root, { recursive: true, force: true })
+    }
+  })
+
+  test("a port conflict leaves the private transcript and removes the temporary probe file", async () => {
+    const root = mkdtempSync(join(tmpdir(), "ocp-zcode-probe-conflict-"))
+    const listener = Bun.serve({ hostname: "127.0.0.1", port: 0, fetch: () => new Response() })
+    try {
+      const result = Bun.spawnSync([process.execPath, cli, "zcode", "probe", "--port", String(listener.port),
+        "--transcript", join(root, "trace.jsonl")], {
+        env: { ...process.env, HOME: root, TMPDIR: root }, timeout: 5000,
+      })
+      expect(result.exitCode).toBe(1)
+      expect(result.stderr.toString()).toContain("cannot listen")
+      const entries = readdirSync(root)
+      expect(entries).toContain("trace.jsonl")
+      expect(entries.filter(name => name.startsWith("ocp-zcode-probe-"))).toEqual([])
+    } finally {
+      await listener.stop(true)
+      rmSync(root, { recursive: true, force: true })
     }
   })
 })
@@ -656,6 +747,92 @@ describe("zcode review regressions", () => {
     })
     await expect(collectStream(stream)).rejects.toThrow("boom")
     expect(cancelled).toBe(true)
+  })
+
+  test("collectStream settles at finish even if the provider keeps its stream open", async () => {
+    const { collectStream } = await import("../packages/cli/src/zcode/anthropic-response.ts")
+    let cancelled = false
+    let closeSource!: () => void
+    const stream = new ReadableStream<LanguageModelV3StreamPart>({
+      start(controller) {
+        closeSource = () => controller.close()
+        controller.enqueue({
+          type: "finish", finishReason: { unified: "stop", raw: undefined },
+          usage: { inputTokens: { total: 1, noCache: 1, cacheRead: undefined, cacheWrite: undefined }, outputTokens: { total: 1, text: 1, reasoning: undefined } },
+        })
+      },
+      cancel() {
+        cancelled = true
+      },
+    })
+    const result = await Promise.race([collectStream(stream), Bun.sleep(100).then(() => "still waiting")])
+    if (!cancelled) closeSource()
+    expect(result).toMatchObject({ finishReason: { unified: "stop" } })
+    expect(cancelled).toBe(true)
+  })
+
+  test("bridge logs correlate repeated request ids without recording the header value", async () => {
+    const lines: string[] = []
+    const local = await startHarness({ log: line => lines.push(line) })
+    try {
+      const requestId = "synthetic-request-id"
+      for (let index = 0; index < 2; index++) {
+        const response = await fetch(`${local.server.url}/models`, {
+          headers: { "x-api-key": CREDENTIAL, "x-request-id": requestId },
+        })
+        expect(response.status).toBe(200)
+        await response.text()
+      }
+      expect(lines).toHaveLength(2)
+      expect(lines.join("\n")).not.toContain(requestId)
+      const ids = lines.map(line => line.match(/request=hmac:[0-9a-f]{16}/)?.[0])
+      expect(ids[0]).toBeDefined()
+      expect(ids[0]).toBe(ids[1])
+    } finally {
+      await local.server.stop()
+      rmSync(local.dir, { recursive: true, force: true })
+    }
+  })
+
+  test("an idle non-streaming fallback cancels the source on HTTP shutdown", async () => {
+    const local = await startHarness({ probe: createProbeModel({ path: "/probe", contents: "probe" }) })
+    const route = local.server.generation().bindings[1]!.routes.get(PROBE_MODEL_ALIAS)!
+    const model = await route.languageModel()
+    const { promise: started, resolve: signalStarted } = Promise.withResolvers<void>()
+    let closeSource!: () => void
+    let cancelled = false
+    route.languageModel = async () => ({
+      ...model,
+      doGenerate: undefined,
+      async doStream() {
+        return {
+          stream: new ReadableStream<LanguageModelV3StreamPart>({
+            start(controller) {
+              closeSource = () => controller.close()
+              signalStarted()
+            },
+            cancel() {
+              cancelled = true
+            },
+          }),
+        }
+      },
+    }) as unknown as typeof model
+    const response = fetch(`${local.server.url}/messages`, {
+      method: "POST",
+      headers: { "x-api-key": OTHER_CREDENTIAL, "content-type": "application/json" },
+      body: JSON.stringify({ model: PROBE_MODEL_ALIAS, max_tokens: 10, messages: [{ role: "user", content: "hi" }] }),
+    }).catch(() => undefined)
+    try {
+      expect(await Promise.race([started.then(() => true), Bun.sleep(500).then(() => false)])).toBe(true)
+      await local.server.stop()
+      expect(cancelled).toBe(true)
+    } finally {
+      if (!cancelled) closeSource?.()
+      await local.server.stop()
+      await response
+      rmSync(local.dir, { recursive: true, force: true })
+    }
   })
 
   test("auth files never collide across binding/plugin/provider tuples", () => {

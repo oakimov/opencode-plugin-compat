@@ -453,7 +453,8 @@ describe("dsh discovery", () => {
 })
 
 describe("zcode shim", () => {
-  const rule = (ids: string[], key = "ocpz_test_credential_000000000000000") =>
+  const credential = "ocpz_test_credential_000000000000000"
+  const rule = (ids: string[], key = credential) =>
     zcodeProviderRule({ port: 18731, credential: key, modelIds: ids })
 
   test("never creates provider_config.json, so ZCode's own legacy import still runs", () => {
@@ -515,9 +516,30 @@ describe("zcode shim", () => {
       expect(wired.config.defaultModelSelection).toEqual({ providerId: "example", modelId: "example-model" })
       expect(statSync(file).mode & 0o777).toBe(0o600)
 
-      const removal = removeZcodeProvider(file, ZCODE_PROVIDER_ID, { removeOrder: true })
+      const removal = removeZcodeProvider(file, ZCODE_PROVIDER_ID, { removeOrder: true, credential })
       expect(removal).toEqual({ removedRules: 1, removedModelRules: 0, removedOrder: true, clearedSelection: false })
       expect(JSON.parse(readFileSync(file, "utf8"))).toEqual(JSON.parse(original))
+    } finally {
+      rmSync(root, { recursive: true, force: true })
+    }
+  })
+
+  test("keeps a Personal provider with the same id and a different credential", () => {
+    const root = mkdtempSync(join(tmpdir(), "ocp-zcode-shim-"))
+    try {
+      const file = join(root, "provider_config.json")
+      const original = JSON.stringify({
+        schemaVersion: 1,
+        config: {
+          providerOrder: [ZCODE_PROVIDER_ID],
+          providerConfigRules: { providerRules: [rule(["mine"], "another-test-credential")] },
+          defaultModelSelection: { providerId: ZCODE_PROVIDER_ID, modelId: "mine" },
+        },
+      })
+      writeFileSync(file, original)
+      expect(() => upsertZcodeProvider(file, rule(["ours"]))).toThrow("already in use")
+      expect(() => removeZcodeProvider(file, ZCODE_PROVIDER_ID, { removeOrder: true, credential })).toThrow("already in use")
+      expect(readFileSync(file, "utf8")).toBe(original)
     } finally {
       rmSync(root, { recursive: true, force: true })
     }
@@ -535,7 +557,7 @@ describe("zcode shim", () => {
       parsed.config.defaultModelSelection = { providerId: ZCODE_PROVIDER_ID, modelId: "a" }
       text = `${JSON.stringify(parsed, null, 2)}\n`
       writeFileSync(file, text)
-      expect(removeZcodeProvider(file, ZCODE_PROVIDER_ID, { removeOrder: false })).toEqual({
+      expect(removeZcodeProvider(file, ZCODE_PROVIDER_ID, { removeOrder: false, credential })).toEqual({
         removedRules: 1, removedModelRules: 1, removedOrder: false, clearedSelection: true,
       })
       const after = JSON.parse(readFileSync(file, "utf8"))
@@ -564,7 +586,7 @@ describe("zcode shim", () => {
       const first = ownsProviderOrder(undefined, file, upsertZcodeProvider(file, rule([])).appendedOrder)
       const second = ownsProviderOrder(manifest(file, first), file, upsertZcodeProvider(file, rule(["a"])).appendedOrder)
       expect(second).toBe(true)
-      removeZcodeProvider(file, ZCODE_PROVIDER_ID, { removeOrder: second })
+      removeZcodeProvider(file, ZCODE_PROVIDER_ID, { removeOrder: second, credential })
       expect(JSON.parse(readFileSync(file, "utf8")).config.providerOrder).toEqual(["mine"])
     } finally {
       rmSync(root, { recursive: true, force: true })

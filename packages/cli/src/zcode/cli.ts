@@ -6,7 +6,8 @@
  * bridge credential, upstream login, readiness and the loopback listener.
  */
 import { spawnSync } from "node:child_process"
-import { existsSync, mkdirSync, writeFileSync } from "node:fs"
+import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs"
+import { tmpdir } from "node:os"
 import { join, resolve } from "node:path"
 import { createInterface } from "node:readline/promises"
 import { OCP_VERSION } from "@opencode-compat/profile"
@@ -192,7 +193,7 @@ async function runAuth(flags: Flags, paths: ZcodePaths): Promise<number> {
     return 1
   }
   try {
-    const plugin = await loadPlugin(binding, spec, { paths })
+    const plugin = await loadPlugin(binding, spec, { paths, discoverModels: false })
     if (flags.switches.has("--logout")) {
       await plugin.authStore.remove()
       console.log(`logged out: binding ${bindingId} plugin ${pluginId}`)
@@ -357,43 +358,48 @@ async function runProbe(flags: Flags, paths: ZcodePaths): Promise<number> {
     console.error("--port must be an integer between 1 and 65535")
     return 1
   }
-  const file = createProbeFile()
-  const model = createProbeModel(file)
-  const credential = `ocpz_probe_${crypto.randomUUID().replaceAll("-", "")}`
-  const transcriptFile = resolve(flags.values.get("--transcript") ?? join(paths.stateDir, `probe-${Date.now()}.jsonl`))
-  mkdirSync(resolve(transcriptFile, ".."), { recursive: true, mode: 0o700 })
-  // The probe binding has no plugin; its only route is the static probe model.
-  const config: ZcodeBridgeConfig = {
-    version: 1,
-    listen: { host: "127.0.0.1", port },
-    limits: DEFAULT_LIMITS,
-    bindings: [{ id: "probe", workspace: resolve(file.path, ".."), credentials: { model: { env: "OCP_ZCODE_PROBE_CREDENTIAL" } }, plugins: [] }],
-  }
-  const transcript = createTranscript(transcriptFile, {
-    ocpVersion: OCP_VERSION, platform: process.platform, arch: process.arch, port, callId: model.callId,
-  })
-  const generation = await buildGeneration(config, {
-    paths,
-    env: { OCP_ZCODE_PROBE_CREDENTIAL: credential },
-    staticRoutes: new Map([["probe", [{ info: PROBE_MODEL_INFO, languageModel: async () => model }]]]),
-  })
-  let server: BridgeServer
+  const probeDir = mkdtempSync(join(tmpdir(), "ocp-zcode-probe-"))
   try {
-    server = startBridgeServer({
-      generation,
-      observer: record => transcript.record(record, { verdicts: [...model.verdicts] }),
+    const file = createProbeFile(probeDir)
+    const model = createProbeModel(file)
+    const credential = `ocpz_probe_${crypto.randomUUID().replaceAll("-", "")}`
+    const transcriptFile = resolve(flags.values.get("--transcript") ?? join(paths.stateDir, `probe-${Date.now()}.jsonl`))
+    mkdirSync(resolve(transcriptFile, ".."), { recursive: true, mode: 0o700 })
+    // The probe binding has no plugin; its only route is the static probe model.
+    const config: ZcodeBridgeConfig = {
+      version: 1,
+      listen: { host: "127.0.0.1", port },
+      limits: DEFAULT_LIMITS,
+      bindings: [{ id: "probe", workspace: resolve(file.path, ".."), credentials: { model: { env: "OCP_ZCODE_PROBE_CREDENTIAL" } }, plugins: [] }],
+    }
+    const transcript = createTranscript(transcriptFile, {
+      ocpVersion: OCP_VERSION, platform: process.platform, arch: process.arch, port, callId: model.callId,
     })
-  } catch (error) {
-    console.error(error instanceof ListenerConflictError ? error.message : String(error))
-    return 1
+    const generation = await buildGeneration(config, {
+      paths,
+      env: { OCP_ZCODE_PROBE_CREDENTIAL: credential },
+      staticRoutes: new Map([["probe", [{ info: PROBE_MODEL_INFO, languageModel: async () => model }]]]),
+    })
+    let server: BridgeServer
+    try {
+      server = startBridgeServer({
+        generation,
+        observer: record => transcript.record(record, { verdicts: [...model.verdicts] }),
+      })
+    } catch (error) {
+      console.error(error instanceof ListenerConflictError ? error.message : String(error))
+      return 1
+    }
+    console.log(`ZCode Personal provider: format Anthropic Messages, base URL ${server.url}`)
+    console.log(`API key: ${credential}`)
+    console.log(`Model ID: ${PROBE_MODEL_ALIAS}`)
+    console.log(`Then send any message (expect OCP-PROBE-TEXT), and one containing "${PROBE_READ_TRIGGER}" (expect a native Read, then OCP-PROBE-OK).`)
+    console.log(`Transcript (private): ${transcriptFile}`)
+    console.log("Stop with Ctrl-C.")
+    return await waitForSignal(server)
+  } finally {
+    rmSync(probeDir, { recursive: true, force: true })
   }
-  console.log(`ZCode Personal provider: format Anthropic Messages, base URL ${server.url}`)
-  console.log(`API key: ${credential}`)
-  console.log(`Model ID: ${PROBE_MODEL_ALIAS}`)
-  console.log(`Then send any message (expect OCP-PROBE-TEXT), and one containing "${PROBE_READ_TRIGGER}" (expect a native Read, then OCP-PROBE-OK).`)
-  console.log(`Transcript (private): ${transcriptFile}`)
-  console.log("Stop with Ctrl-C.")
-  return waitForSignal(server)
 }
 
 export async function runZcodeCli(args: string[], env: NodeJS.ProcessEnv = process.env): Promise<number> {

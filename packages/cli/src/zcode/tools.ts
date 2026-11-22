@@ -185,15 +185,16 @@ export function createSessionToolCatalog(maxSessions?: number) {
         if (drifted.has(canonicalName)) {
           throw new ToolMappingError(`tool "${canonicalName}" changed its schema during the session; refusing a call made against the stale descriptor`)
         }
-        if (!entry.mapping) return { name: canonicalName, input }
         let parsed: unknown
         try {
-          parsed = input.trim() === "" ? {} : JSON.parse(input)
+          parsed = JSON.parse(input.trim() === "" ? "{}" : input)
         } catch {
           throw new ToolMappingError(`${canonicalName} call input is not valid JSON`)
         }
         if (!isArgs(parsed)) throw new ToolMappingError(`${canonicalName} call input must be a JSON object`)
-        return { name: entry.mapping.native, input: JSON.stringify(entry.mapping.toNative(parsed)) }
+        return entry.mapping
+          ? { name: entry.mapping.native, input: JSON.stringify(entry.mapping.toNative(parsed)) }
+          : { name: canonicalName, input: input.trim() === "" ? "{}" : input }
       },
     }
   }

@@ -86,10 +86,18 @@ export function createLoop(options: Record<string, unknown> = {}) {
               stream: new ReadableStream({
                 start(controller) {
                   controller.enqueue({ type: "text-start", id: "t" })
-                  controller.enqueue({ type: "error", error: new Error("upstream exploded") })
+                  const error: { cause?: unknown } = {}
+                  error.cause = error
+                  controller.enqueue({ type: "error", error })
                 },
               }),
             }
+          }
+          if (modelId === "locked-stream") {
+            const stream = new ReadableStream()
+            const reader = stream.getReader()
+            call.abortSignal?.addEventListener("abort", () => reader.releaseLock(), { once: true })
+            return { stream }
           }
           if (modelId === "truncated") {
             return {

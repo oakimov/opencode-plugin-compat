@@ -129,6 +129,8 @@ const importedEntries = new Map<string, { version: string; sha256: string }>()
 
 export type LoadPluginOptions = {
   paths: ZcodePaths
+  /** Login and logout must remain available when the previous session cannot load models. */
+  discoverModels?: boolean
   /** Override for tests: import the resolved entry. */
   importModule?: ImportModule
   /** Override for tests: skip install-root resolution. */
@@ -235,7 +237,7 @@ export async function loadPlugin(binding: BindingSpec, spec: PluginSpec, options
       }
     }
   }
-  await refreshCatalog()
+  if (options.discoverModels !== false) await refreshCatalog()
 
   const authReadiness = (): AuthReadiness => {
     if (!authHook || authHook.methods.length === 0) return "not-required"

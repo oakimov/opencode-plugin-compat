@@ -16,6 +16,10 @@ The monorepo ships **one shared train version** across all eleven packages, so u
 
 ### Fixed
 
+- `ocp zcode` finishes JSON responses on the provider's finish event, cancels idle fallback streams on abort, and rejects malformed tool calls before emitting them.
+- `ocp zcode auth` can replace or clear credentials that fail catalog discovery. Probe files are cleaned up on exit, and server logs use keyed request ID hashes.
+- `ocp-dev` preserves a ZCode Personal provider that already uses the shim's provider ID with a different credential.
+
 - macOS review checks stop same-session children that change process groups before removing their staging files.
 - Cancelling `scripts/isolated-check.sh` or `scripts/isolate-run.sh` with TERM, INT, HUP, or QUIT sent only to the script's process stops the sandboxed command before the archive or staging files are removed, including when the signal arrives before session creation, before the session leader is known or just before the wait. A boundary still running `ISOLATE_TERM_GRACE` seconds later (default 10) is killed. SIGKILL still cannot be forwarded.
 - `post`, `threads`, and `complete-resolutions.py` send one GitHub credential on every `gh` call: the `--token-env` personal access token when that option is set, otherwise the App installation token. The named token wins over an ambient `GH_TOKEN` or `GITHUB_TOKEN`.

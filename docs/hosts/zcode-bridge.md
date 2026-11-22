@@ -86,6 +86,8 @@ Open ZCode and pick an **OCP (ocp-dev)** model in a new session. After rebuildin
 
 `unshim` removes the `ocp-dev` rule, any model rules that name it, its provider-order entry (only if `run` added it) and a default selection that points at it. It also removes the wrapper, links and bridge config. Upstream login and the bridge credential stay in `~/.cache/ocp-dev/zcode/home/data/opencode-compat/zcode/state`.
 
+Both commands refuse to change an existing `ocp-dev` rule unless it uses the shim’s retained credential.
+
 | Variable | Role |
 |---|---|
 | `OCP_DEV_PROVIDER_PATH` / `OCP_DEV_PLUGIN` | provider checkout / package name (default `cursor-opencode-provider`) |
@@ -127,7 +129,7 @@ The app path, the running-process check and the `provider_config.json` location 
 - Optional `limits`: `maxBodyBytes`, `maxConcurrentRequests`, `maxSessions` (retained per-session tool catalogs). A reload that changes `listen`, `maxBodyBytes` or `maxSessions` is refused until restart.
 - Unknown fields, duplicate binding or plugin ids, duplicate aliases, shared credential references and version ranges are rejected with the JSON path.
 
-Upstream auth is stored privately per binding/plugin/provider (`$XDG_DATA_HOME/opencode-compat/zcode/state/auth/`, 0600). A refresh made by an in-flight request, or by another process, never overwrites a newer login.
+Upstream auth is stored privately per binding/plugin/provider (`$XDG_DATA_HOME/opencode-compat/zcode/state/auth/`, 0600). A refresh made by an in-flight request, or by another process, never overwrites a newer login. You can log in again or run `ocp zcode auth --logout` when the old credential fails during catalog discovery.
 
 ## Probe (Step 0 evidence)
 
@@ -138,12 +140,12 @@ ocp zcode probe [--port 18731] [--transcript <file>]
 This serves a deterministic built-in model (`ocp-probe`) through the same endpoint and prints a one-time credential. Configure it in ZCode as above, then:
 
 - Send any message. Expect `OCP-PROBE-TEXT`.
-- Send a message containing `ocp probe read`. Expect a native `Read` of a generated temp file, then `OCP-PROBE-OK` once the next request carries the matching result.
+- Send a message containing `ocp probe read`. Expect a native `Read` of a generated temp file, then `OCP-PROBE-OK` once the next request carries the matching result. The probe file is removed on exit and the transcript is retained.
 
 The private transcript (0600 JSONL) records header names, protocol headers, ZCode attribution labels (`x-zcode-session-type`, `x-zcode-query-source`), block types, tool names, stop reasons and verdicts. Session, query, request and trace ids are stored only as keyed hashes. The key is per run and never written, so ids can be compared within one run but are not persisted. The transcript contains no prompt text, file contents, local paths or credentials.
 
 ## Privacy and telemetry
 
 - ZCode attribution and trace headers are kept for OCP's correlation and logs and are never forwarded to the plugin or its upstream.
-- Default logs carry route, binding, model alias, the ZCode request id, status, sanitized error code and OCP version.
+- Default logs carry route, binding, model alias, a keyed hash of the ZCode request id, status, sanitized error code and OCP version.
 - Selecting the OCP model sends that model's requests to the loopback bridge instead of a Z.AI endpoint. ZCode's own product telemetry is unaffected. The ZCode 3.18.2 source compiles its telemetry endpoints into the build (`packages/shared/src/env.ts:58-64`) and exposes no user opt-out, and OCP does not change ZCode telemetry. Block it at the host level: [zcode-telemetry-block.md](../guides/zcode-telemetry-block.md).
