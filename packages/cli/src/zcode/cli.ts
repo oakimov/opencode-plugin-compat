@@ -205,11 +205,15 @@ async function runAuth(flags: Flags, paths: ZcodePaths): Promise<number> {
     const auth = await login(plugin, flags.values.get("--method"))
     // An explicit login always supersedes whatever generation is stored.
     await plugin.authStore.replace(auth)
-    // Validate through the plugin's own loader, then refresh the catalog.
-    await plugin.withAuthOperation(async () => {
-      await plugin.languageModel(spec.models[0]!.alias)
-    })
+    // Refresh the catalog (it may only appear after login), then validate the
+    // credential through the plugin's own loader on the first served model.
     await plugin.refreshCatalog()
+    const first = plugin.models.keys().next().value
+    if (first !== undefined) {
+      await plugin.withAuthOperation(async () => {
+        await plugin.languageModel(first)
+      })
+    }
     console.log(`logged in: binding ${bindingId} plugin ${pluginId} (${auth.type})`)
     return 0
   } catch (error) {
@@ -232,7 +236,7 @@ function runInstall(flags: Flags, paths: ZcodePaths): number {
   if (result.status !== 0) return result.status ?? 1
   try {
     const resolved = resolveInstalledPackage(paths.installRoot, {
-      id: "install", package: match[1]!, version: match[2]!, contract: "classic", models: [{ alias: "-", upstream: "-" }],
+      id: "install", package: match[1]!, version: match[2]!, contract: "classic", models: "catalog",
     })
     console.log(`installed ${resolved.name}@${resolved.version}\nentry ${resolved.entry}\nsha256 ${resolved.sha256}`)
     return 0

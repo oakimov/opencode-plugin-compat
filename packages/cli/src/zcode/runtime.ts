@@ -38,7 +38,7 @@ export type BindingRuntime = {
 export type ReadinessIssue = {
   binding: string
   plugin?: string
-  code: "credential" | PluginLoadError["code"] | "load-failed"
+  code: "credential" | PluginLoadError["code"] | "load-failed" | "alias-collision"
   message: string
 }
 
@@ -85,6 +85,16 @@ export async function buildGeneration(config: ZcodeBridgeConfig, options: BuildO
         const plugin = await loadPlugin(spec, pluginSpec, options)
         plugins.push(plugin)
         for (const model of plugin.models.values()) {
+          const owner = routes.get(model.alias)
+          if (owner) {
+            issues.push({
+              binding: spec.id,
+              plugin: pluginSpec.id,
+              code: "alias-collision",
+              message: `model id "${model.alias}" is already served by plugin "${owner.plugin?.spec.id ?? "static"}" in this binding; give one of them explicit aliases`,
+            })
+            continue
+          }
           routes.set(model.alias, {
             binding: spec,
             plugin,

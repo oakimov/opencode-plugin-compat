@@ -7,6 +7,7 @@ import { assertManaged, defaultProviderPath, hostStateDir } from "./paths.ts"
 import { runPi, unshimPi, type PiHost } from "./pi-family.ts"
 import { assertSafeProvider, assertStockClean, ensureStockBuild, isStockDirty, repairStock } from "./stock.ts"
 import { buildWrapper } from "./wrapper.ts"
+import { runZcode, unshimZcode } from "./zcode-family.ts"
 
 function die(message: string): never {
   console.error(`ocp-dev: ${message}`)
@@ -24,7 +25,7 @@ function usage(): void {
   unshim   Remove that slot and restore factory package state. Other
            host config is left untouched.
 
-Shim hosts: mimo, kilo, pi, omp, dsh. OpenCode is native — run skips it;
+Shim hosts: mimo, kilo, pi, omp, dsh, zcode. OpenCode is native — run skips it;
 named "run opencode" is an error. With no host names, act on every installed
 shim host.
 
@@ -33,10 +34,15 @@ Environment:
   OCP_DEV_DEVIN_PROVIDER_PATH  devin-opencode-provider checkout (DSH extra row)
   OCP_DEV_PLUGIN          provider package name (default: cursor-opencode-provider)
   OCP_DEV_STATE_DIR       wrapper/manifest root (default: ~/.cache/ocp-dev)
-  OCP_DEV_BRIDGE_VERSION  npm pi-bridge version (default: latest)
+  OCP_DEV_BRIDGE_VERSION  npm pi-bridge (pi/omp) or @opencode-compat/ocp (zcode) version (default: latest)
   OCP_DEV_PLUGIN_VERSION  npm provider version (default: latest)
   DSH_HARNESS_ROOT        deepseek-harness checkout (else OCP sibling)
   DSH_HOME                DSH data/config root (default ~/.dsh)
+  ZCODE_APP               ZCode install (default /Applications/ZCode.app, ~/Applications, or zcode on PATH)
+  ZCODE_DATA_BASE_DIR     ZCode data root (default home; config in .zcode/v2)
+  ZCODE_PERSONAL_PROVIDER_CONFIG_FILE  ZCode Personal provider file override
+  OCP_DEV_ZCODE_PORT      ocp zcode bridge port (default 18731)
+  OCP_DEV_ZCODE_WORKSPACE workspace bound to the bridge (default home)
 `)
 }
 
@@ -78,7 +84,7 @@ async function resolveTargets(requested: string[], command: "run" | "unshim"): P
     const found = await installedHosts()
     const targets = command === "run" ? found.filter((host) => !NATIVE_NO_SHIM.has(host)) : found
     if (targets.length === 0) {
-      die(`no shim hosts found (looked for: mimo kilo pi omp dsh)`)
+      die(`no shim hosts found (looked for: mimo kilo pi omp dsh zcode)`)
     }
     if (command === "run" && found.some((host) => NATIVE_NO_SHIM.has(host))) {
       console.log("ocp-dev: skipping native OpenCode (loads provider dist/ directly)")
@@ -100,6 +106,7 @@ async function runHost(host: HostId, mode: WireMode): Promise<void> {
   const fam = familyOf(host)
   if (fam === "clone") await runClone(host as CloneHost, mode)
   else if (fam === "pi") await runPi(host as PiHost, mode)
+  else if (fam === "zcode") await runZcode(mode)
   else await runDsh(host as never, mode)
 }
 
@@ -114,6 +121,8 @@ async function unshimHost(host: HostId): Promise<void> {
       if (error instanceof Error) console.error(`  ${error.message}`)
     }
     unshimClone(host as never)
+  } else if (fam === "zcode") {
+    await unshimZcode()
   } else {
     try {
       await unshimDsh(host as never)

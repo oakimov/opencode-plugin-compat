@@ -814,3 +814,40 @@ describe("zcode SSE encoder abort", () => {
     expect(providerCancelled).toBe(true)
   })
 })
+
+describe("zcode catalog models", () => {
+  test("config accepts \"catalog\" and rejects other strings", () => {
+    const catalog = clone(VALID_CONFIG) as unknown as { bindings: Array<{ plugins: Array<{ models: unknown }> }> }
+    catalog.bindings[0]!.plugins[0]!.models = "catalog"
+    expect(parseZcodeBridgeConfig(catalog).bindings[0]!.plugins[0]!.models).toBe("catalog")
+    catalog.bindings[0]!.plugins[0]!.models = "all"
+    expect(configError(catalog)).toContain("must be \"catalog\" or a nonempty array")
+  })
+
+  test("a catalog plugin serves every published model under its own id; collisions are attributable", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "ocp-zcode-catalog-"))
+    try {
+      const paths: ZcodePaths = { configFile: "", installRoot: join(dir, "p"), stateDir: join(dir, "s"), cacheDir: join(dir, "c") }
+      const plugin = (id: string) => ({ id, package: "zcode-loop-provider", version: "1.0.0", contract: "classic" as const, models: "catalog" as const })
+      const build = (plugins: ReturnType<typeof plugin>[]) => buildGeneration({
+        version: 1, listen: { host: "127.0.0.1", port: 0 }, limits: DEFAULT_LIMITS,
+        bindings: [{ id: "c", workspace: dir, credentials: { model: { env: "CAT" } }, plugins }],
+      }, { paths, env: { CAT: CREDENTIAL }, resolvePackage: spec => ({ name: spec.package, version: spec.version, entry: LOOP, sha256: "sha-loop" }) })
+
+      const generation = await build([plugin("one")])
+      const routes = generation.bindings[0]!.routes
+      expect([...routes.keys()].sort()).toEqual(["error-stream", "loop-1", "plain", "slow", "truncated"])
+      expect(routes.get("loop-1")!.model).toMatchObject({ name: "Loop One", contextWindow: 64_000, maxOutputTokens: 4_000 })
+      expect(routes.get("loop-1")!.providerOptions()).toEqual({ loop: { wireModel: "loop-1-wire" } })
+
+      const failure = await build([plugin("one"), plugin("two")]).then(
+        () => ({ issues: [] as Array<{ plugin?: string; code: string }> }),
+        (error: unknown) => error as { issues: Array<{ plugin?: string; code: string }> },
+      )
+      expect(failure.issues.every(issue => issue.plugin === "two" && issue.code === "alias-collision")).toBe(true)
+      expect(failure.issues).toHaveLength(5)
+    } finally {
+      rmSync(dir, { recursive: true, force: true })
+    }
+  })
+})

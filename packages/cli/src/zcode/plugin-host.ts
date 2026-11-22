@@ -28,7 +28,7 @@ import {
   type OpenCodeHooks,
   type OpenCodeModelEntry,
 } from "@opencode-compat/opencode-loader"
-import type { BindingSpec, PluginSpec, ZcodePaths } from "./config.js"
+import { CATALOG_MODELS, MODEL_ALIAS_PATTERN, type BindingSpec, type PluginSpec, type ZcodePaths } from "./config.js"
 import { DurableAuthStore, generationAuthView } from "./auth-store.js"
 import { installZcodePathBridge } from "./path-bridge.js"
 
@@ -222,8 +222,16 @@ export async function loadPlugin(binding: BindingSpec, spec: PluginSpec, options
       : undefined
     models.clear()
     optionsKey = catalog?.providerId ?? providerId
-    for (const model of spec.models) {
-      models.set(model.alias, catalogInfo(model.alias, model.upstream, catalog?.entries[model.upstream]))
+    if (spec.models === CATALOG_MODELS) {
+      for (const [upstream, entry] of Object.entries(catalog?.entries ?? {})) {
+        // A catalog id ZCode cannot use as a model id is skipped, not renamed.
+        if (!MODEL_ALIAS_PATTERN.test(upstream)) continue
+        models.set(upstream, catalogInfo(upstream, upstream, entry))
+      }
+    } else {
+      for (const model of spec.models) {
+        models.set(model.alias, catalogInfo(model.alias, model.upstream, catalog?.entries[model.upstream]))
+      }
     }
   }
   await refreshCatalog()

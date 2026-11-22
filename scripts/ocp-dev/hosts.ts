@@ -3,9 +3,9 @@ import { homedir } from "node:os"
 import { dirname, join, resolve } from "node:path"
 import { repoRoot } from "./paths.ts"
 
-export const HOSTS = ["opencode", "mimo", "kilo", "pi", "omp", "dsh"] as const
+export const HOSTS = ["opencode", "mimo", "kilo", "pi", "omp", "dsh", "zcode"] as const
 export type HostId = (typeof HOSTS)[number]
-export type HostFamily = "clone" | "pi" | "dsh"
+export type HostFamily = "clone" | "pi" | "dsh" | "zcode"
 export type WireMode = "local" | "npm"
 
 export function isHostId(value: string): value is HostId {
@@ -15,6 +15,7 @@ export function isHostId(value: string): value is HostId {
 export function familyOf(host: HostId): HostFamily {
   if (host === "pi" || host === "omp") return "pi"
   if (host === "dsh") return "dsh"
+  if (host === "zcode") return "zcode"
   return "clone"
 }
 
@@ -39,6 +40,9 @@ export function configDir(host: HostId): string {
     case "dsh":
       return env("DSH_HOME") ? join(env("DSH_HOME")!, "profiles", "web")
         : join(homedir(), ".dsh", "profiles", "web")
+    case "zcode":
+      // apps/zcode-cli/docs/usage/03-config.md: <ZCODE_DATA_BASE_DIR or home>/.zcode/v2
+      return join(env("ZCODE_DATA_BASE_DIR") ?? homedir(), ".zcode", "v2")
   }
 }
 
@@ -49,6 +53,7 @@ export function configCandidates(host: HostId): string[] {
   }
   const dir = configDir(host)
   if (host === "dsh") return [join(dir, "cordis.patch.yml")]
+  if (host === "zcode") return [env("ZCODE_PERSONAL_PROVIDER_CONFIG_FILE") ?? join(dir, "provider_config.json")]
   if (host === "mimo") return [join(dir, "mimocode.json"), join(dir, "mimocode.jsonc")]
   if (host === "kilo") {
     return ["kilo.jsonc", "kilo.json", "opencode.json", "opencode.jsonc", "config.json"].map((name) => join(dir, name))
@@ -61,7 +66,7 @@ export function configFile(host: HostId): string {
   return candidates.find((path) => existsSync(path)) ?? candidates[0]!
 }
 
-export function packagesDir(host: Exclude<HostId, "pi" | "omp" | "dsh">): string {
+export function packagesDir(host: Exclude<HostId, "pi" | "omp" | "dsh" | "zcode">): string {
   if (host === "mimo" && env("MIMOCODE_HOME")) return join(env("MIMOCODE_HOME")!, "cache", "packages")
   const cacheRoot = env("XDG_CACHE_HOME") ?? join(homedir(), ".cache")
   const app = host === "mimo" ? "mimocode" : host
@@ -75,9 +80,22 @@ const FALLBACK_CLI: Record<HostId, string> = {
   pi: "/opt/local/bin/pi",
   omp: join(homedir(), ".bun", "bin", "omp"),
   dsh: join(homedir(), ".local", "bin", "dsh"),
+  zcode: "/Applications/ZCode.app",
+}
+
+/** Installed ZCode: `$ZCODE_APP`, the Desktop app bundle, or a `zcode` CLI on PATH. */
+export function zcodeInstall(): string | undefined {
+  const candidates = [env("ZCODE_APP"), "/Applications/ZCode.app", join(homedir(), "Applications", "ZCode.app")]
+  for (const candidate of candidates) if (candidate && existsSync(candidate)) return candidate
+  return Bun.which("zcode") ?? undefined
 }
 
 export async function resolveCli(host: HostId): Promise<string> {
+  if (host === "zcode") {
+    const found = zcodeInstall()
+    if (found) return found
+    throw new Error("ZCode not found (set ZCODE_APP, or install /Applications/ZCode.app or a zcode CLI)")
+  }
   const found = Bun.which(host)
   if (found) return found
   const fallback = FALLBACK_CLI[host]

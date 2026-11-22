@@ -39,7 +39,11 @@ export type PluginSpec = {
   providerId?: string
   /** AI-SDK factory options template (`$apiKey` is substituted). */
   options?: Record<string, unknown>
-  models: ModelAlias[]
+  /**
+   * Explicit aliases, or `"catalog"`: every model the plugin's own `config`
+   * hook publishes, under its own id (re-read after login and on reload).
+   */
+  models: ModelAlias[] | "catalog"
 }
 
 export type BindingSpec = {
@@ -155,8 +159,12 @@ function credentialKey(ref: CredentialRef): string {
   return "env" in ref ? `env:${ref.env}` : `file:${ref.file}`
 }
 
-function parseModels(value: unknown, path: string): ModelAlias[] {
-  if (!Array.isArray(value) || value.length === 0) throw new ZcodeConfigError(path, "must be a nonempty array")
+export const CATALOG_MODELS = "catalog" as const
+export const MODEL_ALIAS_PATTERN = ALIAS_PATTERN
+
+function parseModels(value: unknown, path: string): ModelAlias[] | "catalog" {
+  if (value === CATALOG_MODELS) return CATALOG_MODELS
+  if (!Array.isArray(value) || value.length === 0) throw new ZcodeConfigError(path, "must be \"catalog\" or a nonempty array")
   return value.map((raw, index) => {
     const itemPath = `${path}[${index}]`
     const item = requireObject(raw, itemPath)
@@ -218,6 +226,8 @@ function parseBinding(value: unknown, path: string): BindingSpec {
   plugins.forEach((plugin, pluginIndex) => {
     if (pluginIds.has(plugin.id)) throw new ZcodeConfigError(`${path}.plugins[${pluginIndex}].id`, `duplicate plugin id "${plugin.id}"`)
     pluginIds.add(plugin.id)
+    // Catalog aliases are known only once the plugin loads; the generation build checks them.
+    if (plugin.models === CATALOG_MODELS) return
     plugin.models.forEach((model, modelIndex) => {
       const owner = aliases.get(model.alias)
       if (owner !== undefined) {
