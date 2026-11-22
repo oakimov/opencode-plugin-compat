@@ -110,9 +110,11 @@ export function encodeAnthropicStream(options: EncodeStreamOptions): ReadableStr
   let ping: ReturnType<typeof setInterval> | undefined
   let done = false
 
+  let onAbort: (() => void) | undefined
   const finishOutcome = () => {
     if (ping) clearInterval(ping)
     ping = undefined
+    if (onAbort) options.signal.removeEventListener("abort", onAbort)
     if (!done) {
       done = true
       options.onOutcome?.(outcome)
@@ -138,6 +140,21 @@ export function encodeAnthropicStream(options: EncodeStreamOptions): ReadableStr
           }
         }, interval)
       }
+      // An aborted attempt (client gone, provider failure, shutdown) ends the
+      // response at once, even when no read is pending to observe it.
+      onAbort = () => {
+        if (done) return
+        outcome.aborted = true
+        finishOutcome()
+        try {
+          controller.close()
+        } catch {
+          // Already closed or errored by the consumer.
+        }
+        void reader.cancel().catch(() => undefined)
+      }
+      if (options.signal.aborted) queueMicrotask(onAbort)
+      else options.signal.addEventListener("abort", onAbort, { once: true })
     },
 
     async pull(controller) {
@@ -161,6 +178,7 @@ export function encodeAnthropicStream(options: EncodeStreamOptions): ReadableStr
         try {
           next = await reader.read()
         } catch (error) {
+          if (done) return
           if (options.signal.aborted) {
             outcome.aborted = true
             finishOutcome()
@@ -170,6 +188,7 @@ export function encodeAnthropicStream(options: EncodeStreamOptions): ReadableStr
           failWith(`provider stream failed: ${error instanceof Error ? error.message : String(error)}`)
           return
         }
+        if (done) return
         if (next.done) {
           failWith("provider stream ended without a finish")
           return

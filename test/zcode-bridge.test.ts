@@ -443,7 +443,10 @@ describe("zcode bridge on the Anthropic Messages wire", () => {
     // Every body is held open, so each request is past the limit check while
     // its body is pending — the slot must already be reserved by then.
     const gates: Array<() => void> = []
+    const clients: AbortController[] = []
     const send = () => {
+      const client = new AbortController()
+      clients.push(client)
       const payload = new TextEncoder().encode(JSON.stringify({ model: "slow", max_tokens: 10, stream: true, messages: [{ role: "user", content: "hi" }] }))
       const body = new ReadableStream<Uint8Array>({
         start(controller) {
@@ -462,6 +465,7 @@ describe("zcode bridge on the Anthropic Messages wire", () => {
         headers: { "x-api-key": CREDENTIAL, "content-type": "application/json", "content-length": String(payload.length) },
         body,
         duplex: "half",
+        signal: client.signal,
       } as RequestInit)
     }
     const before = harness.records.length
@@ -477,9 +481,30 @@ describe("zcode bridge on the Anthropic Messages wire", () => {
     const refused = harness.records.slice(before).filter(record => record.errorCode === "concurrency")
     expect(refused).toHaveLength(2)
     expect(recordedCalls().length).toBe(4)
-    for (const response of responses) await response.body?.cancel().catch(() => undefined)
-    for (let i = 0; i < 50 && recordedCalls().some(call => !call.abortSignal?.aborted); i++) await Bun.sleep(10)
+    // Disconnect the way a client such as ZCode does: abort the fetch.
+    for (const client of clients) client.abort()
+    for (let i = 0; i < 200 && recordedCalls().some(call => !call.abortSignal?.aborted); i++) await Bun.sleep(10)
     expect(recordedCalls().every(call => call.abortSignal?.aborted)).toBe(true)
+  })
+
+  test("shutdown ends held streams and aborts their provider calls even when nothing is reading", async () => {
+    const local = await startHarness()
+    try {
+      const response = await fetch(`${local.server.url}/messages`, {
+        method: "POST",
+        headers: { "x-api-key": CREDENTIAL, "content-type": "application/json" },
+        body: JSON.stringify({ model: "slow", max_tokens: 10, stream: true, messages: [{ role: "user", content: "hi" }] }),
+      })
+      expect(response.status).toBe(200)
+      // The client keeps the connection but never reads the body.
+      await local.server.stop()
+      const signal = recordedCalls()[0]!.abortSignal!
+      expect(signal.aborted).toBe(true)
+      expect(local.records.find(record => record.model === "slow")?.closedByClient).toBe(true)
+      await response.body?.cancel().catch(() => undefined)
+    } finally {
+      rmSync(local.dir, { recursive: true, force: true })
+    }
   })
 
   test("a provider stream that ends without finish surfaces an error, not a successful stop", async () => {
@@ -751,5 +776,36 @@ describe("zcode review regressions", () => {
     } finally {
       rmSync(dir, { recursive: true, force: true })
     }
+  })
+})
+
+describe("zcode SSE encoder abort", () => {
+  test("an abort ends the response and reports the outcome without a pending read", async () => {
+    const { encodeAnthropicStream } = await import("../packages/cli/src/zcode/anthropic-response.ts")
+    let providerCancelled = false
+    const parts = new ReadableStream<LanguageModelV3StreamPart>({
+      // Never yields: only cancellation can end it.
+      cancel() {
+        providerCancelled = true
+      },
+    })
+    const controller = new AbortController()
+    const outcomes: unknown[] = []
+    const sse = encodeAnthropicStream({
+      model: "m",
+      toolMap: createSessionToolCatalog()([], undefined),
+      parts,
+      signal: controller.signal,
+      pingIntervalMs: 0,
+      onOutcome: outcome => outcomes.push(outcome),
+    })
+    controller.abort()
+    expect(outcomes).toEqual([{ toolCallIds: [], aborted: true }])
+    const reader = sse.getReader()
+    const first = await reader.read()
+    expect(new TextDecoder().decode(first.value)).toContain("event: message_start")
+    expect((await reader.read()).done).toBe(true)
+    for (let i = 0; i < 20 && !providerCancelled; i++) await Bun.sleep(5)
+    expect(providerCancelled).toBe(true)
   })
 })
