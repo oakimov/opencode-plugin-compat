@@ -400,7 +400,10 @@ describe("zcode bridge on the Anthropic Messages wire", () => {
   test("the credential selects the binding; missing, conflicting and foreign requests are refused", async () => {
     const body = JSON.stringify({ model: "loop", max_tokens: 10, messages: [{ role: "user", content: "hi" }] })
     const post = (headers: Record<string, string>) => fetch(`${harness.server.url}/messages`, { method: "POST", headers: { "content-type": "application/json", ...headers }, body })
-    expect((await post({})).status).toBe(401)
+    const missing = await post({})
+    expect(missing.status).toBe(401)
+    // Refused before its body was read: the socket is not offered for reuse.
+    expect(missing.headers.get("connection")).toBe("close")
     expect((await post({ "x-api-key": "ocpz_wrong_credential_000000000000" })).status).toBe(401)
     expect((await post({ "x-api-key": CREDENTIAL, authorization: `Bearer ${OTHER_CREDENTIAL}` })).status).toBe(401)
     expect((await post({ "x-api-key": CREDENTIAL, origin: "https://evil.example" })).status).toBe(403)
@@ -411,6 +414,8 @@ describe("zcode bridge on the Anthropic Messages wire", () => {
     expect(await foreign.json()).toMatchObject({ type: "error", error: { type: "not_found_error" } })
     const bad = await fetch(`${harness.server.url}/messages`, { method: "POST", headers: { "x-api-key": CREDENTIAL }, body: JSON.stringify({ model: "loop", max_tokens: 10, messages: [], mcp_servers: [] }) })
     expect(bad.status).toBe(400)
+    // The body was read, so the connection stays reusable.
+    expect(bad.headers.get("connection")).not.toBe("close")
     expect(await bad.json()).toMatchObject({ error: { type: "invalid_request_error", message: "ocp: mcp_servers: unsupported request field" } })
   })
 

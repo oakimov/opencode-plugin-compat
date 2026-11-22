@@ -204,9 +204,15 @@ export function startBridgeServer(options: BridgeServerOptions): BridgeServer {
       attribution,
       protocol,
     }
+    // Until the body is read, its bytes may still be in flight on this socket.
+    // A response sent before then closes the connection (RFC 9112 §9.6), so no
+    // client reuses a socket whose next "request" would be leftover body.
+    let bodyConsumed = request.body === null
     const reject = (status: number, type: AnthropicErrorType, code: string, message: string) => {
       finish(summary, started, status, { errorCode: code })
-      return errorResponse(status, type, message)
+      const response = errorResponse(status, type, message)
+      if (!bodyConsumed) response.headers.set("connection", "close")
+      return response
     }
 
     if (!allowedHosts(port).has(request.headers.get("host") ?? "")) {
@@ -276,7 +282,9 @@ export function startBridgeServer(options: BridgeServerOptions): BridgeServer {
       let body: unknown
       try {
         body = await request.json()
+        bodyConsumed = true
       } catch {
+        bodyConsumed = true
         return reject(400, "invalid_request_error", "json", "ocp: request body is not valid JSON")
       }
       summarizeBody(summary, body)
