@@ -362,6 +362,22 @@ function prepareNpm(): { entry: string; version: string } {
   return { entry: join(dir, "node_modules", "@opencode-compat", "ocp", "bin", "ocp.ts"), version }
 }
 
+/**
+ * Whether this shim owns the `providerOrder` entry. A later run that finds
+ * the id already present (because an earlier run added it) keeps that
+ * ownership for the same config file, so unshim still removes it.
+ */
+export function ownsProviderOrder(previousManifest: string | undefined, configPath: string, appendedNow: boolean): boolean {
+  if (appendedNow) return true
+  if (!previousManifest) return false
+  try {
+    const previous = JSON.parse(previousManifest) as { configPath?: unknown; appendedOrder?: unknown }
+    return previous.configPath === configPath && previous.appendedOrder === true
+  } catch {
+    return false
+  }
+}
+
 export async function runZcode(mode: WireMode): Promise<void> {
   assertZcodeClosed()
   const configPath = configFile("zcode")
@@ -411,7 +427,12 @@ export async function runZcode(mode: WireMode): Promise<void> {
   const modelIds = rows.map(row => row.id)
   const loginRequired = rows.some(row => row.auth === "login-required") || (rows.length === 0)
 
-  const { appendedOrder } = upsertZcodeProvider(configPath, zcodeProviderRule({ port, credential, modelIds }))
+  const previousManifest = readText(manifestPath("zcode"))
+  const appendedOrder = ownsProviderOrder(
+    previousManifest,
+    configPath,
+    upsertZcodeProvider(configPath, zcodeProviderRule({ port, credential, modelIds })).appendedOrder,
+  )
   writeAtomic(manifestPath("zcode"), `${JSON.stringify({
     host: "zcode", mode, plugin, version, port, configPath, providerId: ZCODE_PROVIDER_ID, appendedOrder, wrapper,
     updated: new Date().toISOString(),

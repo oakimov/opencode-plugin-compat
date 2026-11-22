@@ -836,7 +836,7 @@ describe("zcode catalog models", () => {
 
       const generation = await build([plugin("one")])
       const routes = generation.bindings[0]!.routes
-      expect([...routes.keys()].sort()).toEqual(["error-stream", "loop-1", "plain", "slow", "truncated"])
+      expect([...routes.keys()].sort()).toEqual(["_model", "error-stream", "loop-1", "model+extended", "plain", "slow", "truncated"])
       expect(routes.get("loop-1")!.model).toMatchObject({ name: "Loop One", contextWindow: 64_000, maxOutputTokens: 4_000 })
       expect(routes.get("loop-1")!.providerOptions()).toEqual({ loop: { wireModel: "loop-1-wire" } })
 
@@ -845,7 +845,7 @@ describe("zcode catalog models", () => {
         (error: unknown) => error as { issues: Array<{ plugin?: string; code: string }> },
       )
       expect(failure.issues.every(issue => issue.plugin === "two" && issue.code === "alias-collision")).toBe(true)
-      expect(failure.issues).toHaveLength(5)
+      expect(failure.issues).toHaveLength(7)
     } finally {
       rmSync(dir, { recursive: true, force: true })
     }

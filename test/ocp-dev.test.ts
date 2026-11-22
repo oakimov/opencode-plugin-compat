@@ -9,6 +9,7 @@ import { removePiProvider, upsertPiProvider } from "../scripts/ocp-dev/pi-config
 import { assertLocalLoaderLink } from "../scripts/ocp-dev/pi-family.ts"
 import { configFile, dshBuiltCli, dshHarnessRoot, familyOf, isDshHarnessCheckout } from "../scripts/ocp-dev/hosts.ts"
 import {
+  ownsProviderOrder,
   removeZcodeProvider,
   upsertZcodeProvider,
   ZCODE_PROVIDER_ID,
@@ -541,6 +542,30 @@ describe("zcode shim", () => {
       expect(after.config.providerConfigRules.providerRules).toEqual([])
       expect(after.config.modelConfigRules.providerModelRules).toEqual([])
       expect(after.config.defaultModelSelection).toBeUndefined()
+    } finally {
+      rmSync(root, { recursive: true, force: true })
+    }
+  })
+
+  test("a rerun keeps ownership of the providerOrder entry an earlier run added", () => {
+    const manifest = (configPath: string, appendedOrder: boolean) => JSON.stringify({ configPath, appendedOrder })
+    expect(ownsProviderOrder(undefined, "/a", true)).toBe(true)
+    expect(ownsProviderOrder(manifest("/a", true), "/a", false)).toBe(true)
+    expect(ownsProviderOrder(manifest("/a", false), "/a", false)).toBe(false)
+    // A different provider_config.json is a different ownership record.
+    expect(ownsProviderOrder(manifest("/b", true), "/a", false)).toBe(false)
+    expect(ownsProviderOrder("not json", "/a", false)).toBe(false)
+
+    // The documented sequence: run, login, run again, then unshim.
+    const root = mkdtempSync(join(tmpdir(), "ocp-zcode-shim-"))
+    try {
+      const file = join(root, "provider_config.json")
+      writeFileSync(file, `${JSON.stringify({ schemaVersion: 1, config: { providerOrder: ["mine"], providerConfigRules: { providerRules: [] }, modelConfigRules: { providerModelRules: [], manualProviderModelRules: [] } } })}\n`)
+      const first = ownsProviderOrder(undefined, file, upsertZcodeProvider(file, rule([])).appendedOrder)
+      const second = ownsProviderOrder(manifest(file, first), file, upsertZcodeProvider(file, rule(["a"])).appendedOrder)
+      expect(second).toBe(true)
+      removeZcodeProvider(file, ZCODE_PROVIDER_ID, { removeOrder: second })
+      expect(JSON.parse(readFileSync(file, "utf8")).config.providerOrder).toEqual(["mine"])
     } finally {
       rmSync(root, { recursive: true, force: true })
     }

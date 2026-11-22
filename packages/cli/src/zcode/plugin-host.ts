@@ -28,7 +28,7 @@ import {
   type OpenCodeHooks,
   type OpenCodeModelEntry,
 } from "@opencode-compat/opencode-loader"
-import { CATALOG_MODELS, MODEL_ALIAS_PATTERN, type BindingSpec, type PluginSpec, type ZcodePaths } from "./config.js"
+import { CATALOG_MODELS, type BindingSpec, type PluginSpec, type ZcodePaths } from "./config.js"
 import { DurableAuthStore, generationAuthView } from "./auth-store.js"
 import { installZcodePathBridge } from "./path-bridge.js"
 
@@ -223,10 +223,11 @@ export async function loadPlugin(binding: BindingSpec, spec: PluginSpec, options
     models.clear()
     optionsKey = catalog?.providerId ?? providerId
     if (spec.models === CATALOG_MODELS) {
+      // Every published id is served as-is: the alias pattern constrains
+      // operator-written aliases, while ZCode and the Messages endpoint accept
+      // any nonempty model id.
       for (const [upstream, entry] of Object.entries(catalog?.entries ?? {})) {
-        // A catalog id ZCode cannot use as a model id is skipped, not renamed.
-        if (!MODEL_ALIAS_PATTERN.test(upstream)) continue
-        models.set(upstream, catalogInfo(upstream, upstream, entry))
+        if (upstream.length > 0) models.set(upstream, catalogInfo(upstream, upstream, entry))
       }
     } else {
       for (const model of spec.models) {

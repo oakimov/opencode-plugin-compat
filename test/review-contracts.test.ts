@@ -200,16 +200,49 @@ describe("isolated-check contract gate", () => {
     }
   })
 
-  test("a capability the base established may not silently become a skip", () => {
+  test("a whole area disappearing on the head is a lost capability, using the contracts' real output", () => {
+    const empty = subjectTree({})
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "ocp-gate-lost-"))
+    try {
+      for (const [script, prefix, cases] of [
+        ["review-catalog-contracts.mjs", "CATALOG_CONTRACT", 7],
+        ["review-zcode-contracts.mjs", "ZCODE_CONTRACT", 6],
+      ] as const) {
+        const base = contract(script, root)
+        const head = contract(script, empty)
+        expect(base.status).toBe(0)
+        expect(head.status).toBe(0)
+        fs.writeFileSync(path.join(dir, "base"), base.stdout)
+        fs.writeFileSync(path.join(dir, "head"), head.stdout)
+        const lost = spawnSync("bash", ["-c", 'source scripts/isolated-check.sh; check_lost_contract_feature "$1" "$2"', "_", path.join(dir, "base"), path.join(dir, "head")], { cwd: root, encoding: "utf8" })
+        expect(lost.status, lost.stderr).toBe(0)
+        const lines = lost.stdout.trim().split("\n")
+        expect(lines).toHaveLength(cases)
+        expect(lines.every(line => line.startsWith(`${prefix}=`) && line.endsWith(":failed capability disappeared"))).toBe(true)
+      }
+      // The same subject on both sides loses nothing.
+      const same = contract("review-catalog-contracts.mjs", root).stdout
+      fs.writeFileSync(path.join(dir, "base"), same)
+      fs.writeFileSync(path.join(dir, "head"), same)
+      const none = spawnSync("bash", ["-c", 'source scripts/isolated-check.sh; check_lost_contract_feature "$1" "$2"', "_", path.join(dir, "base"), path.join(dir, "head")], { cwd: root, encoding: "utf8" })
+      expect(none.status).toBe(1)
+      expect(none.stdout).toBe("")
+    } finally {
+      fs.rmSync(empty, { recursive: true, force: true })
+      fs.rmSync(dir, { recursive: true, force: true })
+    }
+  })
+
+  test("the gate fails a head whose contract output only skips what the base passed", () => {
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), "ocp-gate-"))
     try {
       const result = gate(`
         case "$*" in
           *review-zcode-contracts.mjs*)
             if [[ "\${CHECK_TREE:-head}" == head ]]; then
-              echo "ZCODE_CONTRACT=bridge-wire:skipped packages/cli/dist/zcode/index.js absent"
+              echo "ZCODE_CONTRACT=refuses-missing-credential:skipped packages/cli/dist/zcode/index.js absent"
             else
-              echo "ZCODE_CONTRACT=bridge-wire:passed"
+              echo "ZCODE_CONTRACT=refuses-missing-credential:passed"
             fi
             echo "REVIEW_CONTRACT_COMPLETE=ZCODE_CONTRACTS:passed"
             return 0 ;;
@@ -219,7 +252,7 @@ describe("isolated-check contract gate", () => {
         return 0
       `, { PROBE_LOG: path.join(dir, "commands") })
       expect(result.status).toBe(1)
-      expect(result.stdout).toContain("ZCODE_CONTRACTS_NEW=ZCODE_CONTRACT=bridge-wire:failed capability disappeared")
+      expect(result.stdout).toContain("ZCODE_CONTRACTS_NEW=ZCODE_CONTRACT=refuses-missing-credential:failed capability disappeared")
       expect(result.stdout).toContain("blocking=ZCODE_CONTRACTS")
     } finally {
       fs.rmSync(dir, { recursive: true, force: true })

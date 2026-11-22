@@ -137,6 +137,9 @@ export async function LoopPlugin() {
         models: {
           "loop-1": { name: "Loop One", limit: { context: 64_000, output: 4_000 }, modalities: { input: ["text"], output: ["text"] }, options: { wireModel: "loop-1-wire" } },
           "error-stream": { name: "Error stream" },
+          // Published ids outside the operator alias pattern stay servable.
+          "_model": { name: "Underscore" },
+          "model+extended": { name: "Plus" },
           plain: { name: "Plain" },
           slow: { name: "Slow" },
           truncated: { name: "Truncated" },

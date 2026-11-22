@@ -13,6 +13,16 @@ import { join } from "node:path"
 import { pathToFileURL } from "node:url"
 
 const LABEL = "ZCODE_CONTRACTS"
+// Every case name, so a subject without the bridge skips the same names the
+// base passed and the wrapper can see the capability disappear.
+const CASES = [
+  "refuses-missing-credential",
+  "refuses-foreign-host",
+  "forwards-no-zcode-identity",
+  "native-read-call-mapped",
+  "no-synthetic-finish",
+  "disconnect-aborts-provider",
+]
 const src = process.argv[2]
 const entry = src ? join(src, "packages/cli/dist/zcode/index.js") : ""
 let failed = 0
@@ -31,15 +41,16 @@ if (!src || !existsSync(join(src, "package.json"))) {
   console.log(`ZCODE_CONTRACT=subject:unavailable no package.json at ${src ?? "<missing argument>"}`)
   process.exit(2)
 }
-if (!existsSync(entry)) {
-  report("bridge-wire", "skipped", "packages/cli/dist/zcode/index.js absent")
+function skipAll(reason) {
+  for (const name of CASES) report(name, "skipped", reason)
   finish()
 }
 
+if (!existsSync(entry)) skipAll("packages/cli/dist/zcode/index.js absent")
+
 const bridge = await import(pathToFileURL(entry).href)
 if (typeof bridge.buildGeneration !== "function" || typeof bridge.startBridgeServer !== "function") {
-  report("bridge-wire", "skipped", "buildGeneration/startBridgeServer are not exported")
-  finish()
+  skipAll("buildGeneration/startBridgeServer are not exported")
 }
 
 const CREDENTIAL = "ocpz_review_contract_credential_0000000000"
@@ -140,6 +151,7 @@ const message = model => ({ model, max_tokens: 16, stream: true, messages: [{ ro
 const sleep = ms => new Promise(resolve => setTimeout(resolve, ms))
 
 async function check(name, run) {
+  if (!CASES.includes(name)) throw new Error(`unlisted case ${name}`)
   try {
     const problem = await run()
     report(name, problem ? "failed" : "passed", problem ?? "")

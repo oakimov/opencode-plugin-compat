@@ -16,6 +16,17 @@ import { join } from "node:path"
 import { pathToFileURL } from "node:url"
 
 const LABEL = "CATALOG_CONTRACTS"
+// Every case name, so a subject without the loader skips the same names the
+// base passed and the wrapper can see the capability disappear.
+const CASES = [
+  "first-catalog-sorted-by-code-unit",
+  "newcomer-appended-not-resorted",
+  "newcomer-batch-sorted-at-tail",
+  "equal-name-descriptor-frozen",
+  "empty-call-is-lifecycle",
+  "disappear-reappear-keeps-prefix",
+  "sessions-are-independent",
+]
 const src = process.argv[2]
 const entry = src ? join(src, "packages/opencode-loader/dist/index.js") : ""
 let failed = 0
@@ -34,16 +45,15 @@ if (!src || !existsSync(join(src, "package.json"))) {
   console.log(`CATALOG_CONTRACT=subject:unavailable no package.json at ${src ?? "<missing argument>"}`)
   process.exit(2)
 }
-if (!existsSync(entry)) {
-  report("loader-catalog-order", "skipped", "packages/opencode-loader/dist/index.js absent")
+function skipAll(reason) {
+  for (const name of CASES) report(name, "skipped", reason)
   finish()
 }
 
+if (!existsSync(entry)) skipAll("packages/opencode-loader/dist/index.js absent")
+
 const loader = await import(pathToFileURL(entry).href)
-if (typeof loader.createToolCatalogOrder !== "function") {
-  report("loader-catalog-order", "skipped", "createToolCatalogOrder is not exported")
-  finish()
-}
+if (typeof loader.createToolCatalogOrder !== "function") skipAll("createToolCatalogOrder is not exported")
 
 const tool = (name, description = `${name} tool`) => ({ name, description, inputSchema: { type: "object", properties: { [name]: { type: "string" } } } })
 const names = tools => (tools ?? []).map(entry => entry.name)
@@ -52,6 +62,7 @@ const codeUnitSorted = list => [...list].sort((a, b) => (a < b ? -1 : a > b ? 1 
 const same = (a, b) => JSON.stringify(a) === JSON.stringify(b)
 
 function check(name, run) {
+  if (!CASES.includes(name)) throw new Error(`unlisted case ${name}`)
   try {
     const problem = run()
     report(name, problem ? "failed" : "passed", problem ?? "")
