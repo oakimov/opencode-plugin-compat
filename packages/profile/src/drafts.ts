@@ -4,9 +4,9 @@ import {
   CORE_HOOKS,
   MIMO_EXTENSION_HOOKS,
   MIMO_MISSING_HOOKS,
-} from "./hooks"
-import { resolveXdgDirs, type PathEnv } from "./paths"
-import type { HostProfile } from "./types"
+} from "./hooks.js"
+import { resolveXdgDirs, type PathEnv } from "./paths.js"
+import type { HostProfile } from "./types.js"
 
 export type DraftOptions = {
   env?: PathEnv

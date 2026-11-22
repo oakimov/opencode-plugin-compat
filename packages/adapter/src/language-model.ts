@@ -34,7 +34,7 @@ import {
   translatePrompt,
   type HostTodo,
   type Vocabulary,
-} from "./vocabulary"
+} from "./vocabulary.js"
 
 export type StreamAdoptionPolicy = {
   streamToolCallEnsure: boolean

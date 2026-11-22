@@ -1,8 +1,8 @@
 /** Select optional integrations by package identity, outside the generic adapter. */
 import { providerPackageMatches } from "@opencode-compat/opencode-loader"
-import { projectDevinFinish } from "./devin-usage"
-import { usageIntegrationForHost } from "./usage-reconciliation"
-import type { ProviderUsageIntegration } from "./language-model"
+import { projectDevinFinish } from "./devin-usage.js"
+import { usageIntegrationForHost } from "./usage-reconciliation.js"
+import type { ProviderUsageIntegration } from "./language-model.js"
 
 export function providerUsageIntegrationForHost(host: string,
   env: Record<string, string | undefined> = process.env, packageName?: string): ProviderUsageIntegration | undefined {

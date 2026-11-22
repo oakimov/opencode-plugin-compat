@@ -27,7 +27,7 @@ import { fileURLToPath } from "node:url"
 import {
   setupProviderShims,
   type ProviderShimResult,
-} from "./provider-shim"
+} from "./provider-shim.js"
 
 export type SetupMode = "npm" | "file"
 

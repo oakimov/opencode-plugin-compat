@@ -24,27 +24,27 @@ export type {
   MigrateZcodeResult,
   PluginScan,
   SkippedItem,
-} from "./types"
+} from "./types.js"
 
-export { emptyReport, finalizeReport, mergeSkipped } from "./report"
+export { emptyReport, finalizeReport, mergeSkipped } from "./report.js"
 export {
   parseFrontmatter,
   sanitizeCommandMarkdown,
   sanitizeSkillMarkdown,
   stringifyFrontmatter,
-} from "./markdown"
-export { scanPluginPackage } from "./scan"
-export { buildPluginJson, emitPluginTree } from "./emit"
+} from "./markdown.js"
+export { scanPluginPackage } from "./scan.js"
+export { buildPluginJson, emitPluginTree } from "./emit.js"
 export {
   buildMarketplaceJson,
   migrateZcodeMarketplace,
   pluginSlug,
-} from "./marketplace"
+} from "./marketplace.js"
 
-import { buildPluginJson, emitPluginTree } from "./emit"
-import { emptyReport, finalizeReport } from "./report"
-import { scanPluginPackage } from "./scan"
-import type { MigrateZcodeOptions, MigrateZcodeResult } from "./types"
+import { buildPluginJson, emitPluginTree } from "./emit.js"
+import { emptyReport, finalizeReport } from "./report.js"
+import { scanPluginPackage } from "./scan.js"
+import type { MigrateZcodeOptions, MigrateZcodeResult } from "./types.js"
 
 /**
  * Migrate one plugin package directory into a ZCode `.zcode-plugin` tree.

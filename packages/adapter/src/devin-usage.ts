@@ -1,6 +1,6 @@
 /** Optional package-selected Devin integration for the clone adapter. */
 import { devinFinishUsage, devinFinishContext } from "@opencode-compat/opencode-loader/devin-usage"
-import type { StreamPartLike } from "./language-model"
+import type { StreamPartLike } from "./language-model.js"
 
 export function projectDevinFinish(part: StreamPartLike): StreamPartLike {
   const finish = part as Parameters<typeof devinFinishUsage>[0]

@@ -1,4 +1,4 @@
-import type { MigrateReport, SkippedItem } from "./types"
+import type { MigrateReport, SkippedItem } from "./types.js"
 
 export function emptyReport(pluginDir: string): MigrateReport {
   return {

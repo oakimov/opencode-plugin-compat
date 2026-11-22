@@ -7,7 +7,7 @@
 export const PKG = "@opencode-compat/facade-plugin" as const
 export const VERSION = "0.4.4" as const
 
-export * from "./tool"
+export * from "./tool.js"
 export type {
   AuthHook,
   AuthOAuthResult,
@@ -37,4 +37,4 @@ export type {
   WorkspaceAdapter,
   WorkspaceInfo,
   WorkspaceTarget,
-} from "./types"
+} from "./types.js"

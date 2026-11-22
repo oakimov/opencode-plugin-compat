@@ -5,7 +5,7 @@
  * on a single fork’s generated client types.
  */
 import type { Auth } from "@opencode-compat/facade-sdk"
-import type { ToolDefinition } from "./tool"
+import type { ToolDefinition } from "./tool.js"
 
 /** Opaque host client — OpenCode `createOpencodeClient` / MiMo residual / Kilo `createKiloClient`. */
 export type HostClient = {

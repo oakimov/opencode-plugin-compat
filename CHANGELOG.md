@@ -16,6 +16,7 @@ The monorepo ships **one shared train version** across all eleven packages, so u
 
 ### Fixed
 
+- `@opencode-compat/profile`, `cli`, `adapter`, `facade-plugin`, `facade-sdk`, `migrate-zcode` and `ocp` now load under plain Node ESM; the published `dist` no longer contains extensionless relative imports that only Bun resolves.
 - `ocp zcode` finishes JSON responses on the provider's finish event, cancels idle fallback streams on abort, and rejects malformed tool calls before emitting them.
 - `ocp zcode auth` can replace or clear credentials that fail catalog discovery. Probe files are cleaned up on exit, and server logs use keyed request ID hashes.
 - `ocp-dev` preserves a ZCode Personal provider that already uses the shim's provider ID with a different credential.

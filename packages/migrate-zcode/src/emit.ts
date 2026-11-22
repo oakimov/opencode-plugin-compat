@@ -4,7 +4,7 @@ import type {
   EmittedTreeManifest,
   FoundManifest,
   PluginScan,
-} from "./types"
+} from "./types.js"
 
 function pickString(
   raw: Record<string, unknown>,

@@ -20,7 +20,7 @@ import { resolve } from "node:path"
 import {
   parseSetupArgs,
   setup,
-} from "./setup"
+} from "./setup.js"
 import { runZcodeCli } from "./zcode/index.js"
 
 export {
@@ -31,7 +31,7 @@ export {
   type AbsolutePluginWireTarget,
   type SetupOptions,
   type SetupResult,
-} from "./setup"
+} from "./setup.js"
 
 export type DoctorResult = {
   ok: boolean
