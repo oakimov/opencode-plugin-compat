@@ -8,6 +8,7 @@ The monorepo ships **one shared train version** across all eleven packages, so u
 
 ### Added
 
+- Experimental `ocp zcode` bridge: serves an unchanged Classic OpenCode provider plugin to stock ZCode as a loopback Anthropic Messages Personal provider, with install/credential/check/models/auth/serve commands and a `probe` that records a redacted wire transcript. It is source-verified against ZCode 3.18.2 and not yet accepted on a shipped ZCode build; see `docs/hosts/zcode-bridge.md`.
 - Manual Cursor Cloud Agent reviews can use the same Greptile-like `caeliq-reviewer` harness as the Cursor provider: isolated PR checks, structured preview approval, and optional `--token-env` on `post`, `threads`, and `complete-resolutions.py`.
 
 ### Fixed

@@ -35,6 +35,8 @@
     "bump:version": "bun scripts/bump-version.ts"
   },
   "devDependencies": {
+    "@ai-sdk/anthropic": "3.0.81",
+    "@ai-sdk/provider": "^3.0.14",
     "@opencode-compat/adapter": "workspace:*",
     "@opencode-compat/cli": "workspace:*",
     "@opencode-compat/facade-plugin": "workspace:*",

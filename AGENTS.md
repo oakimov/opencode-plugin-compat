@@ -92,7 +92,7 @@ Tool calls and source drift: [docs/tool-vocabulary.md](docs/tool-vocabulary.md),
 1. `docs/ocp/0.1.md` — protocol contract for the OpenCode-clone facade path
 2. `packages/pi-bridge/README.md` — contract + config reference for the Pi family
 3. `packages/dsh-bridge/README.md` — contract + Cordis patch config for the DSH family
-4. `docs/hosts/opencode-clones.md` (MiMo/Kilo/ZCode) / `docs/hosts/pi-family.md` (Pi) / `docs/hosts/dsh-family.md` (DSH) — one self-contained guide per host family; install lives **in** them, not in a separate top-level INSTALL doc
+4. `docs/hosts/opencode-clones.md` (MiMo/Kilo/ZCode) / `docs/hosts/pi-family.md` (Pi) / `docs/hosts/dsh-family.md` (DSH) / `docs/hosts/zcode-bridge.md` (experimental external ZCode bridge, `packages/cli/src/zcode/`) — one self-contained guide per host family; install lives **in** them, not in a separate top-level INSTALL doc
 5. Provider-maintained interactive acceptance checklist: `cursor-opencode-provider/docs/host-compat-acceptance.md`; run the OMP/Pi/DSH items against stock hosts before claiming interactive parity.
 6. `docs/review-rules.md` — PR review rubric (blockers, evidence, Greptile/`caeliq-reviewer`/Codecov readiness)
 7. `docs/pr-review.md` — manual Cloud Agent + `caeliq-reviewer` publication procedure

@@ -103,12 +103,40 @@ export type ExtractModelsResult = {
   callData: Map<string, ModelCallData>
 }
 
+/** The raw, host-neutral catalog a plugin's `config` hook published for one provider. */
+export type ConfigHookCatalog = {
+  providerId: string
+  /** OpenCode model entries keyed by model id, unprojected. */
+  entries: Record<string, OpenCodeModelEntry>
+}
+
 /**
- * Run a plugin's `config` hook against an empty config and harvest whatever
- * provider/model catalog it published.
+ * Run a plugin's `config` hook against an empty config and return the raw
+ * model entries of one provider, with no host projection applied.
  *
  * `preferProviderId` (usually the auth hook's provider id) disambiguates a
  * plugin that declares more than one provider entry.
+ */
+export async function collectConfigHookCatalog(
+  hooks: OpenCodeHooks,
+  preferProviderId?: string,
+): Promise<ConfigHookCatalog | undefined> {
+  if (typeof hooks.config !== "function") return undefined
+
+  const config: OpenCodeConfig = { provider: {} }
+  await hooks.config(config)
+
+  const providers = config.provider ?? {}
+  const keys = Object.keys(providers)
+  if (keys.length === 0) return undefined
+
+  const providerId = (preferProviderId && keys.includes(preferProviderId) ? preferProviderId : keys[0]) as string
+  return { providerId, entries: providers[providerId]?.models ?? {} }
+}
+
+/**
+ * Run a plugin's `config` hook against an empty config and harvest whatever
+ * provider/model catalog it published, projected to Pi-family model configs.
  */
 export async function extractModelsFromConfigHook(
   hooks: OpenCodeHooks,
@@ -116,18 +144,9 @@ export async function extractModelsFromConfigHook(
   profile?: HostProfileForVariants,
   expandOptions: ExpandOptions = {},
 ): Promise<ExtractModelsResult> {
-  if (typeof hooks.config !== "function") return { models: [], callData: new Map() }
-
-  const config: OpenCodeConfig = { provider: {} }
-  await hooks.config(config)
-
-  const providers = config.provider ?? {}
-  const keys = Object.keys(providers)
-  if (keys.length === 0) return { models: [], callData: new Map() }
-
-  const providerId = (preferProviderId && keys.includes(preferProviderId) ? preferProviderId : keys[0]) as string
-  const entry = providers[providerId]
-  const entries = entry?.models ?? {}
+  const catalog = await collectConfigHookCatalog(hooks, preferProviderId)
+  if (!catalog) return { models: [], callData: new Map() }
+  const { providerId, entries } = catalog
 
   const models: PiModelConfig[] = []
   const callData = new Map<string, ModelCallData>()
