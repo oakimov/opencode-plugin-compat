@@ -86,7 +86,7 @@ Open ZCode and pick an **OCP (ocp-dev)** model in a new session. After rebuildin
 
 `unshim` removes the `ocp-dev` rule, any model rules that name it, its provider-order entry (only if `run` added it) and a default selection that points at it. It also removes the wrapper, links and bridge config. Upstream login and the bridge credential stay in `~/.cache/ocp-dev/zcode/home/data/opencode-compat/zcode/state`.
 
-Both commands refuse to change an existing `ocp-dev` rule unless it uses the shim’s retained credential.
+Both commands refuse to change an existing `ocp-dev` rule unless it uses the shim’s retained credential. If you already removed the provider rule, `unshim` uses its manifest to clean up the remaining shim settings.
 
 | Variable | Role |
 |---|---|

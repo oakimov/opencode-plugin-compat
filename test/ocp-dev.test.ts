@@ -569,6 +569,66 @@ describe("zcode shim", () => {
     }
   })
 
+  test.each([
+    { scenario: "shim appended order", manifestOwner: ZCODE_PROVIDER_ID, appendedOrder: true, liveProvider: false },
+    { scenario: "user supplied order", manifestOwner: ZCODE_PROVIDER_ID, appendedOrder: false, liveProvider: false },
+    { scenario: "manifest absent", manifestOwner: undefined, appendedOrder: false, liveProvider: false },
+    { scenario: "manifest belongs to another provider", manifestOwner: "example", appendedOrder: true, liveProvider: false },
+    { scenario: "provider was replaced", manifestOwner: ZCODE_PROVIDER_ID, appendedOrder: true, liveProvider: true },
+  ])("unshim checks leftover ZCode settings ownership when $scenario", ({ manifestOwner, appendedOrder, liveProvider }) => {
+    const root = mkdtempSync(join(tmpdir(), "ocp-zcode-unshim-"))
+    try {
+      const file = join(root, "provider_config.json")
+      const state = join(root, "state")
+      const manifest = join(state, "zcode", "state.json")
+      const bin = join(root, "bin")
+      mkdirSync(bin)
+      writeFileSync(join(bin, "pgrep"), "#!/bin/sh\nexit 1\n", { mode: 0o700 })
+      const modelRule = { providerId: ZCODE_PROVIDER_ID, modelId: "shim-model" }
+      const userRule = { providerId: "example", modelId: "user-model" }
+      const original = JSON.stringify({
+        schemaVersion: 1,
+        config: {
+          providerConfigRules: { providerRules: liveProvider ? [rule(["replacement"], "fixture-replacement")] : [] },
+          providerOrder: ["example", ZCODE_PROVIDER_ID],
+          modelConfigRules: { providerModelRules: [modelRule, userRule], manualProviderModelRules: [userRule, modelRule] },
+          defaultModelSelection: modelRule,
+        },
+      })
+      writeFileSync(file, original)
+      if (manifestOwner !== undefined) {
+        mkdirSync(join(state, "zcode"), { recursive: true })
+        writeFileSync(manifest, JSON.stringify({ host: "zcode", configPath: file, providerId: manifestOwner, appendedOrder }))
+      }
+
+      const result = Bun.spawnSync([process.execPath, resolve(import.meta.dir, "../scripts/ocp-dev/cli.ts"), "unshim", "zcode"], {
+        env: { ...process.env, OCP_DEV_STATE_DIR: state, ZCODE_PERSONAL_PROVIDER_CONFIG_FILE: file, PATH: `${bin}:${process.env.PATH}` },
+        timeout: 5000,
+      })
+      if (liveProvider) {
+        expect(result.exitCode).toBe(1)
+        expect(result.stderr.toString()).toContain("already in use")
+        expect(existsSync(manifest)).toBe(true)
+        expect(readFileSync(file, "utf8")).toBe(original)
+        return
+      }
+      expect(result.exitCode, result.stderr.toString()).toBe(0)
+      expect(existsSync(manifest)).toBe(false)
+      const text = readFileSync(file, "utf8")
+      if (manifestOwner === ZCODE_PROVIDER_ID) {
+        expect(JSON.parse(text).config).toEqual({
+          providerConfigRules: { providerRules: [] },
+          providerOrder: appendedOrder ? ["example"] : ["example", ZCODE_PROVIDER_ID],
+          modelConfigRules: { providerModelRules: [userRule], manualProviderModelRules: [userRule] },
+        })
+      } else {
+        expect(text).toBe(original)
+      }
+    } finally {
+      rmSync(root, { recursive: true, force: true })
+    }
+  })
+
   test("a rerun keeps ownership of the providerOrder entry an earlier run added", () => {
     const manifest = (configPath: string, appendedOrder: boolean) => JSON.stringify({ configPath, appendedOrder })
     expect(ownsProviderOrder(undefined, "/a", true)).toBe(true)

@@ -229,7 +229,11 @@ export type ZcodeRemoval = { removedRules: number; removedModelRules: number; re
  * providerOrder entry (only when this shim appended it) and a default model
  * selection that points at it. Everything else is left byte-for-byte.
  */
-export function removeZcodeProvider(configPath: string, providerId: string, options: { removeOrder: boolean; credential: string | undefined }): ZcodeRemoval {
+export function removeZcodeProvider(
+  configPath: string,
+  providerId: string,
+  options: { removeOrder: boolean; credential: string | undefined; hasMatchingManifest?: boolean },
+): ZcodeRemoval {
   const result: ZcodeRemoval = { removedRules: 0, removedModelRules: 0, removedOrder: false, clearedSelection: false }
   if (!existsSync(configPath)) return result
   const mode = fileMode(configPath)
@@ -237,7 +241,8 @@ export function removeZcodeProvider(configPath: string, providerId: string, opti
   let text = loaded.text
   const root = loaded.root
   const rules = ownedRuleIndexes(root, providerId, options.credential)
-  if (rules.length === 0) return result
+  // A matching manifest still proves ownership after the rule is deleted.
+  if (rules.length === 0 && !options.hasMatchingManifest) return result
   for (let i = rules.length - 1; i >= 0; i -= 1) text = deletePath(text, [...RULES_PATH, rules[i]!])
   result.removedRules = rules.length
 
@@ -273,7 +278,7 @@ export function removeZcodeProvider(configPath: string, providerId: string, opti
     text = deletePath(text, ["config", "defaultModelSelection"])
     result.clearedSelection = true
   }
-  writeAtomic(configPath, text.endsWith("\n") ? text : `${text}\n`, mode)
+  if (text !== loaded.text) writeAtomic(configPath, text.endsWith("\n") ? text : `${text}\n`, mode)
   return result
 }
 
@@ -465,10 +470,18 @@ export async function runZcode(mode: WireMode): Promise<void> {
 export async function unshimZcode(): Promise<void> {
   assertZcodeClosed()
   const manifestText = readText(manifestPath("zcode"))
-  const manifest = manifestText ? JSON.parse(manifestText) as { appendedOrder?: boolean; configPath?: string } : {}
-  const configPath = manifest.configPath ?? configFile("zcode")
+  const manifest = manifestText ? JSON.parse(manifestText) as {
+    host?: unknown
+    providerId?: unknown
+    configPath?: unknown
+    appendedOrder?: unknown
+  } | null : undefined
+  const managedConfigPath = manifest?.host === "zcode" && manifest.providerId === ZCODE_PROVIDER_ID &&
+    typeof manifest.configPath === "string" && manifest.configPath.length > 0 ? manifest.configPath : undefined
+  const configPath = managedConfigPath ?? configFile("zcode")
   const removal = removeZcodeProvider(configPath, ZCODE_PROVIDER_ID, {
-    removeOrder: manifest.appendedOrder === true,
+    hasMatchingManifest: managedConfigPath !== undefined,
+    removeOrder: managedConfigPath !== undefined && manifest?.appendedOrder === true,
     credential: readText(credentialPath())?.trim(),
   })
   if (removal.removedRules > 0) console.log(`ocp-dev: removed Personal provider "${ZCODE_PROVIDER_ID}" from ${configPath}`)
