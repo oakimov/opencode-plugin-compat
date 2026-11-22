@@ -602,7 +602,14 @@ describe("zcode shim", () => {
       }
 
       const result = Bun.spawnSync([process.execPath, resolve(import.meta.dir, "../scripts/ocp-dev/cli.ts"), "unshim", "zcode"], {
-        env: { ...process.env, OCP_DEV_STATE_DIR: state, ZCODE_PERSONAL_PROVIDER_CONFIG_FILE: file, PATH: `${bin}:${process.env.PATH}` },
+        env: {
+          ...process.env,
+          OCP_DEV_STATE_DIR: state,
+          // A missing package, so the post-unshim provider repair can never reach a real checkout.
+          OCP_DEV_PROVIDER_PATH: join(root, "no-provider"),
+          ZCODE_PERSONAL_PROVIDER_CONFIG_FILE: file,
+          PATH: `${bin}:${process.env.PATH}`,
+        },
         timeout: 5000,
       })
       if (liveProvider) {
@@ -613,6 +620,7 @@ describe("zcode shim", () => {
         return
       }
       expect(result.exitCode, result.stderr.toString()).toBe(0)
+      expect(result.stdout.toString()).toContain("no provider checkout to inspect")
       expect(existsSync(manifest)).toBe(false)
       const text = readFileSync(file, "utf8")
       if (manifestOwner === ZCODE_PROVIDER_ID) {

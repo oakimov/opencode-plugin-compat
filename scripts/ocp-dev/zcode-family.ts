@@ -453,7 +453,7 @@ export async function runZcode(mode: WireMode): Promise<void> {
     upsertZcodeProvider(configPath, zcodeProviderRule({ port, credential, modelIds })).appendedOrder,
   )
   writeAtomic(manifestPath("zcode"), `${JSON.stringify({
-    host: "zcode", mode, plugin, version, port, configPath, providerId: ZCODE_PROVIDER_ID, appendedOrder, wrapper,
+    host: "zcode", mode, plugin, version, port, configPath, providerId: ZCODE_PROVIDER_ID, appendedOrder,
     updated: new Date().toISOString(),
   }, null, 2)}\n`)
 
