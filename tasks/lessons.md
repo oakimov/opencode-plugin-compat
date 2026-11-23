@@ -1,5 +1,10 @@
 # Lessons learned
 
+## 2026-11-23 — Keep review harness checks independent of later features
+
+- Put a host-specific contract in the change that introduces its host integration. Test a harness-only change against the tree that can merge first.
+- Compare boundary violations individually using a source fingerprint and occurrence within each file. Keep line numbers in the diagnostic log so moving an inherited violation does not change its comparison signature.
+
 ## 2026-11-10 — A trap before wait does not stop an isolation boundary
 
 - TERM sent only to the pid of `isolate-run.sh`, before the session leader is stored or just before `wait`, leaves the script blocked on a command that ignores TERM. The trap must run the whole stop sequence: signal the session, kill it after `ISOLATE_TERM_GRACE`, and return only when the leader is gone. Prove it by signalling the script pid at those command boundaries with a `BASH_ENV` DEBUG hook, and check with `ps` that the command is gone after the script exits.

@@ -12,15 +12,6 @@ import path from "node:path"
 
 const root = path.resolve(import.meta.dir, "..")
 const bun = process.execPath
-const checkoutHasZcode = fs.existsSync(path.join(root, "packages/cli/src/zcode/index.ts"))
-const zcodeCaseNames = [
-  "refuses-missing-credential",
-  "refuses-foreign-host",
-  "forwards-no-zcode-identity",
-  "native-read-call-mapped",
-  "no-synthetic-finish",
-  "disconnect-aborts-provider",
-]
 
 function contract(script: string, subject: string) {
   return spawnSync(bun, [path.join(root, "scripts", script), subject], { encoding: "utf8", timeout: 60_000 })
@@ -38,11 +29,9 @@ function subjectTree(files: Record<string, string>): string {
 
 describe("trusted review contracts on this checkout", () => {
   beforeAll(() => {
-    // The ZCode and catalog contracts read built dist, as they do after BUILD in the boundary.
-    const catalogBuilt = fs.existsSync(path.join(root, "packages/opencode-loader/dist/index.js"))
-    const zcodeBuilt = fs.existsSync(path.join(root, "packages/cli/dist/zcode/index.js"))
-    if (!catalogBuilt || (checkoutHasZcode && !zcodeBuilt)) {
-      const built = spawnSync("bunx", ["tsc", "-b", "packages/opencode-loader", "packages/cli"], { cwd: root, encoding: "utf8" })
+    // The catalog contract reads built dist, as it does after BUILD in the boundary.
+    if (!fs.existsSync(path.join(root, "packages/opencode-loader/dist/index.js"))) {
+      const built = spawnSync("bunx", ["tsc", "-b", "packages/opencode-loader"], { cwd: root, encoding: "utf8" })
       expect(built.status, built.stderr).toBe(0)
     }
   })
@@ -50,21 +39,13 @@ describe("trusted review contracts on this checkout", () => {
   for (const [script, label] of [
     ["review-boundary-contracts.mjs", "BOUNDARY_CONTRACTS"],
     ["review-catalog-contracts.mjs", "CATALOG_CONTRACTS"],
-    ["review-zcode-contracts.mjs", "ZCODE_CONTRACTS"],
   ] as const) {
     test(`${label} pass with a single completion record`, () => {
       const result = contract(script, root)
       expect(result.status, result.stdout + result.stderr).toBe(0)
       const lines = result.stdout.trim().split("\n")
       expect(result.stdout).not.toMatch(/:failed/)
-      const skipped = lines.filter(line => line.includes(":skipped"))
-      const expectedSkips = checkoutHasZcode ? [] :
-        label === "ZCODE_CONTRACTS"
-          ? zcodeCaseNames.map(name => `ZCODE_CONTRACT=${name}:skipped packages/cli/dist/zcode/index.js absent`)
-          : label === "BOUNDARY_CONTRACTS"
-            ? ["zcode-bridge-is-generic", "runtimes-have-no-zcode-bridge"].map(name => `BOUNDARY_CONTRACT=${name}:skipped packages/cli/src/zcode absent`)
-            : []
-      expect(skipped).toEqual(expectedSkips)
+      expect(lines.filter(line => line.includes(":skipped"))).toEqual([])
       const records = lines.filter(line => line.startsWith("REVIEW_CONTRACT_COMPLETE="))
       expect(records).toEqual([`REVIEW_CONTRACT_COMPLETE=${label}:passed`])
       expect(result.stdout.trim().split("\n").at(-1)).toBe(`REVIEW_CONTRACT_COMPLETE=${label}:passed`)
@@ -84,11 +65,11 @@ describe("trusted review contracts detect regressions", () => {
     try {
       const result = contract("review-boundary-contracts.mjs", dir)
       expect(result.status).toBe(1)
-      expect(result.stdout).toContain("BOUNDARY_CONTRACT=clone-adapter-has-no-pi-dsh:failed count=1; example=packages/adapter/src/host.ts:1")
+      expect(result.stdout).toMatch(/^BOUNDARY_CONTRACT=clone-adapter-has-no-pi-dsh:failed file="packages\/adapter\/src\/host\.ts" fingerprint=[a-f0-9]{64} occurrence=1 line=1$/m)
       expect(result.stdout).toContain("BOUNDARY_CONTRACT=pi-generic-has-no-static-cursor:failed")
-      expect(result.stdout).toContain("BOUNDARY_CONTRACT=pi-bridge-exact-train-pins:failed count=1; example=@opencode-compat/opencode-loader@workspace:* (train 9.9.9)")
-      expect(result.stdout).toContain("BOUNDARY_CONTRACT=path-bridge-neutral-symbol:failed count=1; example=packages/dsh-bridge/src/path-bridge.ts")
-      expect(result.stdout).toContain("BOUNDARY_CONTRACT=zcode-bridge-is-generic:skipped packages/cli/src/zcode absent")
+      expect(result.stdout).toContain('BOUNDARY_CONTRACT=pi-bridge-exact-train-pins:failed file="packages/pi-bridge/package.json" dependency="@opencode-compat/opencode-loader"')
+      expect(result.stdout).toContain('BOUNDARY_CONTRACT=path-bridge-neutral-symbol:failed file="packages/dsh-bridge/src/path-bridge.ts"')
+      expect(result.stdout).toContain("BOUNDARY_CONTRACT=dsh-bridge-exact-train-pins:skipped dsh-bridge or train version absent")
       expect(result.stdout.trim().split("\n").at(-1)).toBe("REVIEW_CONTRACT_COMPLETE=BOUNDARY_CONTRACTS:failed")
     } finally {
       fs.rmSync(dir, { recursive: true, force: true })
@@ -118,7 +99,7 @@ describe("trusted review contracts detect regressions", () => {
   test("contracts skip, not fail, a subject that predates the area; a missing subject is unavailable", () => {
     const dir = subjectTree({})
     try {
-      for (const [script, label] of [["review-catalog-contracts.mjs", "CATALOG"], ["review-zcode-contracts.mjs", "ZCODE"]] as const) {
+      for (const [script, label] of [["review-boundary-contracts.mjs", "BOUNDARY"], ["review-catalog-contracts.mjs", "CATALOG"]] as const) {
         const result = contract(script, dir)
         expect(result.status).toBe(0)
         expect(result.stdout).toMatch(new RegExp(`^${label}_CONTRACT=[a-z-]+:skipped `, "m"))
@@ -190,6 +171,38 @@ describe("isolated-check contract gate", () => {
     }
   })
 
+  test.each([
+    { variant: "only shifts the old import", addition: "", status: 0 },
+    { variant: "adds a different forbidden import", addition: 'import { y } from "@deepseek-ai/fixture"\n', status: 1 },
+    { variant: "duplicates the old forbidden import", addition: 'import { x } from "@oh-my-pi/fixture"\n', status: 1 },
+  ])("classifies boundary failures when the head $variant", ({ addition, status }) => {
+    const file = "packages/adapter/src/host.ts"
+    const oldImport = 'import { x } from "@oh-my-pi/fixture"\n'
+    const base = subjectTree({ [file]: oldImport })
+    const head = subjectTree({ [file]: addition ? oldImport + addition : "// line offset fixture\n" + oldImport })
+    try {
+      const result = gate(`
+        case "$*" in
+          *review-boundary-contracts.mjs*)
+            target="$HEAD_SUBJECT"
+            if [[ "$CHECK_TREE" == base ]]; then target="$BASE_SUBJECT"; fi
+            "$CONTRACT_BUN" "$ROOT/scripts/review-boundary-contracts.mjs" "$target"
+            return $? ;;
+          *review-catalog-contracts.mjs*) echo "REVIEW_CONTRACT_COMPLETE=CATALOG_CONTRACTS:passed"; return 0 ;;
+        esac
+        return 0
+      `, { PROBE_LOG: path.join(head, "commands"), CONTRACT_BUN: bun, BASE_SUBJECT: base, HEAD_SUBJECT: head })
+      expect(result.status, result.stdout + result.stderr).toBe(status)
+      const lines = result.stdout.split("\n")
+      expect(lines.filter(line => line.startsWith("BOUNDARY_CONTRACTS_PREEXISTING=BOUNDARY_CONTRACT="))).toHaveLength(1)
+      expect(lines.filter(line => line.startsWith("BOUNDARY_CONTRACTS_NEW=BOUNDARY_CONTRACT="))).toHaveLength(status)
+      expect(result.stdout).toContain("UNIT_TESTS=passed")
+    } finally {
+      fs.rmSync(base, { recursive: true, force: true })
+      fs.rmSync(head, { recursive: true, force: true })
+    }
+  })
+
   test("a failure the merge base does not have fails the run while later checks still report", () => {
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), "ocp-gate-"))
     try {
@@ -205,14 +218,12 @@ describe("isolated-check contract gate", () => {
             echo "REVIEW_CONTRACT_COMPLETE=CATALOG_CONTRACTS:passed"
             return 0 ;;
           *review-boundary-contracts.mjs*) echo "REVIEW_CONTRACT_COMPLETE=BOUNDARY_CONTRACTS:passed"; return 0 ;;
-          *review-zcode-contracts.mjs*) echo "REVIEW_CONTRACT_COMPLETE=ZCODE_CONTRACTS:passed"; return 0 ;;
         esac
         return 0
       `, { PROBE_LOG: path.join(dir, "commands") })
       expect(result.status).toBe(1)
       expect(result.stdout).toContain("CATALOG_CONTRACTS=failed exit=1")
       expect(result.stdout).toContain('CATALOG_CONTRACTS_NEW=CATALOG_CONTRACT=equal-name-descriptor-frozen:failed description="changed"')
-      expect(result.stdout).toContain("ZCODE_CONTRACTS=passed")
       expect(result.stdout).toContain("UNIT_TESTS=passed")
       expect(result.stdout).toContain("new_contracts=1 preexisting_contracts=0 blocking=CATALOG_CONTRACTS")
     } finally {
@@ -224,35 +235,19 @@ describe("isolated-check contract gate", () => {
     const empty = subjectTree({})
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), "ocp-gate-lost-"))
     try {
-      for (const [script, prefix, cases] of [
-        ["review-catalog-contracts.mjs", "CATALOG_CONTRACT", 7],
-        ["review-zcode-contracts.mjs", "ZCODE_CONTRACT", 6],
-      ] as const) {
-        const head = contract(script, empty)
-        expect(head.status).toBe(0)
-        let baseOutput: string
-        if (prefix === "ZCODE_CONTRACT" && !checkoutHasZcode) {
-          // Before the bridge lands, exercise the gate with a known passing base
-          // and the real probe's absent-subject records. With the bridge present,
-          // both sides of the comparison use real probe output.
-          baseOutput = zcodeCaseNames.map(name => `ZCODE_CONTRACT=${name}:passed\n`).join("")
-        } else {
-          const base = contract(script, root)
-          expect(base.status).toBe(0)
-          baseOutput = base.stdout
-        }
-        fs.writeFileSync(path.join(dir, "base"), baseOutput)
-        fs.writeFileSync(path.join(dir, "head"), head.stdout)
-        const lost = spawnSync("bash", ["-c", 'source scripts/isolated-check.sh; check_lost_contract_feature "$1" "$2"', "_", path.join(dir, "base"), path.join(dir, "head")], { cwd: root, encoding: "utf8" })
-        expect(lost.status, lost.stderr).toBe(0)
-        const lines = lost.stdout.trim().split("\n")
-        expect(lines).toHaveLength(cases)
-        expect(lines.every(line => line.startsWith(`${prefix}=`) && line.endsWith(":failed capability disappeared"))).toBe(true)
-      }
+      const head = contract("review-catalog-contracts.mjs", empty)
+      const base = contract("review-catalog-contracts.mjs", root)
+      expect(head.status).toBe(0)
+      expect(base.status).toBe(0)
+      fs.writeFileSync(path.join(dir, "base"), base.stdout)
+      fs.writeFileSync(path.join(dir, "head"), head.stdout)
+      const lost = spawnSync("bash", ["-c", 'source scripts/isolated-check.sh; check_lost_contract_feature "$1" "$2"', "_", path.join(dir, "base"), path.join(dir, "head")], { cwd: root, encoding: "utf8" })
+      expect(lost.status, lost.stderr).toBe(0)
+      const lines = lost.stdout.trim().split("\n")
+      expect(lines).toHaveLength(7)
+      expect(lines.every(line => line.startsWith("CATALOG_CONTRACT=") && line.endsWith(":failed capability disappeared"))).toBe(true)
       // The same subject on both sides loses nothing.
-      const same = contract("review-catalog-contracts.mjs", root).stdout
-      fs.writeFileSync(path.join(dir, "base"), same)
-      fs.writeFileSync(path.join(dir, "head"), same)
+      fs.writeFileSync(path.join(dir, "head"), base.stdout)
       const none = spawnSync("bash", ["-c", 'source scripts/isolated-check.sh; check_lost_contract_feature "$1" "$2"', "_", path.join(dir, "base"), path.join(dir, "head")], { cwd: root, encoding: "utf8" })
       expect(none.status).toBe(1)
       expect(none.stdout).toBe("")
@@ -267,22 +262,21 @@ describe("isolated-check contract gate", () => {
     try {
       const result = gate(`
         case "$*" in
-          *review-zcode-contracts.mjs*)
+          *review-catalog-contracts.mjs*)
             if [[ "\${CHECK_TREE:-head}" == head ]]; then
-              echo "ZCODE_CONTRACT=refuses-missing-credential:skipped packages/cli/dist/zcode/index.js absent"
+              echo "CATALOG_CONTRACT=first-catalog-sorted-by-code-unit:skipped packages/opencode-loader/dist/index.js absent"
             else
-              echo "ZCODE_CONTRACT=refuses-missing-credential:passed"
+              echo "CATALOG_CONTRACT=first-catalog-sorted-by-code-unit:passed"
             fi
-            echo "REVIEW_CONTRACT_COMPLETE=ZCODE_CONTRACTS:passed"
+            echo "REVIEW_CONTRACT_COMPLETE=CATALOG_CONTRACTS:passed"
             return 0 ;;
           *review-boundary-contracts.mjs*) echo "REVIEW_CONTRACT_COMPLETE=BOUNDARY_CONTRACTS:passed"; return 0 ;;
-          *review-catalog-contracts.mjs*) echo "REVIEW_CONTRACT_COMPLETE=CATALOG_CONTRACTS:passed"; return 0 ;;
         esac
         return 0
       `, { PROBE_LOG: path.join(dir, "commands") })
       expect(result.status).toBe(1)
-      expect(result.stdout).toContain("ZCODE_CONTRACTS_NEW=ZCODE_CONTRACT=refuses-missing-credential:failed capability disappeared")
-      expect(result.stdout).toContain("blocking=ZCODE_CONTRACTS")
+      expect(result.stdout).toContain("CATALOG_CONTRACTS_NEW=CATALOG_CONTRACT=first-catalog-sorted-by-code-unit:failed capability disappeared")
+      expect(result.stdout).toContain("blocking=CATALOG_CONTRACTS")
     } finally {
       fs.rmSync(dir, { recursive: true, force: true })
     }
@@ -330,7 +324,7 @@ describe("isolated-check contract gate", () => {
         check_cleanup
       `], { cwd: root, encoding: "utf8", env: { ...process.env, SUBJECT: dir } })
       expect(result.status, result.stderr).toBe(0)
-      expect(result.stdout.trim().split("\n")).toEqual(["review-boundary-contracts.mjs", "review-catalog-contracts.mjs", "review-zcode-contracts.mjs"])
+      expect(result.stdout.trim().split("\n")).toEqual(["review-boundary-contracts.mjs", "review-catalog-contracts.mjs"])
       const script = fs.readFileSync(path.join(root, "scripts/isolated-check.sh"), "utf8")
       expect(script).toContain('contracts=(--ro-bind "$isolate_contracts:/opt/harness/scripts")')
       // The copy is made under check_main's EXIT trap, never lazily by a direct caller.

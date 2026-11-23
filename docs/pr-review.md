@@ -531,7 +531,7 @@ Cancelling a check is safe when the signal reaches only the script's own process
 
 There is no `--live` path in this repository. Interactive stock-host acceptance remains a manual evidence requirement outside the isolated check.
 
-After typecheck and before the subject's unit suite, three harness-owned
+After typecheck and before the subject's unit suite, two harness-owned
 contracts run against the archived subject. Private copies of
 `scripts/review-*-contracts.mjs` are mounted read-only at
 `/opt/harness/scripts`; the subject's own copies cannot replace them, and the
@@ -542,31 +542,25 @@ subject's tests cannot weaken them.
   env variables or packages in the clone adapter; no Pi host packages in
   `dsh-bridge`; no static Cursor import in the generic Pi entry and core;
   exact train pins on the foreign `file:` packages; the neutral
-  `opencode.host.path-bridge` symbol in every path installer; and the ZCode
-  bridge staying generic and out of the clone, Pi and DSH runtimes.
+  `opencode.host.path-bridge` symbol in each clone, Pi and DSH path installer.
 - `CATALOG_CONTRACTS` (`review-catalog-contracts.mjs`) drives the built
   `opencode-loader` catalog order. The oracle is the AGENTS.md rule, not the
   subject's tests: the first nonempty catalog is sorted once in UTF-16
   code-unit order, newcomers are sorted only among themselves and appended,
   equal-name descriptors stay frozen, an empty call stays a lifecycle signal,
   and sessions are independent.
-- `ZCODE_CONTRACTS` (`review-zcode-contracts.mjs`) starts the built
-  `ocp zcode` bridge with a scripted fake model on loopback. It checks
-  credential and Host refusal, that no ZCode attribution or session header
-  reaches the provider, the native `Read` ↔ canonical `read` mapping, that a
-  stream without a provider finish ends in an error, and that a client
-  disconnect aborts the provider call. No provider package, host or upstream is
-  involved.
 
 Each case prints `<NAME>_CONTRACT=<case>:passed|failed|skipped`, and each
 contract ends with exactly one `REVIEW_CONTRACT_COMPLETE=<LABEL>:<status>`
 matching its exit code. A case is `skipped` when the subject predates the area.
 Each contract also runs on the merge base of the archived head and the pull
 request's base. That base tree is installed and built inside the same
-secret-free boundary. A head failure whose diagnostic lines already fail
-there is logged as `pre-existing`, with the head and base statuses, and does
-not fail the run. Reviewers still check whether that failure affects a path
-the PR changes. A probe must finish with its completion record and matching
+secret-free boundary. The harness logs a head failure as `pre-existing` when
+its signature also appears on the base. Boundary source signatures use the
+file, a fingerprint of the trimmed line, and the occurrence of that
+fingerprint in the file. Line numbers appear in the diagnostic log.
+Pre-existing failures do not fail the run. Reviewers still check whether those
+failures affect a path the PR changes. A probe must finish with its completion record and matching
 exit status; an interrupted result cannot establish a passing check or an
 inherited failure. A case the completed base check passed that the head only
 skips fails as `capability disappeared`. A new diagnostic, a nonzero result

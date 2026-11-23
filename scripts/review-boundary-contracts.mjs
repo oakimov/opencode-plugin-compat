@@ -9,8 +9,9 @@
 // capability. The last line is REVIEW_CONTRACT_COMPLETE=BOUNDARY_CONTRACTS:<status>.
 //
 // The invariants are AGENTS.md's: one-way OCP/consumer dependency, separate
-// clone / Pi / DSH / ZCode mechanisms, exact train pins for foreign file:
+// clone / Pi / DSH mechanisms, exact train pins for foreign file:
 // installs, and the neutral path-bridge contract.
+import { createHash } from "node:crypto"
 import { existsSync, readdirSync, readFileSync, statSync } from "node:fs"
 import { join, relative } from "node:path"
 
@@ -44,22 +45,36 @@ function filesUnder(dir, extensions = [".ts", ".mts", ".js", ".mjs"]) {
   return out
 }
 
-/** First offending line per file, as `path:line`. */
+function fingerprint(value) {
+  return createHash("sha256").update(value).digest("hex")
+}
+
 function violations(files, pattern) {
   const found = []
   for (const file of files) {
+    const path = JSON.stringify(relative(src, file))
     const lines = readFileSync(file, "utf8").split(/\r?\n/)
-    const index = lines.findIndex(line => pattern.test(line))
-    if (index >= 0) found.push(`${relative(src, file)}:${index + 1}`)
+    const occurrences = new Map()
+    for (const [index, line] of lines.entries()) {
+      if (!pattern.test(line)) continue
+      const hash = fingerprint(line.trim())
+      const occurrence = (occurrences.get(hash) ?? 0) + 1
+      occurrences.set(hash, occurrence)
+      found.push(`file=${path} fingerprint=${hash} occurrence=${occurrence} line=${index + 1}`)
+    }
   }
   return found
+}
+
+function reportViolations(name, found) {
+  if (found.length === 0) report(name, "passed")
+  for (const detail of found) report(name, "failed", detail)
 }
 
 function caseNoMatch(name, dir, pattern) {
   const files = filesUnder(dir)
   if (!files) return report(name, "skipped", `${dir} absent`)
-  const found = violations(files, pattern)
-  report(name, found.length === 0 ? "passed" : "failed", found.length ? `count=${found.length}; example=${found[0]}` : "")
+  reportViolations(name, violations(files, pattern))
 }
 
 // packages/adapter must not contain Pi/OMP/DSH ids, paths, env variables or packages.
@@ -82,10 +97,10 @@ caseNoMatch(
     .map(name => join(src, "packages/pi-bridge/src", name))
     .filter(existsSync)
   if (generic.length === 0) report("pi-generic-has-no-static-cursor", "skipped", "packages/pi-bridge/src absent")
-  else {
-    const found = violations(generic, /^\s*import[^\n]*(?:cursor-host-tools|cursor-opencode-provider|cursor-provider-integration)/)
-    report("pi-generic-has-no-static-cursor", found.length === 0 ? "passed" : "failed", found.length ? `count=${found.length}; example=${found[0]}` : "")
-  }
+  else reportViolations("pi-generic-has-no-static-cursor", violations(
+    generic,
+    /^\s*import[^\n]*(?:cursor-host-tools|cursor-opencode-provider|cursor-provider-integration)/,
+  ))
 }
 
 // Foreign file: installs need exact train pins (never workspace:*).
@@ -105,8 +120,10 @@ caseNoMatch(
       continue
     }
     const deps = JSON.parse(readFileSync(manifest, "utf8")).dependencies ?? {}
-    const bad = Object.entries(deps).filter(([dep, spec]) => dep.startsWith("@opencode-compat/") && spec !== train)
-    report(name, bad.length === 0 ? "passed" : "failed", bad.length ? `count=${bad.length}; example=${bad[0][0]}@${bad[0][1]} (train ${train})` : "")
+    const bad = Object.entries(deps)
+      .filter(([dep, spec]) => dep.startsWith("@opencode-compat/") && spec !== train)
+      .map(([dep, spec]) => `file=${JSON.stringify(relative(src, manifest))} dependency=${JSON.stringify(dep)} fingerprint=${fingerprint(JSON.stringify([train, spec]))}`)
+    reportViolations(name, bad)
   }
 }
 
@@ -116,28 +133,11 @@ caseNoMatch(
     "packages/adapter/src/runtime-host.ts",
     "packages/pi-bridge/src/path-bridge.ts",
     "packages/dsh-bridge/src/path-bridge.ts",
-    "packages/cli/src/zcode/path-bridge.ts",
   ].filter(file => existsSync(join(src, file)))
   if (installers.length === 0) report("path-bridge-neutral-symbol", "skipped", "no path installers")
   else {
     const missing = installers.filter(file => !readFileSync(join(src, file), "utf8").includes('Symbol.for("opencode.host.path-bridge")'))
-    report("path-bridge-neutral-symbol", missing.length === 0 ? "passed" : "failed", missing.length ? `count=${missing.length}; example=${missing[0]}` : "")
-  }
-}
-
-// The external ZCode bridge stays generic and outside the clone, Pi and DSH runtimes.
-caseNoMatch(
-  "zcode-bridge-is-generic",
-  "packages/cli/src/zcode",
-  /@opencode-compat\/(?:adapter|pi-bridge|dsh-bridge)|@oh-my-pi|@earendil-works|@deepseek-ai|cursor-opencode-provider|isCursorProviderPackage|devin-opencode-provider/,
-)
-{
-  const files = ["packages/adapter/src", "packages/pi-bridge/src", "packages/dsh-bridge/src", "packages/opencode-loader/src"]
-    .flatMap(dir => filesUnder(dir) ?? [])
-  if (!existsSync(join(src, "packages/cli/src/zcode"))) report("runtimes-have-no-zcode-bridge", "skipped", "packages/cli/src/zcode absent")
-  else {
-    const found = violations(files, /cli\/src\/zcode|x-zcode-|ZCODE_ATTRIBUTION/)
-    report("runtimes-have-no-zcode-bridge", found.length === 0 ? "passed" : "failed", found.length ? `count=${found.length}; example=${found[0]}` : "")
+    reportViolations("path-bridge-neutral-symbol", missing.map(file => `file=${JSON.stringify(file)}`))
   }
 }
 

@@ -365,15 +365,12 @@ scripts/isolated-check.sh <pr-number-or-url>
 
 A pull URL must name this checkout's origin. The copy has no `.git` directory. Install, build, typecheck, harness contracts, and `bun test ./test` run inside `scripts/isolate-run.sh`. Exit 0 means those checks passed. Exit 1 is a check failure. Exit 2 is a bad invocation or an unavailable isolation mechanism. The log line `Check root:` is private.
 
-`BOUNDARY_CONTRACTS`, `CATALOG_CONTRACTS` and `ZCODE_CONTRACTS` run the review
-harness's read-only `scripts/review-*-contracts.mjs` against the archived
-subject, independently of its tests: the AGENTS.md boundaries in source, the
-catalog-order rule on the built `opencode-loader`, and the `ocp zcode` bridge
-wire (credential and Host refusal, no forwarded ZCode identity, native `Read`
-mapping, no synthetic finish, abort on disconnect) with a fake model. Do not
-replace them with a pass from the harness checkout. They load no host,
-provider package or upstream, so they do not replace tracing the receiving
-host's behavior or discovering new counterexamples.
+`BOUNDARY_CONTRACTS` and `CATALOG_CONTRACTS` run the review harness's read-only
+`scripts/review-*-contracts.mjs` against the archived subject, independently
+of its tests. They check the AGENTS.md boundaries in source and the
+catalog-order rule on the built `opencode-loader`. Use the archived subject's
+results as evidence. Trace the receiving host's behavior separately and look
+for new counterexamples.
 
 After build and typecheck, the contracts and the subject unit suite collect
 independent results even when another contract fails. An unavailable boundary

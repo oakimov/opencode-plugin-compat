@@ -34,7 +34,7 @@ It does **not** decide that a diff is correct; a human (or Cloud Agent following
    gitignored `.review-artifacts/` (or `REVIEW_ARTIFACT_DIR`).
 
 There is no live-host path. Interactive stock-host acceptance (MiMo, Kilo, pi,
-omp, DSH, ZCode) stays manual evidence, as [AGENTS.md](../AGENTS.md) requires.
+omp, DSH) stays manual evidence, as [AGENTS.md](../AGENTS.md) requires.
 
 | Piece | Role |
 |-------|------|
@@ -43,9 +43,8 @@ omp, DSH, ZCode) stays manual evidence, as [AGENTS.md](../AGENTS.md) requires.
 | `scripts/review-publish.py` | start → bind → render → stamp → show → approve/deny → post |
 | `scripts/review-ledger.py` | private completion evidence |
 | `scripts/isolated-check.sh` / `isolate-run.sh` | untrusted PR checks |
-| `scripts/review-boundary-contracts.mjs` | AGENTS.md boundaries in the subject's source: clone adapter, DSH, generic Pi code, train pins, path-bridge symbol, ZCode bridge |
+| `scripts/review-boundary-contracts.mjs` | AGENTS.md boundaries in the subject's source: clone adapter, DSH, generic Pi code, train pins, path-bridge symbol |
 | `scripts/review-catalog-contracts.mjs` | the catalog-order rule on the subject's built `opencode-loader` |
-| `scripts/review-zcode-contracts.mjs` | the `ocp zcode` bridge wire with a fake model: refusals, no forwarded ZCode identity, `Read` mapping, no synthetic finish, abort on disconnect |
 | `scripts/complete-resolutions.py` | finish approved thread resolves after a confirmed review |
 | `scripts/cloud-agent-install.sh` | Cloud Agent bootstrap |
 | `eval/review/` | offline detection fixtures and scorer |
@@ -63,12 +62,14 @@ skill finds real defects.
 | Subject contracts | `test/review-contracts.test.ts` | installed features pass their contracts, absent features report named skips, and synthetic subjects exercise regressions; the merge-base gate (pre-existing, new, lost capability, incomplete, unavailable); trusted copies mounted, not the subject's |
 | Eval fixtures / scorer | `test/review-eval.test.ts` | Case orchestration fixtures, mount excludes answer keys, ledger compare, score detection vs false positives |
 
-After build and typecheck, isolated PR checks run the three contracts and the
+After build and typecheck, isolated PR checks run both contracts and the
 subject unit suite independently. A contract failure stays visible while the
 other checks run; an unavailable boundary stops them. Each contract also runs
-on the merge base. A failure whose diagnostic line also fails on a completed
-base run is reported as pre-existing. Incomplete output, a newly failing case,
-and a case the base passed that the head only skips fail the run, as do
+on the merge base. A failure with the same signature on a completed base run
+is reported as pre-existing. Boundary checks report each offending source line
+by file, fingerprint and occurrence. The log includes its line number for
+navigation. Incomplete output, a new failure, and a case the base passed
+that the head only skips fail the run, as do
 install, build, typecheck and unit-test failures. The contracts' expected
 values come from AGENTS.md and synthetic input, not from another output of the
 same implementation. They do not measure an agent's ability to discover
@@ -121,11 +122,11 @@ python3 scripts/review-eval.py score --case <id> --variant <name> \
 do not call GitHub from tests.
 
 **New subject contract case**: add it to the matching
-`scripts/review-*-contracts.mjs`. Print one
-`<NAME>_CONTRACT=<case>:passed|failed|skipped <detail>` line, skip (never fail)
-when the subject predates the area, and keep the single
-`REVIEW_CONTRACT_COMPLETE=` line last. Take the expected value from AGENTS.md
-or the synthetic input, never from the subject. Add a regression to
+`scripts/review-*-contracts.mjs`. Print
+`<NAME>_CONTRACT=<case>:passed|failed|skipped <detail>` records. Report each
+boundary violation individually and skip cases the subject predates. End with
+one `REVIEW_CONTRACT_COMPLETE=` line. Take the expected value from AGENTS.md
+or the synthetic input. Add a regression to
 `test/review-contracts.test.ts` showing the case fails on a broken synthetic
 subject. A new contract script also needs an entry in `check_contract_scripts`
 and the step list in `scripts/isolated-check.sh`.
@@ -323,10 +324,13 @@ chat reply. Those are not a submitted review receipt.
 On a re-review, the approved payload may list `resolve` actions for earlier
 threads. First use `review-publish.py reviews` to inventory this reviewer's
 existing post and set the result's `update` target as described in
-[re-reviewing](pr-review.md#re-review-and-thread-resolution). Replace its
-summary in place; do not post another top-level review. Updates require a new
-approved preview and put new findings in the summary, preserving old inline
-anchors. Failure to update must not create a replacement post.
+[re-reviewing](pr-review.md#re-review-and-thread-resolution). Approve a fresh
+preview for the update. The publisher edits the existing summary in place.
+Findings outside the current diff stay in the summary. Current-diff findings
+use native inline comments. The publisher edits comments bound to the
+approved head in place and submits new threads in one empty-body `COMMENT`
+review on that head. If the summary update fails, retry against the original
+review.
 Thread actions run only after the initial review or summary update is confirmed and the thread
 still matches the inventoried snapshot. Reply proposals in the payload are not
 sent. Publication never merges the pull request.

@@ -15,7 +15,7 @@
 # evidence requirement outside this boundary.
 #
 # After typecheck, the harness-owned contracts scripts/review-*-contracts.mjs
-# run read-only against the archived subject (BOUNDARY, CATALOG, ZCODE). Each
+# run read-only against the archived subject (BOUNDARY, CATALOG). Each
 # also runs on the merge base of the head and the pull request's base, in the
 # same secret-free boundary. A contract diagnostic that already fails there is
 # pre-existing: it is logged and does not fail this run.
@@ -139,7 +139,7 @@ check_contract_scripts() {
   local file
   if [[ -z "$isolate_contracts" ]]; then
     isolate_contracts="$(mktemp -d "${TMPDIR:-/tmp}/ocp-review-contracts.XXXXXX")"
-    for file in review-boundary-contracts.mjs review-catalog-contracts.mjs review-zcode-contracts.mjs; do
+    for file in review-boundary-contracts.mjs review-catalog-contracts.mjs; do
       cp "$ROOT/scripts/$file" "$isolate_contracts/$file" || return 2
     done
   fi
@@ -265,13 +265,16 @@ check_prepare_base() {
   return 0
 }
 
-# A failure signature is the contract line that names the case and its
-# detail, so identical counts on different cases cannot look inherited.
+# Keep diagnostic details in the log. Compare source violations by file,
+# fingerprint and occurrence so unrelated edits can shift their line numbers.
 check_write_signatures() {
   local source="$1" dest="$2"
   : >"$dest"
   [[ -f "$source" ]] || return 0
   awk '
+    /^BOUNDARY_CONTRACT=[^[:space:]]+:failed file=.* fingerprint=[0-9a-f]+ occurrence=[0-9]+ line=[0-9]+$/ {
+      sub(/ line=[0-9]+$/, "")
+    }
     /^[A-Z_]+_CONTRACT=[^[:space:]]+:failed([[:space:]]|$)/ { print $0; next }
     /^error:/ || /^Error:/ { print $0; next }
   ' "$source" | LC_ALL=C sort -u >"$dest"
@@ -537,7 +540,6 @@ check_main() {
       for step in \
         "BOUNDARY_CONTRACTS bun /opt/harness/scripts/review-boundary-contracts.mjs /src" \
         "CATALOG_CONTRACTS bun /opt/harness/scripts/review-catalog-contracts.mjs /src" \
-        "ZCODE_CONTRACTS bun /opt/harness/scripts/review-zcode-contracts.mjs /src" \
         "UNIT_TESTS bun test ./test"; do
         [[ "$checks" -ne 2 ]] || break
         phase=0
