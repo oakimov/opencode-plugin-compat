@@ -20,7 +20,8 @@ import { resolve } from "node:path"
 import {
   parseSetupArgs,
   setup,
-} from "./setup"
+} from "./setup.js"
+import { runZcodeCli } from "./zcode/index.js"
 
 export {
   discoverAbsolutePluginRoots,
@@ -30,7 +31,7 @@ export {
   type AbsolutePluginWireTarget,
   type SetupOptions,
   type SetupResult,
-} from "./setup"
+} from "./setup.js"
 
 export type DoctorResult = {
   ok: boolean
@@ -116,6 +117,7 @@ Usage:
   opencode-compat migrate-zcode --plugin <dir> [--out <dir>] [options]
   opencode-compat migrate-zcode --plugin <dir> [--plugin <dir>...] \\
     --marketplace-name <name> --out <dir> [options]
+  opencode-compat zcode <install|credential|check|models|auth|serve|probe> [options]
 
 Commands:
   doctor           Detect host and print capability summary
@@ -124,6 +126,9 @@ Commands:
   matrix           Run OCP §10 Plugin×Host×Tier conformance fixtures
   migrate-zcode    Companion: pack plugin skills/commands/manifests → .zcode-plugin
                    (not OCP ABI; ZCode stays T0; does not migrate host MCP)
+  zcode            Experimental external bridge: serve an unchanged OpenCode provider
+                   plugin to stock ZCode as an Anthropic Messages endpoint
+                   ("zcode help" for details; separate from the clone ABI tier)
 
 setup options:
   --dir <path>                   Install tree root (default: host pluginInstallDir)
@@ -440,6 +445,9 @@ export async function mainAsync(argv: string[] = process.argv): Promise<number> 
   if (command === "migrate-zcode") {
     return runMigrateZcodeCli(migrateRest)
   }
+  if (command === "zcode") {
+    return runZcodeCli(argv.slice(3))
+  }
   if (command === "matrix") {
     try {
       const mod = await loadFixtures()
@@ -481,7 +489,7 @@ export async function mainAsync(argv: string[] = process.argv): Promise<number> 
 /** Sync entry for doctor / overrides / setup / help (used by unit tests). */
 export function main(argv: string[] = process.argv): number {
   const { command, host, setupRest } = parseArgs(argv)
-  if (command === "matrix" || command === "migrate-zcode") {
+  if (command === "matrix" || command === "migrate-zcode" || command === "zcode") {
     console.error(
       `${command} requires async entry — use: opencode-compat ${command}`,
     )

@@ -1,5 +1,5 @@
 /** Keep each session's cacheable catalog prefix stable as tools appear/disappear. */
-export function createToolCatalogOrder<T extends { name: string }>() {
+export function createToolCatalogOrder<T extends { name: string }>(maxSessions = 256) {
   const epochs = new Map<string, readonly T[]>()
   const sorted = (tools: readonly T[]) => [...tools].sort((a, b) => a.name < b.name ? -1 : a.name > b.name ? 1 : 0)
   return (tools: readonly T[] | undefined, sessionID?: string): T[] | undefined => {
@@ -12,7 +12,7 @@ export function createToolCatalogOrder<T extends { name: string }>() {
     const epoch = [...previous, ...sorted(tools.filter(tool => !known.has(tool.name))).map(tool => structuredClone(tool))]
     epochs.delete(sessionID)
     epochs.set(sessionID, epoch)
-    while (epochs.size > 256) epochs.delete(epochs.keys().next().value!)
+    while (epochs.size > maxSessions) epochs.delete(epochs.keys().next().value!)
     return epoch.filter(tool => active.has(tool.name))
   }
 }

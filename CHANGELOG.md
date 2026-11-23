@@ -8,11 +8,22 @@ The monorepo ships **one shared train version** across all eleven packages, so u
 
 ### Added
 
+- Experimental `ocp zcode` bridge: serves an unchanged Classic OpenCode provider plugin to stock ZCode as a loopback Anthropic Messages Personal provider, with install/credential/check/models/auth/serve commands and a `probe` that records a redacted wire transcript. The probe round trip passed on the embedded CLI from the ZCode 3.18.2 macOS arm64 release. See `docs/hosts/zcode-bridge.md` for the validation scope.
+- `ocp zcode` plugins can set `"models": "catalog"` to serve every model their own `config` hook publishes, including catalogs that appear only after login.
+- `./scripts/ocp-dev.sh run zcode` / `unshim zcode` wire a downloaded ZCode release to this OCP checkout and a local provider checkout (or `--mode npm` to published packages) by adding one Personal provider to ZCode's `provider_config.json`.
 - Manual Cursor Cloud Agent reviews can use the same Greptile-like `caeliq-reviewer` harness as the Cursor provider: isolated PR checks, structured preview approval, and optional `--token-env` on `post`, `threads`, and `complete-resolutions.py`.
 - `scripts/isolated-check.sh` runs trusted harness contracts (AGENTS.md boundaries and catalog order) against the PR head and its merge base; a failure already on the base is reported as pre-existing instead of failing the check. Re-reviews update the existing summary post and keep current-diff findings as native inline threads. Maintainer setup is documented in `docs/review-harness.md`.
 
 ### Fixed
 
+- `@opencode-compat/profile`, `cli`, `adapter`, `facade-plugin`, `facade-sdk`, `migrate-zcode` and `ocp` now load under plain Node ESM; the published `dist` no longer contains extensionless relative imports that only Bun resolves.
+- `ocp zcode` finishes JSON responses on the provider's finish event, cancels idle fallback streams on abort, and rejects malformed tool calls before emitting them.
+- ZCode catalog discovery preserves credentials saved by a concurrent login, including when another process was refreshing the previous credential.
+- A ZCode request uses its refreshed credential when a concurrent update wins the write to the shared auth store.
+- The ZCode bridge translates live tool names in system prompts, requires an exact advertised name for forced tool choice, and refreshes the tool catalog when an alias is repointed.
+- `ocp zcode auth` can replace or clear credentials that fail catalog discovery. Probe files are cleaned up on exit, and server logs use keyed request ID hashes.
+- `ocp-dev` preserves a ZCode Personal provider that already uses the shim's provider ID with a different credential.
+- `ocp-dev unshim zcode` cleans up shim-owned settings when the provider rule has already been removed.
 - Isolated review checks detect each newly introduced boundary violation, even in files with an inherited violation. Moving an inherited violation to a different line keeps its classification.
 
 - macOS review checks stop same-session children that change process groups before removing their staging files.

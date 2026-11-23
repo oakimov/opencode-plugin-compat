@@ -1,6 +1,6 @@
 ---
 name: ocp-dev
-description: Wire, unwire, diagnose, and repair OCP + cursor-opencode-provider on stock hosts that need a compatibility layer. Use whenever the user mentions shim, unshim, ocp-dev, local-dev scripts, factory reset, host config (kilo.jsonc, mimocode.json, pi-bridge.json), dirty stock provider, wrapper under ~/.cache/ocp-dev, or asks why MiMo/Kilo/pi/omp/dsh is not loading Cursor after a local OCP change. OpenCode is native and must not be ocp-dev-shimmed.
+description: Wire, unwire, diagnose, and repair OCP + cursor-opencode-provider on stock hosts that need a compatibility layer. Use whenever the user mentions shim, unshim, ocp-dev, local-dev scripts, factory reset, host config (kilo.jsonc, mimocode.json, pi-bridge.json), dirty stock provider, wrapper under ~/.cache/ocp-dev, or asks why MiMo/Kilo/pi/omp/dsh/ZCode is not loading Cursor after a local OCP change, or mentions ZCode provider_config.json or ocp-zcode. OpenCode is native and must not be ocp-dev-shimmed.
 ---
 
 # OCP local-dev skill
@@ -9,11 +9,12 @@ Drive host wiring only through `./scripts/ocp-dev.sh`. Do not resurrect deleted 
 
 ## Hard rules
 
-- Hosts are read-only. Never edit MiMo, Kilo, OpenCode, pi, omp, or deepseek-harness source, packages, or installed binaries. Local `run` **does** execute each host's own documented install/build (`bun run build` for the provider and bridges; `pnpm install` plus the DSH `build:native-system` / Host Typert generation / host+client lib / `build:web` pipeline) so the host can start afterward. That writes gitignored `lib/` / `dist/` only. DSH Host Typert (`scripts/generate-typert.ts`) must run before host `tsc` because package `./remote` exports point at generated `lib/typert.remote-client.*`. DSH tsdown is restricted to workspace directories that have `package.json` — leftover empty package dirs abort stock `pnpm run build` / unfiltered `host-libraries` tsdown.
+- Hosts are read-only. Never edit MiMo, Kilo, OpenCode, pi, omp, deepseek-harness, or ZCode source, packages, app bundles, or installed binaries. Local `run` **does** execute each host's own documented install/build (`bun run build` for the provider and bridges; `pnpm install` plus the DSH `build:native-system` / Host Typert generation / host+client lib / `build:web` pipeline) so the host can start afterward. That writes gitignored `lib/` / `dist/` only. DSH Host Typert (`scripts/generate-typert.ts`) must run before host `tsc` because package `./remote` exports point at generated `lib/typert.remote-client.*`. DSH tsdown is restricted to workspace directories that have `package.json` — leftover empty package dirs abort stock `pnpm run build` / unfiltered `host-libraries` tsdown.
 - **OpenCode is native.** It loads consumer plugins (`cursor-opencode-provider`, and others) through its own plugin surface. Never `run`/`shim` OpenCode, never write an ocp-dev wrapper into OpenCode config, and never tell the user to restart OpenCode to pick up a shim. Point it at the provider checkout `dist/` (or a published package) directly. Default `run` with no host names skips `opencode`. Named `run opencode` is an error. Leave any leftover `~/.cache/ocp-dev/opencode` tree alone unless the user asks to unshim it.
 - Consumer provider checkout is read-only in local mode. Never shim `cursor-opencode-provider/dist/index.js` in place.
-- Config edits must be surgical. Never `JSON.stringify` a user's `kilo.jsonc` / `mimocode.json` / `opencode.json(c)` / `pi-bridge.json`. Comments, permissions, MCP, agents, and sibling plugins stay.
-- Three families, three mechanisms. Do not run `ocp setup` against pi/omp/dsh. Do not put Pi/OMP/DSH ids into `packages/adapter`.
+- Config edits must be surgical. Never `JSON.stringify` a user's `kilo.jsonc` / `mimocode.json` / `opencode.json(c)` / `pi-bridge.json` / ZCode `provider_config.json`. Comments, permissions, MCP, agents, sibling plugins, other ZCode providers, model rules and the default selection stay.
+- ZCode: quit it before `run`/`unshim` (it locks `provider_config.json`), and never create that file — ZCode imports legacy provider settings only while it is absent, so the user starts ZCode once first.
+- Separate mechanisms per family. Do not run `ocp setup` against pi/omp/dsh/zcode. Do not put Pi/OMP/DSH/ZCode ids into `packages/adapter`. ZCode uses the external `ocp zcode` bridge, never a ZCode plugin or patch.
 - Prefer the script over hand edits. If a config is already broken, diagnose first, then either `unshim` + `run` or a targeted surgical edit via `scripts/ocp-dev/jsonc.ts`.
 
 ## Commands
@@ -26,6 +27,7 @@ From the repo root:
 ./scripts/ocp-dev.sh run kilo mimo            # named shim hosts only (never opencode)
 ./scripts/ocp-dev.sh unshim                   # remove OCP slot; keep the rest of config
 ./scripts/ocp-dev.sh unshim pi
+./scripts/ocp-dev.sh run zcode               # local OCP + provider behind a stock ZCode install
 ```
 
 `run` and `shim` are aliases. Default mode is `local`.
@@ -36,11 +38,13 @@ From the repo root:
 | `OCP_DEV_DEVIN_PROVIDER_PATH` | Devin provider checkout (otherwise sibling `../devin-opencode-provider`) |
 | `OCP_DEV_PLUGIN` | npm name (default `cursor-opencode-provider`) |
 | `OCP_DEV_STATE_DIR` | wrapper/manifest root (default `~/.cache/ocp-dev`) |
-| `OCP_DEV_BRIDGE_VERSION` / `OCP_DEV_PLUGIN_VERSION` | npm pins for pi-family |
+| `OCP_DEV_BRIDGE_VERSION` / `OCP_DEV_PLUGIN_VERSION` | npm pins for pi-family (`@opencode-compat/pi-bridge`) and zcode (`@opencode-compat/ocp`) |
+| `OCP_DEV_ZCODE_PORT` / `OCP_DEV_ZCODE_WORKSPACE` | zcode bridge port (18731) / bound workspace (home) |
+| `ZCODE_APP`, `ZCODE_DATA_BASE_DIR`, `ZCODE_PERSONAL_PROVIDER_CONFIG_FILE` | ZCode install / ZCode's own `provider_config.json` overrides |
 | `DSH_HARNESS_ROOT` | deepseek-harness checkout (else OCP sibling `../deepseek-harness`) |
 | `DSH_HOME` | DSH data/config root (default `~/.dsh`) |
 
-Shim hosts: `mimo`, `kilo` (clone family), `pi`, `omp` (Pi family), and `dsh` (DSH family). OpenCode is native and is not a shim host. Paths and CLIs: [references/hosts.md](references/hosts.md).
+Shim hosts: `mimo`, `kilo` (clone family), `pi`, `omp` (Pi family), `dsh` (DSH family), and `zcode` (external `ocp zcode` bridge). OpenCode is native and is not a shim host. Paths and CLIs: [references/hosts.md](references/hosts.md).
 
 ## Choose the action
 
@@ -66,10 +70,11 @@ Inspect, do not mutate. Report family, mode, and whether stock is dirty.
    - Clone: `plugin` contains the wrapper path (`…/ocp-dev/<host>/provider/dist/index.js`) for local, or `cursor-opencode-provider@latest` for npm. `provider.cursor.npm` matches.
     - Pi family: `pi-bridge.json` `providers[].package` is an absolute `dist/index.js` (local) or the bare package name (npm).
     - DSH: `~/.dsh/profiles/web/cordis.patch.yml` `ocp-dsh-bridge` `config.providers[].package` is an absolute `dist/index.js` (local) or the bare package name (npm). Cursor and Devin are separate rows.
+    - ZCode: `~/.zcode/v2/provider_config.json` `config.providerConfigRules.providerRules[]` has one `providerId: "ocp-dev"` rule (Anthropic Messages to `http://127.0.0.1:<port>/v1`); `~/.cache/ocp-dev/zcode/bin/ocp-zcode check` reports the bridge's plugin, version, entry sha256 and auth. Local: `home/data/opencode-compat/zcode/plugins/node_modules/<provider>` is a symlink to the checkout.
 5. **Wrapper** — local clone mode: `dist/index.js` contains `generated by ocp setup` and `ocp-lm-runtime.js` exists. Stock checkout must **not** contain that marker.
 6. **Stock provider** — `$OCP_DEV_PROVIDER_PATH` or the sibling checkout. Dirty if `dist/index.js` has `generated by ocp setup` or `node_modules/@opencode-ai/plugin` is a symlink.
 7. **Doctor** (clone shim hosts only) — `bun packages/ocp/bin/ocp.ts doctor --host <mimo|kilo>`.
-8. **Models** — `<host> models` (clone) or restart + model picker (pi/omp/dsh). Expect `cursor/*` or `cursor-opencode/*` when the Cursor provider is wired, and `devin-opencode/*` on DSH when the Devin row is present (`devin` is reserved).
+8. **Models** — `<host> models` (clone), `ocp-zcode models` (zcode), or restart + model picker (pi/omp/dsh/zcode). Expect `cursor/*` or `cursor-opencode/*` when the Cursor provider is wired, and `devin-opencode/*` on DSH when the Devin row is present (`devin` is reserved).
 
 ### State matrix
 

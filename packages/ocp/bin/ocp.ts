@@ -1,7 +1,7 @@
 #!/usr/bin/env bun
 /**
  * `ocp` — umbrella CLI. Default command is `setup` (ADR-10).
- * Also forwards doctor / overrides / matrix / migrate-zcode to the bridge CLI.
+ * Also forwards doctor / overrides / matrix / migrate-zcode / zcode to the bridge CLI.
  */
 import { mainAsync } from "@opencode-compat/cli"
 
@@ -14,6 +14,7 @@ const known = new Set([
   "overrides",
   "matrix",
   "migrate-zcode",
+  "zcode",
   "help",
   "--help",
   "-h",

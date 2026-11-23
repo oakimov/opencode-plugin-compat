@@ -7,15 +7,15 @@ import {
   opencodeProfile,
   unknownProfile,
   zcodeProfile,
-} from "./drafts"
-import { unknownDoctorMessage, zcodeDoctorMessage } from "./doctor"
+} from "./drafts.js"
+import { unknownDoctorMessage, zcodeDoctorMessage } from "./doctor.js"
 import type {
   DetectOptions,
   DetectResult,
   DetectSource,
   HostId,
   HostProfile,
-} from "./types"
+} from "./types.js"
 
 const HOST_IDS = ["opencode", "mimo", "kilo", "zcode"] as const
 

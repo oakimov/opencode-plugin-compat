@@ -41,7 +41,7 @@ export {
   type StreamAdoptionPolicy,
   type StreamPartLike,
   type ProviderUsageIntegration,
-} from "./language-model"
+} from "./language-model.js"
 
 export {
   buildVocabulary,
@@ -63,7 +63,7 @@ export {
   type ToolRole,
   type TranslatedCall,
   type Vocabulary,
-} from "./vocabulary"
+} from "./vocabulary.js"
 
 export {
   RUNTIME_FILENAME,
@@ -75,7 +75,7 @@ export {
   stripProviderShimSource,
   type ShimFactoryBinding,
   type ShimMeta,
-} from "./shim-source"
+} from "./shim-source.js"
 
 import {
   createPromiseV2Host,
@@ -92,11 +92,11 @@ import {
 import {
   adaptLanguageModelForProfile,
   wrapProviderSdkForProfile,
-} from "./language-model"
-import { installPathBridge } from "./runtime-host"
-import { installSkillsBridge } from "./skills-bridge"
-import { providerUsageIntegrationForHost } from "./provider-usage"
-export { providerUsageIntegrationForHost, usageEventPlugin } from "./provider-usage"
+} from "./language-model.js"
+import { installPathBridge } from "./runtime-host.js"
+import { installSkillsBridge } from "./skills-bridge.js"
+import { providerUsageIntegrationForHost } from "./provider-usage.js"
+export { providerUsageIntegrationForHost, usageEventPlugin } from "./provider-usage.js"
 
 /** Resolve the active host profile (throws if OCP load is not supported). */
 export function requireHost(options?: DetectOptions): HostProfile {

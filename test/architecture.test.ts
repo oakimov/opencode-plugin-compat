@@ -110,6 +110,24 @@ describe("OCP architecture boundaries", () => {
     }
   })
 
+  test("ZCode bridge stays in the CLI, generic, and out of clone, Pi and DSH runtimes", () => {
+    const bridge = filesUnder("packages/cli/src/zcode", [".ts"])
+    expect(bridge.length).toBeGreaterThan(0)
+    expect(violations(
+      bridge,
+      /@opencode-compat\/(?:adapter|pi-bridge|dsh-bridge)|@oh-my-pi|@earendil-works|@deepseek-ai|cursor-opencode-provider|isCursorProviderPackage|devin-opencode-provider/,
+    )).toEqual([])
+    const elsewhere = [
+      ...filesUnder("packages/adapter/src", [".ts"]),
+      ...filesUnder("packages/pi-bridge/src", [".ts"]),
+      ...filesUnder("packages/dsh-bridge/src", [".ts"]),
+      ...filesUnder("packages/opencode-loader/src", [".ts"]),
+    ]
+    expect(violations(elsewhere, /cli\/src\/zcode|x-zcode-|ZCODE_ATTRIBUTION/)).toEqual([])
+    expect(existsSync(path.join(ROOT, "test/fixtures/zcode-loop-provider.ts"))).toBe(true)
+    expect(text("test/zcode-bridge.test.ts")).toContain("pi-bridge-acme-provider.ts")
+  })
+
   test("generic provider fixtures remain present for Pi and clone paths", () => {
     expect(existsSync(path.join(ROOT, "test/fixtures/pi-bridge-acme-provider.ts"))).toBe(true)
     const clone = text("test/language-model-adoption.test.ts")

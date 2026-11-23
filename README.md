@@ -61,6 +61,7 @@ Also: [`fixtures/`](./fixtures) (conformance), [`docs/hosts/`](./docs/hosts) (ho
 | [`docs/hosts/opencode-clones.md`](./docs/hosts/opencode-clones.md) | **MiMo / Kilo / ZCode** — install, per-host internals, Promise v2 sidecar, troubleshooting |
 | [`docs/hosts/pi-family.md`](./docs/hosts/pi-family.md) | **pi / oh-my-pi** — install, config, model variants, verification |
 | [`docs/hosts/dsh-family.md`](./docs/hosts/dsh-family.md) | **DSH** — install, Cordis patch, Models list, verification |
+| [`docs/hosts/zcode-bridge.md`](./docs/hosts/zcode-bridge.md) | **ZCode** (experimental `ocp zcode` bridge) — npm and local-checkout setup, config, probe |
 | [`packages/pi-bridge/README.md`](./packages/pi-bridge/README.md) | pi-bridge config reference + pi/omp host-difference table |
 | [`packages/dsh-bridge/README.md`](./packages/dsh-bridge/README.md) | dsh-bridge contract + Cordis patch config |
 | [`docs/ocp/0.1.md`](./docs/ocp/0.1.md) | OCP contract — HostProfile, classic hooks, tiers, Promise v2, conformance |
