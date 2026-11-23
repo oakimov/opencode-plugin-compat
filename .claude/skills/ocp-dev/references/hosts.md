@@ -1,6 +1,6 @@
 # Host paths
 
-Resolve overrides first: `OPENCODE_CONFIG_DIR`, `MIMOCODE_HOME`, `KILO_CONFIG_DIR`, `PI_CODING_AGENT_DIR`, `PI_BRIDGE_CONFIG`, `XDG_CONFIG_HOME`, `XDG_CACHE_HOME`, `OCP_DEV_STATE_DIR`, `DSH_HOME`, `DSH_HARNESS_ROOT`.
+Resolve overrides first: `OPENCODE_CONFIG_DIR`, `MIMOCODE_HOME`, `KILO_CONFIG_DIR`, `PI_CODING_AGENT_DIR`, `PI_BRIDGE_CONFIG`, `XDG_CONFIG_HOME`, `XDG_CACHE_HOME`, `OCP_DEV_STATE_DIR`, `DSH_HOME`, `DSH_HARNESS_ROOT`, `ZCODE_APP`, `ZCODE_DATA_BASE_DIR`, `ZCODE_PERSONAL_PROVIDER_CONFIG_FILE`.
 
 ## Native OpenCode (not an ocp-dev shim host)
 
@@ -55,6 +55,21 @@ Local: `pnpm install` plus the harness documented build (`build:native-system`, 
 Npm: `@opencode-compat/dsh-bridge` plus `providers[]` rows for `cursor-opencode-provider` and `devin-opencode-provider`.
 
 Bridge checkout: `packages/dsh-bridge`. Do not edit DSH host source; `run` may write gitignored `lib/` / `dist/` via the harness's own build scripts.
+
+## ZCode family (external `ocp zcode` bridge, never `ocp setup`)
+
+| Host | Install | Config |
+|---|---|---|
+| `zcode` | `$ZCODE_APP`, `/Applications/ZCode.app`, `~/Applications/ZCode.app`, or `zcode` on PATH | `$ZCODE_PERSONAL_PROVIDER_CONFIG_FILE`, else `<$ZCODE_DATA_BASE_DIR or ~>/.zcode/v2/provider_config.json` |
+
+ZCode loads no OpenCode plugin. The provider runs in the OCP bridge; ZCode reaches it as a Personal provider (Anthropic Messages).
+
+- State: `${OCP_DEV_STATE_DIR:-~/.cache/ocp-dev}/zcode/` — `bin/ocp-zcode` wrapper, `home/` (isolated XDG config/data/cache for the bridge), `npm/` (npm mode), `state.json`.
+- Local: OCP checkout built; provider checkout built and symlinked as `home/data/opencode-compat/zcode/plugins/node_modules/<provider>`; wrapper runs `packages/ocp/bin/ocp.ts zcode`.
+- Npm: `@opencode-compat/ocp` installed under `npm/`; provider installed by `ocp-zcode install <provider>@<exact>`.
+- Bridge config: `home/config/opencode-compat/zcode-bridge.json`, binding `ocp-dev`, plugin `provider`, `"models": "catalog"`.
+- ZCode slot: one `providerId: "ocp-dev"` rule in `config.providerConfigRules.providerRules`; `providerOrder` gets the id only if it already existed. The file must already exist (created by ZCode); ZCode must be closed.
+- Unshim keeps `home/data/opencode-compat/zcode/state` (upstream login + bridge credential).
 
 ## Stock provider
 

@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test"
-import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs"
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join, resolve } from "node:path"
 import { applyCloneSlot, revertCloneSlot } from "../scripts/ocp-dev/config-slot.ts"
@@ -7,7 +7,17 @@ import { cleanPluginInstalls } from "../scripts/ocp-dev/clone.ts"
 import { parseJsonc, toValue } from "../scripts/ocp-dev/jsonc.ts"
 import { removePiProvider, upsertPiProvider } from "../scripts/ocp-dev/pi-config.ts"
 import { assertLocalLoaderLink } from "../scripts/ocp-dev/pi-family.ts"
-import { dshBuiltCli, dshHarnessRoot, isDshHarnessCheckout } from "../scripts/ocp-dev/hosts.ts"
+import { configFile, dshBuiltCli, dshHarnessRoot, familyOf, isDshHarnessCheckout } from "../scripts/ocp-dev/hosts.ts"
+import {
+  ownsProviderOrder,
+  removeZcodeProvider,
+  upsertZcodeProvider,
+  ZCODE_PROVIDER_ID,
+  zcodeBridgeConfig,
+  zcodeProviderRule,
+  zcodeWrapperScript,
+} from "../scripts/ocp-dev/zcode-family.ts"
+import { parseZcodeBridgeConfig } from "../packages/cli/src/zcode/config.ts"
 import {
   formatDshBridgePatch,
   mergeDshBridgePatch,
@@ -438,6 +448,259 @@ describe("dsh discovery", () => {
       expect(client.test("apps/desktop")).toBe(false)
     } finally {
       rmSync(root, { recursive: true, force: true })
+    }
+  })
+})
+
+describe("zcode shim", () => {
+  const credential = "ocpz_test_credential_000000000000000"
+  const rule = (ids: string[], key = credential) =>
+    zcodeProviderRule({ port: 18731, credential: key, modelIds: ids })
+
+  test("never creates provider_config.json, so ZCode's own legacy import still runs", () => {
+    const root = mkdtempSync(join(tmpdir(), "ocp-zcode-shim-"))
+    try {
+      const file = join(root, ".zcode", "v2", "provider_config.json")
+      expect(() => upsertZcodeProvider(file, rule(["m1"]))).toThrow("Start ZCode once")
+      expect(existsSync(file)).toBe(false)
+    } finally {
+      rmSync(root, { recursive: true, force: true })
+    }
+  })
+
+  test("writes the rule in ZCode's documented Personal provider shape and keeps the file private", () => {
+    const root = mkdtempSync(join(tmpdir(), "ocp-zcode-shim-"))
+    try {
+      const file = join(root, "provider_config.json")
+      writeFileSync(file, `${JSON.stringify({ schemaVersion: 1, config: { providerConfigRules: { providerRules: [] }, modelConfigRules: { providerModelRules: [], manualProviderModelRules: [] } } }, null, 2)}\n`, { mode: 0o644 })
+      expect(upsertZcodeProvider(file, rule(["m1"]))).toEqual({ appendedOrder: false })
+      expect(statSync(file).mode & 0o777).toBe(0o600)
+      const parsed = JSON.parse(readFileSync(file, "utf8"))
+      expect(parsed.config.providerConfigRules.providerRules).toEqual([{
+        providerId: ZCODE_PROVIDER_ID,
+        providerName: "OCP (ocp-dev)",
+        config: {
+          group: "standard-personal",
+          access: { type: "api-key", apiKey: "ocpz_test_credential_000000000000000" },
+          api: { type: "anthropic-messages", baseUrl: "http://127.0.0.1:18731/v1" },
+          personalModelIds: ["m1"],
+        },
+      }])
+    } finally {
+      rmSync(root, { recursive: true, force: true })
+    }
+  })
+
+  test("upserts one rule beside the user's providers, then removes only what it owns", () => {
+    const root = mkdtempSync(join(tmpdir(), "ocp-zcode-shim-"))
+    try {
+      const file = join(root, "provider_config.json")
+      const original = `${JSON.stringify({
+        schemaVersion: 1,
+        config: {
+          providerOrder: ["example"],
+          providerConfigRules: { providerRules: [{ providerId: "example", providerName: "Example API", config: { group: "standard-personal", api: { type: "openai-chat-completions", baseUrl: "https://api.example.com/v1" }, personalModelIds: ["example-model"] } }] },
+          modelConfigRules: { providerModelRules: [{ providerId: "example", modelId: "example-model", config: { enabled: true } }], manualProviderModelRules: [] },
+          defaultModelSelection: { providerId: "example", modelId: "example-model" },
+        },
+      }, null, 2)}\n`
+      writeFileSync(file, original, { mode: 0o600 })
+
+      expect(upsertZcodeProvider(file, rule(["a"]))).toEqual({ appendedOrder: true })
+      // A second run replaces the rule in place and does not append the order twice.
+      expect(upsertZcodeProvider(file, rule(["a", "b"]))).toEqual({ appendedOrder: false })
+      const wired = JSON.parse(readFileSync(file, "utf8"))
+      expect(wired.config.providerOrder).toEqual(["example", ZCODE_PROVIDER_ID])
+      expect(wired.config.providerConfigRules.providerRules.map((entry: { providerId: string }) => entry.providerId)).toEqual(["example", ZCODE_PROVIDER_ID])
+      expect(wired.config.providerConfigRules.providerRules[1].config.personalModelIds).toEqual(["a", "b"])
+      expect(wired.config.defaultModelSelection).toEqual({ providerId: "example", modelId: "example-model" })
+      expect(statSync(file).mode & 0o777).toBe(0o600)
+
+      const removal = removeZcodeProvider(file, ZCODE_PROVIDER_ID, { removeOrder: true, credential })
+      expect(removal).toEqual({ removedRules: 1, removedModelRules: 0, removedOrder: true, clearedSelection: false })
+      expect(JSON.parse(readFileSync(file, "utf8"))).toEqual(JSON.parse(original))
+    } finally {
+      rmSync(root, { recursive: true, force: true })
+    }
+  })
+
+  test("keeps a Personal provider with the same id and a different credential", () => {
+    const root = mkdtempSync(join(tmpdir(), "ocp-zcode-shim-"))
+    try {
+      const file = join(root, "provider_config.json")
+      const original = JSON.stringify({
+        schemaVersion: 1,
+        config: {
+          providerOrder: [ZCODE_PROVIDER_ID],
+          providerConfigRules: { providerRules: [rule(["mine"], "another-test-credential")] },
+          defaultModelSelection: { providerId: ZCODE_PROVIDER_ID, modelId: "mine" },
+        },
+      })
+      writeFileSync(file, original)
+      expect(() => upsertZcodeProvider(file, rule(["ours"]))).toThrow("already in use")
+      expect(() => removeZcodeProvider(file, ZCODE_PROVIDER_ID, { removeOrder: true, credential })).toThrow("already in use")
+      expect(readFileSync(file, "utf8")).toBe(original)
+    } finally {
+      rmSync(root, { recursive: true, force: true })
+    }
+  })
+
+  test("unshim also drops model rules and a default selection that point at the shim", () => {
+    const root = mkdtempSync(join(tmpdir(), "ocp-zcode-shim-"))
+    try {
+      const file = join(root, "provider_config.json")
+      writeFileSync(file, `${JSON.stringify({ schemaVersion: 1, config: { providerConfigRules: { providerRules: [] }, modelConfigRules: { providerModelRules: [], manualProviderModelRules: [] } } })}\n`)
+      upsertZcodeProvider(file, rule(["a"]))
+      let text = readFileSync(file, "utf8")
+      const parsed = JSON.parse(text)
+      parsed.config.modelConfigRules.providerModelRules.push({ providerId: ZCODE_PROVIDER_ID, modelId: "a", config: { enabled: true } })
+      parsed.config.defaultModelSelection = { providerId: ZCODE_PROVIDER_ID, modelId: "a" }
+      text = `${JSON.stringify(parsed, null, 2)}\n`
+      writeFileSync(file, text)
+      expect(removeZcodeProvider(file, ZCODE_PROVIDER_ID, { removeOrder: false, credential })).toEqual({
+        removedRules: 1, removedModelRules: 1, removedOrder: false, clearedSelection: true,
+      })
+      const after = JSON.parse(readFileSync(file, "utf8"))
+      expect(after.config.providerConfigRules.providerRules).toEqual([])
+      expect(after.config.modelConfigRules.providerModelRules).toEqual([])
+      expect(after.config.defaultModelSelection).toBeUndefined()
+    } finally {
+      rmSync(root, { recursive: true, force: true })
+    }
+  })
+
+  test.each([
+    { scenario: "shim appended order", manifestOwner: ZCODE_PROVIDER_ID, appendedOrder: true, liveProvider: false },
+    { scenario: "user supplied order", manifestOwner: ZCODE_PROVIDER_ID, appendedOrder: false, liveProvider: false },
+    { scenario: "manifest absent", manifestOwner: undefined, appendedOrder: false, liveProvider: false },
+    { scenario: "manifest belongs to another provider", manifestOwner: "example", appendedOrder: true, liveProvider: false },
+    { scenario: "provider was replaced", manifestOwner: ZCODE_PROVIDER_ID, appendedOrder: true, liveProvider: true },
+  ])("unshim checks leftover ZCode settings ownership when $scenario", ({ manifestOwner, appendedOrder, liveProvider }) => {
+    const root = mkdtempSync(join(tmpdir(), "ocp-zcode-unshim-"))
+    try {
+      const file = join(root, "provider_config.json")
+      const state = join(root, "state")
+      const manifest = join(state, "zcode", "state.json")
+      const bin = join(root, "bin")
+      mkdirSync(bin)
+      writeFileSync(join(bin, "pgrep"), "#!/bin/sh\nexit 1\n", { mode: 0o700 })
+      const modelRule = { providerId: ZCODE_PROVIDER_ID, modelId: "shim-model" }
+      const userRule = { providerId: "example", modelId: "user-model" }
+      const original = JSON.stringify({
+        schemaVersion: 1,
+        config: {
+          providerConfigRules: { providerRules: liveProvider ? [rule(["replacement"], "fixture-replacement")] : [] },
+          providerOrder: ["example", ZCODE_PROVIDER_ID],
+          modelConfigRules: { providerModelRules: [modelRule, userRule], manualProviderModelRules: [userRule, modelRule] },
+          defaultModelSelection: modelRule,
+        },
+      })
+      writeFileSync(file, original)
+      if (manifestOwner !== undefined) {
+        mkdirSync(join(state, "zcode"), { recursive: true })
+        writeFileSync(manifest, JSON.stringify({ host: "zcode", configPath: file, providerId: manifestOwner, appendedOrder }))
+      }
+
+      const result = Bun.spawnSync([process.execPath, resolve(import.meta.dir, "../scripts/ocp-dev/cli.ts"), "unshim", "zcode"], {
+        env: {
+          ...process.env,
+          OCP_DEV_STATE_DIR: state,
+          // A missing package, so the post-unshim provider repair can never reach a real checkout.
+          OCP_DEV_PROVIDER_PATH: join(root, "no-provider"),
+          ZCODE_PERSONAL_PROVIDER_CONFIG_FILE: file,
+          PATH: `${bin}:${process.env.PATH}`,
+        },
+        timeout: 5000,
+      })
+      if (liveProvider) {
+        expect(result.exitCode).toBe(1)
+        expect(result.stderr.toString()).toContain("already in use")
+        expect(existsSync(manifest)).toBe(true)
+        expect(readFileSync(file, "utf8")).toBe(original)
+        return
+      }
+      expect(result.exitCode, result.stderr.toString()).toBe(0)
+      expect(result.stdout.toString()).toContain("no provider checkout to inspect")
+      expect(existsSync(manifest)).toBe(false)
+      const text = readFileSync(file, "utf8")
+      if (manifestOwner === ZCODE_PROVIDER_ID) {
+        expect(JSON.parse(text).config).toEqual({
+          providerConfigRules: { providerRules: [] },
+          providerOrder: appendedOrder ? ["example"] : ["example", ZCODE_PROVIDER_ID],
+          modelConfigRules: { providerModelRules: [userRule], manualProviderModelRules: [userRule] },
+        })
+      } else {
+        expect(text).toBe(original)
+      }
+    } finally {
+      rmSync(root, { recursive: true, force: true })
+    }
+  })
+
+  test("a rerun keeps ownership of the providerOrder entry an earlier run added", () => {
+    const manifest = (configPath: string, appendedOrder: boolean) => JSON.stringify({ configPath, appendedOrder })
+    expect(ownsProviderOrder(undefined, "/a", true)).toBe(true)
+    expect(ownsProviderOrder(manifest("/a", true), "/a", false)).toBe(true)
+    expect(ownsProviderOrder(manifest("/a", false), "/a", false)).toBe(false)
+    // A different provider_config.json is a different ownership record.
+    expect(ownsProviderOrder(manifest("/b", true), "/a", false)).toBe(false)
+    expect(ownsProviderOrder("not json", "/a", false)).toBe(false)
+
+    // The documented sequence: run, login, run again, then unshim.
+    const root = mkdtempSync(join(tmpdir(), "ocp-zcode-shim-"))
+    try {
+      const file = join(root, "provider_config.json")
+      writeFileSync(file, `${JSON.stringify({ schemaVersion: 1, config: { providerOrder: ["mine"], providerConfigRules: { providerRules: [] }, modelConfigRules: { providerModelRules: [], manualProviderModelRules: [] } } })}\n`)
+      const first = ownsProviderOrder(undefined, file, upsertZcodeProvider(file, rule([])).appendedOrder)
+      const second = ownsProviderOrder(manifest(file, first), file, upsertZcodeProvider(file, rule(["a"])).appendedOrder)
+      expect(second).toBe(true)
+      removeZcodeProvider(file, ZCODE_PROVIDER_ID, { removeOrder: second, credential })
+      expect(JSON.parse(readFileSync(file, "utf8")).config.providerOrder).toEqual(["mine"])
+    } finally {
+      rmSync(root, { recursive: true, force: true })
+    }
+  })
+
+  test("refuses an unknown provider_config schemaVersion", () => {
+    const root = mkdtempSync(join(tmpdir(), "ocp-zcode-shim-"))
+    try {
+      const file = join(root, "provider_config.json")
+      writeFileSync(file, JSON.stringify({ schemaVersion: 2, config: {} }))
+      expect(() => upsertZcodeProvider(file, rule(["a"]))).toThrow("only edits schemaVersion 1")
+    } finally {
+      rmSync(root, { recursive: true, force: true })
+    }
+  })
+
+  test("the generated bridge config is valid and serves the provider's whole catalog", () => {
+    const config = parseZcodeBridgeConfig(zcodeBridgeConfig({
+      port: 18731, workspace: "/work", credentialFile: "/state/model-credential", plugin: "cursor-opencode-provider", version: "1.2.3",
+    }))
+    expect(config.bindings[0]!.plugins[0]).toMatchObject({ package: "cursor-opencode-provider", version: "1.2.3", models: "catalog" })
+    expect(config.bindings[0]!.credentials.model).toEqual({ file: "/state/model-credential" })
+  })
+
+  test("the wrapper pins the isolated OCP home and quotes its paths", () => {
+    const script = zcodeWrapperScript("/repo/it's/packages/ocp/bin/ocp.ts", "local", "/state/zcode/home")
+    expect(script).toContain("export XDG_CONFIG_HOME='/state/zcode/home/config'")
+    expect(script).toContain("export XDG_DATA_HOME='/state/zcode/home/data'")
+    expect(script).toContain(`exec bun '/repo/it'\\''s/packages/ocp/bin/ocp.ts' zcode "$@"`)
+  })
+
+  test("ZCode's Personal provider file honors ZCode's own path overrides", () => {
+    const saved = { base: process.env.ZCODE_DATA_BASE_DIR, file: process.env.ZCODE_PERSONAL_PROVIDER_CONFIG_FILE }
+    try {
+      delete process.env.ZCODE_PERSONAL_PROVIDER_CONFIG_FILE
+      process.env.ZCODE_DATA_BASE_DIR = "/data-base"
+      expect(configFile("zcode")).toBe("/data-base/.zcode/v2/provider_config.json")
+      process.env.ZCODE_PERSONAL_PROVIDER_CONFIG_FILE = "/explicit/provider_config.json"
+      expect(configFile("zcode")).toBe("/explicit/provider_config.json")
+      expect(familyOf("zcode")).toBe("zcode")
+    } finally {
+      for (const [key, value] of [["ZCODE_DATA_BASE_DIR", saved.base], ["ZCODE_PERSONAL_PROVIDER_CONFIG_FILE", saved.file]] as const) {
+        if (value === undefined) delete process.env[key]
+        else process.env[key] = value
+      }
     }
   })
 })

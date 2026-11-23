@@ -3,14 +3,14 @@ import { basename, dirname, join, relative, sep } from "node:path"
 import {
   sanitizeCommandMarkdown,
   sanitizeSkillMarkdown,
-} from "./markdown"
+} from "./markdown.js"
 import type {
   FoundCommand,
   FoundManifest,
   FoundSkill,
   ManifestKind,
   PluginScan,
-} from "./types"
+} from "./types.js"
 
 function toPosix(p: string): string {
   return p.split(sep).join("/")

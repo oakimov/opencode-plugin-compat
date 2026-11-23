@@ -17,6 +17,12 @@ MiMo Code.
 > **DSH (`dsh` / `dsh web`):** likewise not `ocp setup`. Drive with
 > `./scripts/ocp-dev.sh run dsh`; see
 > [`docs/hosts/dsh-family.md`](./docs/hosts/dsh-family.md).
+>
+> **ZCode (experimental `ocp zcode` bridge):** not `ocp setup` either. With a
+> downloaded ZCode release, quit it and drive
+> `./scripts/ocp-dev.sh run zcode` (or `--mode npm`), then start
+> `~/.cache/ocp-dev/zcode/bin/ocp-zcode serve`; see
+> [`docs/hosts/zcode-bridge.md`](./docs/hosts/zcode-bridge.md).
 
 ---
 
@@ -35,7 +41,7 @@ From this repo root:
 ```bash
 ./scripts/ocp-dev.sh run                 # wire every installed host (local mode)
 ./scripts/ocp-dev.sh run --mode npm      # ...against published packages instead
-./scripts/ocp-dev.sh run kilo mimo opencode
+./scripts/ocp-dev.sh run kilo mimo zcode   # named shim hosts (never opencode: it is native)
 ./scripts/ocp-dev.sh unshim              # factory state; keep the rest of host config
 ./scripts/ocp-dev.sh unshim pi
 ```

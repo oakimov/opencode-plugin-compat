@@ -1,8 +1,8 @@
 import { mkdir } from "node:fs/promises"
 import { basename, join } from "node:path"
-import { buildPluginJson, emitPluginTree } from "./emit"
-import { emptyReport, finalizeReport } from "./report"
-import { scanPluginPackage } from "./scan"
+import { buildPluginJson, emitPluginTree } from "./emit.js"
+import { emptyReport, finalizeReport } from "./report.js"
+import { scanPluginPackage } from "./scan.js"
 import type {
   MarketplacePluginEntry,
   MigrateMarketplaceReport,
@@ -10,7 +10,7 @@ import type {
   MigrateZcodeMarketplaceResult,
   MigrateZcodeResult,
   PluginScan,
-} from "./types"
+} from "./types.js"
 
 /** Slug for `plugins/<slug>/` — lowercase, safe path segment. */
 export function pluginSlug(name: string): string {

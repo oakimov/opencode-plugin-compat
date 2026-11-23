@@ -3,7 +3,7 @@
  * Contract: docs/ocp/0.1.md §5
  */
 export const PKG = "@opencode-compat/profile" as const
-export { VERSION, OCP_VERSION } from "./version"
+export { VERSION, OCP_VERSION } from "./version.js"
 
 export type {
   DetectOptions,
@@ -16,22 +16,22 @@ export type {
   HostPaths,
   HostProfile,
   HostToolRoles,
-} from "./types"
+} from "./types.js"
 
 export {
   DEFAULT_TOOL_ROLES,
   resolveToolRole,
   toolRolesOf,
-} from "./tool-roles"
+} from "./tool-roles.js"
 
 export {
   CORE_HOOKS,
   MIMO_EXTENSION_HOOKS,
   MIMO_MISSING_HOOKS,
   type CoreHook,
-} from "./hooks"
+} from "./hooks.js"
 
-export { expandHome, resolveXdgDirs } from "./paths"
+export { expandHome, resolveXdgDirs } from "./paths.js"
 
 export {
   DRAFTS,
@@ -41,9 +41,9 @@ export {
   unknownProfile,
   zcodeProfile,
   type DraftOptions,
-} from "./drafts"
+} from "./drafts.js"
 
-export { detect } from "./detect"
+export { detect } from "./detect.js"
 
 export {
   facadeOverrides,
@@ -54,4 +54,4 @@ export {
   projectPluginCandidates,
   unknownDoctorMessage,
   zcodeDoctorMessage,
-} from "./doctor"
+} from "./doctor.js"

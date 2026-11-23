@@ -40,7 +40,9 @@
   "dependencies": {
     "@opencode-compat/profile": "workspace:*",
     "@opencode-compat/adapter": "workspace:*",
-    "@opencode-compat/migrate-zcode": "workspace:*"
+    "@opencode-compat/migrate-zcode": "workspace:*",
+    "@opencode-compat/opencode-loader": "workspace:*",
+    "@ai-sdk/provider": "^3.0.14"
   },
   "devDependencies": {
     "typescript": "^5.8.3"

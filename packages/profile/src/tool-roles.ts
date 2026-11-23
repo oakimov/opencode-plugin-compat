@@ -1,4 +1,4 @@
-import type { HostProfile, HostToolRoles } from "./types"
+import type { HostProfile, HostToolRoles } from "./types.js"
 
 /**
  * Upstream OpenCode builtin names.

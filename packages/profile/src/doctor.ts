@@ -1,5 +1,5 @@
 import { join } from "node:path"
-import { OCP_VERSION } from "./version"
+import { OCP_VERSION } from "./version.js"
 
 /** T0 doctor copy for ZCode — marketplace ABI ≠ OCP. */
 export function zcodeDoctorMessage(): string {

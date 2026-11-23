@@ -1,5 +1,7 @@
 # Lessons learned
 
+- Use the shim manifest to prove ownership of settings that can outlive a deleted provider rule. Test partial removal through the uninstall command and verify that a replacement provider still blocks cleanup.
+
 ## 2026-11-10 — A trap before wait does not stop an isolation boundary
 
 - TERM sent only to the pid of `isolate-run.sh`, before the session leader is stored or just before `wait`, leaves the script blocked on a command that ignores TERM. The trap must run the whole stop sequence: signal the session, kill it after `ISOLATE_TERM_GRACE`, and return only when the leader is gone. Prove it by signalling the script pid at those command boundaries with a `BASH_ENV` DEBUG hook, and check with `ps` that the command is gone after the script exits.

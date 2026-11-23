@@ -9,8 +9,8 @@ import {
   writeFileSync,
 } from "node:fs"
 import path from "node:path"
-import { hostCacheDir } from "./runtime-host"
-import type { ProviderUsageIntegration, StreamPartLike } from "./language-model"
+import { hostCacheDir } from "./runtime-host.js"
+import type { ProviderUsageIntegration, StreamPartLike } from "./language-model.js"
 
 const HOST_EVENT_BRIDGE = Symbol.for("opencode.host.event-bridge")
 const BRIDGE_MARKER = Symbol.for("opencode.compat.usage-reconciliation")

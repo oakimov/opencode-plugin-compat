@@ -542,6 +542,10 @@ ZCode is **not** a loadable OCP target. Its Agent Mode marketplace
 - External OpenCode agent tiles that spawn the OpenCode CLI are also not OCP
   plugin compatibility.
 - Until Z.AI ships an OpenCode-plugin loader, this does not change.
+- The experimental external bridge `ocp zcode` serves an unchanged provider
+  plugin to ZCode as a Personal Anthropic Messages provider. It is a separate
+  runtime with its own capability report, not clone-ABI support:
+  [`zcode-bridge.md`](zcode-bridge.md).
 
 The companion `ocp migrate-zcode` packs a plugin's skills/commands/manifests
 into `.zcode-plugin` form. That is asset migration, **not** OCP compatibility,
