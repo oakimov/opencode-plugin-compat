@@ -27,7 +27,7 @@ import {
   type StreamOutcome,
 } from "./anthropic-response.js"
 import { presentedCredential } from "./credentials.js"
-import { bindingForModelCredential, type BindingRuntime, type Generation } from "./runtime.js"
+import { bindingForModelCredential, type Generation, type ModelRoute } from "./runtime.js"
 import { createSessionToolCatalog, ToolMappingError } from "./tools.js"
 
 /** ZCode request attribution (runner-attribution.ts); values are never forwarded. */
@@ -135,10 +135,10 @@ function summarizeBody(summary: RequestSummary, body: unknown): void {
   }
 }
 
-function sessionKey(binding: BindingRuntime, attribution: RequestSummary["attribution"]): string | undefined {
+function sessionKey(route: ModelRoute, attribution: RequestSummary["attribution"]): string | undefined {
   const session = attribution["x-session-id"]
   if (!session) return undefined
-  return `${binding.spec.id}\u0000${session}\u0000${attribution["x-zcode-session-type"] ?? "other"}`
+  return JSON.stringify([route.targetKey, route.binding.workspace, session, attribution["x-zcode-session-type"] ?? "other"])
 }
 
 export function startBridgeServer(options: BridgeServerOptions): BridgeServer {
@@ -312,10 +312,10 @@ export function startBridgeServer(options: BridgeServerOptions): BridgeServer {
       let toolMap: ReturnType<ReturnType<typeof createSessionToolCatalog>>
       let callOptions: LanguageModelV3CallOptions
       try {
-        // The catalog is frozen per (binding, ZCode session, session type) inside OCP.
+        // The catalog is frozen per (target, workspace, ZCode session, session type) inside OCP.
         // The session is not forwarded: ZCode's request carries no verified workspace
         // identity, so no canonical x-opencode-session-id is asserted to the provider.
-        toolMap = catalog(parsed.nativeTools, sessionKey(binding, attribution))
+        toolMap = catalog(parsed.nativeTools, sessionKey(route, attribution))
         const built = parsed.build(toolMap)
         callOptions = built.options
         if (built.ignored.length > 0) summary.ignoredFields = built.ignored

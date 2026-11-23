@@ -118,10 +118,12 @@ function stableJson(value: unknown): string {
 export type RequestToolMap = {
   /** Provider-facing catalog in frozen session order. */
   tools: CanonicalTool[]
+  /** Native → canonical names for tools actually advertised on this request. */
+  promptRenames: ReadonlyMap<string, string>
   /** Canonical tool call → native name and JSON input string for the wire. */
   toNativeCall(canonicalName: string, input: string): { name: string; input: string }
-  /** True when the request advertised a tool with this canonical name. */
-  has(canonicalName: string): boolean
+  /** Exact native name in the live tool choice → canonical name, if advertised. */
+  canonicalChoice(nativeName: string): string | undefined
   /** Native name in history → canonical name (identity when unmapped). */
   canonicalName(nativeName: string): string
   /** Native input in history → canonical input (unchanged when unmapped). */
@@ -137,6 +139,7 @@ export function createSessionToolCatalog(maxSessions?: number) {
 
   return (nativeTools: readonly NativeTool[], sessionKey: string | undefined): RequestToolMap => {
     const current = new Map<string, { tool: CanonicalTool; mapping?: VerifiedMapping }>()
+    const nativeNames = new Map<string, string>()
     const unmatched = new Set<string>()
     for (const native of nativeTools) {
       // A native schema that no longer matches the verified shape passes through
@@ -157,6 +160,7 @@ export function createSessionToolCatalog(maxSessions?: number) {
         throw new ToolMappingError(`tool name collision: two advertised tools map to the provider-facing name "${tool.name}"`)
       }
       current.set(tool.name, { tool, ...(mapping ? { mapping } : {}) })
+      nativeNames.set(native.name, tool.name)
     }
 
     const ordered = order([...current.values()].map(entry => entry.tool), sessionKey) ?? []
@@ -173,7 +177,9 @@ export function createSessionToolCatalog(maxSessions?: number) {
 
     return {
       tools: ordered,
-      has: name => current.has(name),
+      promptRenames: new Map([...current.values()].flatMap(({ mapping }) =>
+        mapping ? [[mapping.native, mapping.canonical] as const] : [])),
+      canonicalChoice: nativeName => nativeNames.get(nativeName),
       canonicalName: nativeName => replayMapping(nativeName)?.canonical ?? nativeName,
       canonicalInput(nativeName, input) {
         const mapping = replayMapping(nativeName)

@@ -1,3 +1,7 @@
+## 2026-11-23 — Pin catalog auth before the loader receives it
+
+- A config hook can refresh a credential during model discovery. Read its auth snapshot inside the same operation that runs the loader so the write uses the original generation. Retain a cross-process lock through the compare and atomic replacement, and exercise a login racing with catalog discovery.
+
 # Lessons learned
 
 - Use the shim manifest to prove ownership of settings that can outlive a deleted provider rule. Test partial removal through the uninstall command and verify that a replacement provider still blocks cleanup.

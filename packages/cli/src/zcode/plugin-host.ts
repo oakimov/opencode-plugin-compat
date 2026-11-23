@@ -216,7 +216,7 @@ export async function loadPlugin(binding: BindingSpec, spec: PluginSpec, options
   const refreshCatalog = async () => {
     const catalog = hooks
       ? await withAuthOperation(async () => {
-        const stored = authStore.read().auth
+        const stored = await delegatingStore.get()
         // Warm credential-dependent catalogs the way OpenCode does before reading config.
         if (stored && authHook?.loader) await loadProviderOptions(authHook, delegatingStore, stored)
         return collectConfigHookCatalog(hooks!, providerId)

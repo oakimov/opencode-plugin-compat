@@ -17,6 +17,7 @@ import type {
   LanguageModelV3ToolResultOutput,
   LanguageModelV3ToolResultPart,
 } from "@ai-sdk/provider"
+import { translatePromptToolNames } from "@opencode-compat/opencode-loader"
 import type { NativeTool, RequestToolMap } from "./tools.js"
 
 export class RequestTranslationError extends Error {
@@ -176,9 +177,12 @@ export function parseMessagesRequest(raw: unknown): ParsedMessagesRequest {
     const ignored = Object.keys(body).filter(key => UNMAPPED_FIELDS.has(key))
     const prompt: LanguageModelV3Message[] = []
 
-    if (body.system !== undefined) {
-      for (const text of textBlocks(body.system, "system")) prompt.push({ role: "system", content: text })
+    const addSystem = (value: unknown, path: string) => {
+      for (const text of textBlocks(value, path)) {
+        prompt.push({ role: "system", content: translatePromptToolNames(text, toolMap.promptRenames, { toolListItems: true }) })
+      }
     }
+    if (body.system !== undefined) addSystem(body.system, "system")
 
     // tool_use id → canonical tool name, for results that reference it.
     const callNames = new Map<string, string>()
@@ -191,7 +195,7 @@ export function parseMessagesRequest(raw: unknown): ParsedMessagesRequest {
 
       if (role === "system") {
         // ZCode keeps mid-conversation system notes in place (anthropic-stream-compat.ts).
-        for (const text of textBlocks(content, `${path}.content`)) prompt.push({ role: "system", content: text })
+        addSystem(content, `${path}.content`)
         return
       }
 
@@ -298,8 +302,8 @@ export function parseMessagesRequest(raw: unknown): ParsedMessagesRequest {
         case "none": mapped = { type: "none" }; break
         case "tool": {
           if (typeof choice.name !== "string") fail("tool_choice.name", "must be a string")
-          const canonical = toolMap.canonicalName(choice.name)
-          if (!toolMap.has(canonical)) fail("tool_choice.name", `names a tool this request did not advertise (${choice.name})`)
+          const canonical = toolMap.canonicalChoice(choice.name)
+          if (canonical === undefined) fail("tool_choice.name", `names a tool this request did not advertise (${choice.name})`)
           mapped = { type: "tool", toolName: canonical }
           break
         }

@@ -9,12 +9,12 @@ This is separate from the clone ABI: ZCode stays **T0** for `@opencode-ai/plugin
 | Area | State |
 |---|---|
 | Wire contract | Built against the ZCode 3.18.2 source (`fec97590`): `@ai-sdk/anthropic@3.0.81` posting to `{baseURL}/messages` with `x-api-key` and `Authorization: Bearer` (`apps/zcode-cli/packages/adapters/src/model/model-execution.ts:341-349`, `:466-489`). Exercised in tests with that same client version. |
-| Stock ZCode acceptance | **Not done.** No shipped ZCode build was installed when this was written. Run `ocp zcode probe` (below) on the installed build before relying on any row in this table. |
+| Stock ZCode acceptance | The embedded CLI from the [ZCode 3.18.2 macOS arm64 release](https://github.com/zai-org/ZCode/releases/tag/v3.18.2) completed the probe with one native `Read`, one replayed tool result, and the final marker. The desktop UI, interactive approvals, and live upstream providers still require acceptance testing. |
 | Classic provider plugins | Load, `auth` hook login, durable refresh via `auth.loader`, `config` catalog, `doStream` and `doGenerate` (falls back to aggregating `doStream`). |
 | Promise v2 (1.18) / OpenCode 2.x server plugins | Rejected at startup (`contract-unsupported`). |
 | Native tools | `Read` ↔ canonical `read` ([tool vocabulary](../tool-vocabulary.md#files-and-commands)). Every other advertised tool, including MCP tools, passes through with its exact name and schema. |
 | Plugin-owned tools over MCP, process hooks | Not implemented. |
-| Session affinity | Not forwarded. ZCode's model request carries no verified workspace identity, so the bridge sends the provider no `x-opencode-session-id`. Catalog order is still frozen per ZCode session inside OCP. |
+| Session affinity | Not forwarded. ZCode's model request carries no verified workspace identity, so the bridge sends the provider no `x-opencode-session-id`. OCP freezes catalog order per routed model target, workspace, and ZCode session. Repointing an alias starts a fresh catalog. |
 | Cancellation | A client disconnect or shutdown aborts the in-flight provider call. Stop while a tool or approval is pending (no open model request) is not handled. |
 | Unmapped request fields | `thinking`, `metadata`, `cache_control`, `speed`, `inference_geo`, `context_management`, `output_config.effort/task_budget` and `tool_choice.disable_parallel_tool_use` are accepted, then logged by name. Any other unknown field or content block is rejected with HTTP 400. |
 

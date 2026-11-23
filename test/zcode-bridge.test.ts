@@ -4,7 +4,7 @@
  * client ZCode 3.18.2 builds its Personal-provider transport from
  * (apps/zcode-cli/packages/adapters/src/model/model-execution.ts:341-349).
  */
-import { afterAll, afterEach, beforeAll, describe, expect, test } from "bun:test"
+import { afterAll, afterEach, beforeAll, describe, expect, spyOn, test } from "bun:test"
 import { mkdirSync, mkdtempSync, readdirSync, rmSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join, resolve } from "node:path"
@@ -214,6 +214,16 @@ describe("zcode request translation", () => {
     expect(options.maxOutputTokens).toBe(100)
   })
 
+  test("a forced live tool choice cannot match a differently named custom tool", () => {
+    const request = {
+      tools: [{ name: "read", input_schema: { type: "object" } }],
+      messages: [{ role: "user", content: "hi" }],
+    }
+    expect(() => build({ ...request, tool_choice: { type: "tool", name: "Read" } })).toThrow("did not advertise (Read)")
+    expect(build({ ...request, tool_choice: { type: "tool", name: "read" } }).options.toolChoice)
+      .toEqual({ type: "tool", toolName: "read" })
+  })
+
   test("maps tool choice, images and JSON output; rejects unsupported paths explicitly", () => {
     const { options } = build({
       tools,
@@ -232,6 +242,21 @@ describe("zcode request translation", () => {
       .toThrow("references no earlier tool_use")
     expect(() => build({ tools: [{ type: "web_search_20250305", name: "web_search" }], messages: [] })).toThrow("provider-defined tool type")
   })
+
+  test("system prompts use only the current catalog's tool names", () => {
+    const messages = [{ role: "system", content: "Use the `Read` tool." }, { role: "user", content: "Use `Read`." }]
+    const system = [{ type: "text", text: "- Read: Read a file" }]
+    const prompt = build({ tools, system, messages }).options.prompt
+    expect(prompt).toEqual([
+      { role: "system", content: "- read: Read a file" },
+      { role: "system", content: "Use the `read` tool." },
+      { role: "user", content: [{ type: "text", text: "Use `Read`." }] },
+    ])
+    expect(build({ system, messages }).options.prompt.slice(0, 2)).toEqual([
+      { role: "system", content: "- Read: Read a file" },
+      { role: "system", content: "Use the `Read` tool." },
+    ])
+  })
 })
 
 describe("zcode auth store", () => {
@@ -249,6 +274,7 @@ describe("zcode auth store", () => {
     await store.replace({ type: "oauth", access: "login-v2", refresh: "r2", expires: 2 })
     await inFlight.set({ type: "oauth", access: "refreshed-from-v1", refresh: "r", expires: 3 })
     expect(store.read().auth).toMatchObject({ access: "login-v2" })
+    expect(await inFlight.get()).toMatchObject({ access: "v1" })
 
     const fresh = generationAuthView(store)
     await fresh.get()
@@ -540,6 +566,33 @@ describe("zcode bridge on the Anthropic Messages wire", () => {
       expect(local.records.find(record => record.model === "slow")?.closedByClient).toBe(true)
       await response.body?.cancel().catch(() => undefined)
     } finally {
+      rmSync(local.dir, { recursive: true, force: true })
+    }
+  })
+
+  test("a repointed model alias starts a fresh tool catalog for the same session", async () => {
+    const local = await startHarness()
+    try {
+      const model = zcodeClient(local.server).languageModel("plain")
+      const call = (field: string) => model.doGenerate({
+        prompt: [{ role: "user", content: [{ type: "text", text: "hi" }] }],
+        headers: ZCODE_HEADERS,
+        tools: [{ type: "function", name: "fixture", inputSchema: { type: "object", properties: { [field]: { type: "string" } } } }],
+      })
+      await call("before")
+      const current = local.server.generation()
+      const binding = current.bindings[0]!
+      const route = binding.routes.get("plain")!
+      const routes = new Map(binding.routes)
+      routes.set("plain", { ...route, targetKey: "replacement" })
+      local.server.publish({ ...current, id: current.id + 1, bindings: [{ ...binding, routes }, ...current.bindings.slice(1)] })
+      await call("after")
+      expect(recordedCalls()).toMatchObject([
+        { tools: [{ inputSchema: { properties: { before: { type: "string" } } } }] },
+        { tools: [{ inputSchema: { properties: { after: { type: "string" } } } }] },
+      ])
+    } finally {
+      await local.server.stop()
       rmSync(local.dir, { recursive: true, force: true })
     }
   })
@@ -894,7 +947,7 @@ describe("zcode review regressions", () => {
         "console.log(applied)",
       ].join("\n"))
       let child: ReturnType<typeof Bun.spawn> | undefined
-      await withFileLock(`${file}.lock`, async () => {
+      await withFileLock(`${file}.lock.sqlite`, async () => {
         child = Bun.spawn([process.execPath, script, file, String(generation)], { stdout: "pipe", stderr: "inherit" })
         await Bun.sleep(400)
         // The child is blocked on the lock: nothing was written meanwhile.
@@ -911,9 +964,22 @@ describe("zcode review regressions", () => {
   test("a lock left by a dead process is recovered; a live holder is waited for", async () => {
     const { withFileLock } = await import("../packages/cli/src/zcode/auth-store.ts")
     const dir = mkdtempSync(join(tmpdir(), "ocp-zcode-lock2-"))
+    let child: ReturnType<typeof Bun.spawn> | undefined
     try {
-      const lock = join(dir, "x.lock")
-      writeFileSync(lock, `999999 ${Date.now()} dead`)
+      const lock = join(dir, "x.lock.sqlite")
+      const script = join(dir, "holder.ts")
+      writeFileSync(script, [
+        `import { withFileLock } from ${JSON.stringify(resolve(import.meta.dir, "../packages/cli/src/zcode/auth-store.ts"))}`,
+        'await withFileLock(process.argv[2]!, async () => { console.log("acquired"); await Bun.sleep(60_000) })',
+      ].join("\n"))
+      const holder = Bun.spawn([process.execPath, script, lock], { stdout: "pipe", stderr: "inherit" })
+      child = holder
+      const reader = holder.stdout.getReader()
+      const marker = await reader.read()
+      reader.releaseLock()
+      expect(new TextDecoder().decode(marker.value).trim()).toBe("acquired")
+      holder.kill("SIGKILL")
+      await holder.exited
       expect(await withFileLock(lock, () => "ran")).toBe("ran")
       const order: string[] = []
       const first = withFileLock(lock, async () => {
@@ -927,6 +993,43 @@ describe("zcode review regressions", () => {
       })
       await first
       expect(order).toEqual(["first-start", "first-end", "second"])
+    } finally {
+      if (child && child.exitCode === null) {
+        child.kill("SIGKILL")
+        await child.exited
+      }
+      rmSync(dir, { recursive: true, force: true })
+    }
+  })
+
+  test("catalog discovery pins the credential before a concurrent login replaces it", async () => {
+    const { loadPlugin } = await import("../packages/cli/src/zcode/plugin-host.ts")
+    const dir = mkdtempSync(join(tmpdir(), "ocp-zcode-catalog-auth-"))
+    const read = DurableAuthStore.prototype.read
+    const paths: ZcodePaths = { configFile: "", installRoot: dir, stateDir: dir, cacheDir: dir }
+    const binding = { id: "main", workspace: dir, credentials: { model: { env: "X" } }, plugins: [] }
+    const spec = { id: "acme", package: "acme-provider", version: "1.0.0", contract: "classic" as const, models: [{ alias: "acme", upstream: "acme-large" }] }
+    const store = DurableAuthStore.forPlugin(dir, binding.id, spec.id, "acme")
+    try {
+      await store.replace({ type: "oauth", access: "old", refresh: "old-refresh", expires: 1 })
+      const interleave = spyOn(DurableAuthStore.prototype, "read").mockImplementationOnce(function (this: DurableAuthStore) {
+        const snapshot = read.call(this)
+        expect(this.file).toBe(store.file)
+        writeFileSync(store.file, JSON.stringify({
+          generation: snapshot.generation + 1,
+          auth: { type: "api", key: "explicit-login" },
+        }))
+        return snapshot
+      })
+      try {
+        await loadPlugin(binding, spec, {
+          paths,
+          resolvePackage: () => ({ name: spec.package, version: spec.version, entry: ACME, sha256: "sha-acme" }),
+        })
+        expect(store.read()).toEqual({ generation: 2, auth: { type: "api", key: "explicit-login" } })
+      } finally {
+        interleave.mockRestore()
+      }
     } finally {
       rmSync(dir, { recursive: true, force: true })
     }
