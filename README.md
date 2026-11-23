@@ -64,6 +64,7 @@ Also: [`fixtures/`](./fixtures) (conformance), [`docs/hosts/`](./docs/hosts) (ho
 | [`packages/pi-bridge/README.md`](./packages/pi-bridge/README.md) | pi-bridge config reference + pi/omp host-difference table |
 | [`packages/dsh-bridge/README.md`](./packages/dsh-bridge/README.md) | dsh-bridge contract + Cordis patch config |
 | [`docs/ocp/0.1.md`](./docs/ocp/0.1.md) | OCP contract — HostProfile, classic hooks, tiers, Promise v2, conformance |
+| [`docs/review-harness.md`](./docs/review-harness.md) | **Review harness** — maintainer setup, isolated checks and trusted contracts, preview approval, what gets posted |
 | [`TESTING.md`](./TESTING.md) | **Manual local dev** — unpublished OCP + local plugins (`./scripts/ocp-dev.sh`) |
 | [`docs/guides/kilocode-telemetry-disable.md`](./docs/guides/kilocode-telemetry-disable.md) | Disable Kilo PostHog telemetry (config / `KILO_TELEMETRY_LEVEL`) |
 | [`docs/guides/mimocode-telemetry-disable.md`](./docs/guides/mimocode-telemetry-disable.md) | Disable MiMo Xiaomi usage analytics (`MIMOCODE_ENABLE_ANALYSIS=false`) |

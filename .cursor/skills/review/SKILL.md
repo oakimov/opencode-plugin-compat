@@ -68,6 +68,23 @@ outside `packages/`.
    suspected state machine or hand it the expected result. A helper test, an
    immediate exit status, or a mocked transition does not establish the
    behavior the orchestration owns.
+   For generated names or aliases, check the receiving host's reserved ids,
+   sentinels and normalization rules as well as collisions in the producer.
+   Use schema-valid upstream values outside the current sample, and follow a
+   published choice through selection to the consumed settings or request.
+   Local uniqueness and equal alias settings do not prove that the host
+   applies those settings. Preserve an ordinary selectable label as a control.
+   Test inputs that express the same choice differently, and metadata fields
+   that disagree. Check ambiguous lookups through the host's selection path.
+   When fixed behavior becomes configurable, also run the affected test
+   entrypoint with a supported setting inherited from its caller. A clean
+   environment and tests that set their own overrides do not establish that
+   default-policy fixtures remain isolated from operator configuration.
+   When a policy changes which persisted records are eligible, restart with
+   multiple generations left by interrupted work. Compare the record the next
+   consumer gets with the most recent eligible record. Include an already
+   published replacement and a failed promotion followed by a later retry
+   when the implementation supports those paths.
    For an ownership postcondition, challenge the lifecycle paths that apply:
    ordinary completion, nonzero completion, catchable termination of the
    owner, and a leader that exits early (successfully or on TERM) while a
@@ -95,6 +112,13 @@ outside `packages/`.
    effects, and failure, then the next retry, use, or restart. Passing
    candidate validation does not mean the omission pass was done, and the
    reverse is also true.
+   Known findings are regression seeds, not a stopping condition. Finish the
+   behavior inventory even after reproducing them. When several consumers use
+   one producer, compare their outputs with the original accepted input as
+   well as with each other: shared data loss can make both consumers agree.
+   Challenge the input domain and transformations, not only examples already
+   named by a prior review or a fix. Keep the experiments and refutations in
+   the ledger so scope completion is reviewable.
 7. Run the failed-work retry check for each relevant stateful operation the
    change touches — records, caches, persisted state, generators, discovery
    or refresh flows. With mocked external services, start from an existing
@@ -121,11 +145,54 @@ error return, a thrown exception, a conservative rejection, or a red check is
 an observation, not by itself a defect. Reproduction proves the behavior you
 exercised. It does not prove that a preferred alternative is correct.
 
+Assess each candidate at the exact bound PR head before classifying it.
+Use ledger `version: 3` and an `assessment` with `head`, `status`, `basis`, and
+`elsewhere`. Status is `present` for a contract violation on that head,
+`absent` for a defect verified fixed or unreachable on that head,
+`not-a-defect` for a disproved contract violation or a policy/operational
+limitation, and `unverified` for a hypothesis. `present` must be `actionable`;
+an error attributed to the environment is not automatically a code defect.
+
+The harness checkout, target branch, merged tree and PR head can differ. A fix
+on another revision does not repair the bound head. Record each comparison
+in `elsewhere` as `{ revision, status, basis }`, with a full commit SHA and
+status `fixed`, `present`, or `unverified`. Keep a defect present at the head
+in the findings even when another revision fixes it; include each such fix in
+the result's `externalFixes` as `{ finding, revision, detail }`. Explain that
+the fix is outside the reviewed head. Do not replace the head's verdict with
+a merged-tree verdict, or erase the violated contract to label it operational.
+When the PR head itself changes to contain the repair, rebind/re-review it;
+only evidence from that head can establish that the defect is absent there.
+
 Tests are evidence of intent, not an infallible specification. If a test
 encodes a defect, name the independently supported contract it violates. An
 unchanged branch can contain a reportable pre-existing defect. Label that
 provenance and show that the change can reach it. Do not drop it only because
 it predates the pull request.
+
+Adjudicate every failed check before completing the review. Read its full log
+and separate independent failures; for each, record a `diagnostics` entry as
+described in `docs/pr-review.md`. "Also fails on base" establishes provenance,
+not harmlessness. Determine whether the violated contract is reached by the
+changed behavior. A pre-existing defect on that path stays actionable; explain
+why an unrelated defect is outside scope. An environment classification needs
+a capability probe and a causal link, not a passing targeted rerun.
+
+When a full-suite failure disappears in isolation or after removing another
+test, retain the failure and trace shared state across the sequence: global
+caches and overrides, file identity/generation, inherited settings and cleanup.
+Force equal timestamps when testing different files or atomic replacements;
+coarse filesystem times must not determine which metadata a request uses.
+Capture the consumed request, not only the helper's return. Test deletion is
+bisection evidence, never a repair. If the causal path remains unknown, mark
+the diagnostic `unresolved`, leave a completion pass false and the outcome
+`incomplete`. A demonstrated counterexample with a matching symptom still does
+not establish the cause of an earlier run without its execution evidence.
+
+Match each public finding's affected consumers and evidence to the actual
+experiment. A shared rule id does not prove both majors fail. State synthetic
+metadata provenance in the public finding; do not imply it was observed in a
+live catalog.
 
 Separate implementation defects from proposed policy changes, operational
 limitations, and unverified hypotheses. Do not replace documented semantics
@@ -224,6 +291,44 @@ done. It is not machine proof of semantic correctness.
 
 ## Re-review earlier threads
 
+First inventory submitted reviews with
+`python3 scripts/review-publish.py reviews <owner> <repo> <pull>` (use the same
+publisher identity as before). When this reviewer already has a stamped
+COMMENT review on the PR, update that existing summary post in place. Do not
+create another summary post, even when the head or verdict changed. Put
+`update: { review, author, bodySha256 }` in the new result, using the existing
+review's `id`, `user.id`, and inventory digest. If multiple own posts exist,
+use the latest stamped COMMENT review; leave other authors' reviews alone.
+The revised summary states the current verdict, checks, reviewed head, and
+findings that are not posted inline. An inlined finding stays in its comment;
+the summary may count it and must not repeat its text. Render, show and obtain
+approval of the exact updated payload before `post`; an earlier publication
+approval does not approve a new verdict. Put new findings at verified
+current-diff locations in `diff` so they render as inline comments. `post`
+reads the pull diff and refuses the update, before any write, when a located
+finding sits in a hunk but not in those comments. The publisher updates the
+one summary in place. New comments from that re-review go in one new review
+with an empty body. A second review whose body contains summary text is
+refused when this publishing identity already has a stamped summary. The App
+uses its `<slug>[bot]` login from `GET /app`; a personal access token uses
+`GET /user`. Another author's summary does not block the first post. The publisher checks the new anchors on readback. GitHub does not move the
+original review's commit or inline anchors when its summary is edited.
+The `reviews` inventory includes native comments and their body digests. For a
+still-present inline finding, bind its `comment` snapshot (`id`, `author`,
+`bodySha256`, plus `thread` and `repliesSha256` from the matching thread
+inventory) in that finding, retaining its `prior` source. New replies require
+re-review and another preview. The publisher updates
+an owned current-head comment in place. When the bound anchor is another
+commit, the new comment joins that re-review's empty review and the old
+discussion stays classified. A fixed finding resolves its thread and keeps the
+old comment. Findings outside the current diff remain in the summary.
+An inline action's failure leaves publication partial even if the summary
+was updated. Retry `post` with the same approved payload; do not resend completed
+actions or replace an uncertain native write with a plain post.
+Keep earlier threads and classify/resolve them below. If the existing post
+cannot be updated, retain the evidence and report the failure; never fall back
+to a duplicate review or discussion comment.
+
 Read every earlier review thread and all replies using
 `python3 scripts/review-publish.py threads <owner> <repo> <pull>`. Keep that
 inventory private. Recheck each open thread against the bound head, including
@@ -240,7 +345,7 @@ Apply the same standard to Greptile and Cursor findings.
 For each fixed or refuted inline finding, add a `resolve` action with the prior
 finding id, thread id and discussion `snapshot` from that inventory, plus the
 reason and source/test evidence. Include those actions in the exact preview.
-After approval, `post` submits the review and resolves those threads through
+After approval, `post` updates the existing summary and resolves those threads through
 the App. Confirm every `THREAD_RESOLVED` receipt. Do not claim resolution from
 a posted summary, a reply, or a proposed action. If any action fails, report
 the submitted review and remaining thread actions separately, then finish the
@@ -258,7 +363,28 @@ For every pull request, run the isolated check. It fetches that revision, copies
 scripts/isolated-check.sh <pr-number-or-url>
 ```
 
-A pull URL must name this checkout's origin. The copy has no `.git` directory. Install, build, typecheck, `bun test ./test`, and `bun test ./test/architecture.test.ts` run inside `scripts/isolate-run.sh`. Exit 0 means those checks passed. Exit 1 is a check failure. Exit 2 is a bad invocation or an unavailable isolation mechanism. The log line `Check root:` is private.
+A pull URL must name this checkout's origin. The copy has no `.git` directory. Install, build, typecheck, harness contracts, and `bun test ./test` run inside `scripts/isolate-run.sh`. Exit 0 means those checks passed. Exit 1 is a check failure. Exit 2 is a bad invocation or an unavailable isolation mechanism. The log line `Check root:` is private.
+
+`BOUNDARY_CONTRACTS` and `CATALOG_CONTRACTS` run the review harness's read-only
+`scripts/review-*-contracts.mjs` against the archived subject, independently
+of its tests. They check the AGENTS.md boundaries in source and the
+catalog-order rule on the built `opencode-loader`. Use the archived subject's
+results as evidence. Trace the receiving host's behavior separately and look
+for new counterexamples.
+
+After build and typecheck, the contracts and the subject unit suite collect
+independent results even when another contract fails. An unavailable boundary
+stops them immediately. Each contract also runs on the merge base of the
+reviewed head and the pull request's base, in the same secret-free boundary.
+A head failure whose diagnostic lines already fail on that base is
+`pre-existing`: the log and `CHECK_SUMMARY` say so, the summary reports it as
+pre-existing rather than a finding against this pull request, and it does not
+fail the run. A failure line the base does not have fails the run, as does a
+case the base passed that the head only skips. A nonzero contract result with
+no diagnostic, or a base that cannot be prepared, is a new failure. Install,
+build, typecheck, and unit-test failures also fail the run.
+These checks do not complete the behavior inventory or prove general defect
+discovery.
 
 Record an `exitCode` for every executed command check in a new result. Capture
 the reviewed command's status, including when saving its output through a
@@ -284,7 +410,11 @@ link to the failing check. A failed check may carry `failure` with `cause`
 describes. It still renders as failed. Attribution does not excuse an
 actionable pre-existing bug or substitute for required analysis. Unknown or
 subject-caused failures cannot support a clean outcome. Neither attribution
-nor a clean code verdict establishes merge readiness. Never relabel the wrapper as passed to publish a review.
+nor a clean code verdict establishes merge readiness. A contract failure
+classified `pre-existing` leaves the isolated check's exit zero; a new contract
+failure, or an install, build, typecheck, or unit-test failure, makes it
+nonzero. Never relabel the wrapper as passed to publish a review, and do not
+treat a pre-existing contract note as merge approval.
 
 On your own checkout, run `bun run build`, `bun run typecheck`, `bun test ./test`, and `bun test ./test/architecture.test.ts` directly. That is not a review of someone else's pull request.
 
