@@ -4,10 +4,9 @@
  * OpenCode plugins persist refreshed credentials through `client.auth.set`
  * from inside `auth.loader`. Several loaders can be in flight at once (one per
  * model request), and an explicit `ocp zcode auth` login may land meanwhile.
- * Every record carries a generation; a write made by an operation that read an
- * older generation is discarded, so an in-flight loader can never reseed a
- * stale snapshot over a newer login. `serve` and `auth` are separate
- * processes, so the generation check and the file replacement run under a
+ * The durable store rejects writes from older generations so an in-flight
+ * loader cannot overwrite a newer login. `serve` and `auth` are separate
+ * processes, so the generation check and file replacement run under a
  * cross-process SQLite transaction next to the record.
  */
 import { createHash, randomBytes } from "node:crypto"
@@ -131,8 +130,8 @@ export class DurableAuthStore {
 /**
  * An {@link AuthStore} view for one operation (a model request or a login).
  * Reads pin the generation they observed; writes are compare-and-set against
- * it, and an accepted write advances the pin so the same operation can chain
- * refreshes.
+ * it. A successful refresh is available to its request even when another
+ * operation won the durable write. Only an accepted write advances the pin.
  */
 export function generationAuthView(store: DurableAuthStore): AuthStore & { readonly generation: () => number } {
   let pinned: number | undefined
@@ -155,10 +154,8 @@ export function generationAuthView(store: DurableAuthStore): AuthStore & { reado
       }
       // auth.loader re-seeds the credential it was handed; only real changes are writes.
       if (JSON.stringify(auth) === JSON.stringify(local)) return
-      if (await store.replace(auth, pinned)) {
-        local = auth
-        pinned += 1
-      }
+      if (await store.replace(auth, pinned)) pinned += 1
+      local = auth
     },
   }
 }

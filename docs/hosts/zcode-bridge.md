@@ -129,7 +129,7 @@ The app path, the running-process check and the `provider_config.json` location 
 - Optional `limits`: `maxBodyBytes`, `maxConcurrentRequests`, `maxSessions` (retained per-session tool catalogs). A reload that changes `listen`, `maxBodyBytes` or `maxSessions` is refused until restart.
 - Unknown fields, duplicate binding or plugin ids, duplicate aliases, shared credential references and version ranges are rejected with the JSON path.
 
-Upstream auth is stored privately per binding/plugin/provider (`$XDG_DATA_HOME/opencode-compat/zcode/state/auth/`, 0600). A refresh made by an in-flight request, or by another process, never overwrites a newer login. You can log in again or run `ocp zcode auth --logout` when the old credential fails during catalog discovery.
+Upstream auth is stored privately per binding/plugin/provider (`$XDG_DATA_HOME/opencode-compat/zcode/state/auth/`, 0600). A request uses the credential its loader refreshed. The shared store preserves credentials saved by a newer login or concurrent refresh. You can log in again or run `ocp zcode auth --logout` when the old credential fails during catalog discovery.
 
 ## Probe (Step 0 evidence)
 

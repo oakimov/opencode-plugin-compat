@@ -274,7 +274,10 @@ describe("zcode auth store", () => {
     await store.replace({ type: "oauth", access: "login-v2", refresh: "r2", expires: 2 })
     await inFlight.set({ type: "oauth", access: "refreshed-from-v1", refresh: "r", expires: 3 })
     expect(store.read().auth).toMatchObject({ access: "login-v2" })
-    expect(await inFlight.get()).toMatchObject({ access: "v1" })
+    expect(await inFlight.get()).toMatchObject({ access: "refreshed-from-v1" })
+    await inFlight.set({ type: "oauth", access: "refreshed-again-from-v1", refresh: "r", expires: 4 })
+    expect(await inFlight.get()).toMatchObject({ access: "refreshed-again-from-v1" })
+    expect(store.read().auth).toMatchObject({ access: "login-v2" })
 
     const fresh = generationAuthView(store)
     await fresh.get()
@@ -998,6 +1001,31 @@ describe("zcode review regressions", () => {
         child.kill("SIGKILL")
         await child.exited
       }
+      rmSync(dir, { recursive: true, force: true })
+    }
+  })
+
+  test("both model factories receive the refreshed credential when concurrent loaders race to save it", async () => {
+    const { loadPlugin } = await import("../packages/cli/src/zcode/plugin-host.ts")
+    const dir = mkdtempSync(join(tmpdir(), "ocp-zcode-model-auth-"))
+    const paths: ZcodePaths = { configFile: "", installRoot: dir, stateDir: dir, cacheDir: dir }
+    const binding = { id: "main", workspace: dir, credentials: { model: { env: "X" } }, plugins: [] }
+    const spec = { id: "acme", package: "acme-provider", version: "1.0.0", contract: "classic" as const, models: [{ alias: "acme", upstream: "acme-large" }] }
+    try {
+      const plugin = await loadPlugin(binding, spec, {
+        paths,
+        resolvePackage: () => ({ name: spec.package, version: spec.version, entry: ACME, sha256: "sha-acme" }),
+      })
+      await plugin.authStore.replace({ type: "oauth", access: "expired", refresh: "refresh", expires: 1 })
+      // Both calls pin the same generation before either reaches the loader's
+      // first awaited write. The fixture's loader returns no apiKey override.
+      const models = await Promise.all([plugin.languageModel("acme"), plugin.languageModel("acme")])
+      expect(models).toMatchObject([
+        { options: { apiKey: "acme-access-token-v2" } },
+        { options: { apiKey: "acme-access-token-v2" } },
+      ])
+      expect(plugin.authStore.read()).toMatchObject({ generation: 2, auth: { access: "acme-access-token-v2" } })
+    } finally {
       rmSync(dir, { recursive: true, force: true })
     }
   })

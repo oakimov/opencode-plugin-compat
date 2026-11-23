@@ -1,6 +1,6 @@
 ## 2026-11-23 — Pin catalog auth before the loader receives it
 
-- A config hook can refresh a credential during model discovery. Read its auth snapshot inside the same operation that runs the loader so the write uses the original generation. Retain a cross-process lock through the compare and atomic replacement, and exercise a login racing with catalog discovery.
+- A config hook can refresh a credential during model discovery. Read its auth snapshot inside the same operation that runs the loader so the write uses the original generation. Retain a cross-process lock through the compare and atomic replacement, and exercise a login racing with catalog discovery. A lost write must leave the original generation pinned while the request uses the credential its loader refreshed. Verify the credential received by both model factories when two loaders compete to save their refresh.
 
 # Lessons learned
 
