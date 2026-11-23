@@ -95,7 +95,7 @@ Tool calls and source drift: [docs/tool-vocabulary.md](docs/tool-vocabulary.md),
 4. `docs/hosts/opencode-clones.md` (MiMo/Kilo/ZCode) / `docs/hosts/pi-family.md` (Pi) / `docs/hosts/dsh-family.md` (DSH) / `docs/hosts/zcode-bridge.md` (experimental external ZCode bridge, `packages/cli/src/zcode/`) — one self-contained guide per host family; install lives **in** them, not in a separate top-level INSTALL doc
 5. Provider-maintained interactive acceptance checklist: `cursor-opencode-provider/docs/host-compat-acceptance.md`; run the OMP/Pi/DSH items against stock hosts before claiming interactive parity.
 6. `docs/review-rules.md` — PR review rubric (blockers, evidence, Greptile/`caeliq-reviewer`/Codecov readiness)
-7. `docs/pr-review.md` — manual Cloud Agent + `caeliq-reviewer` publication procedure
+7. `docs/pr-review.md` — manual Cloud Agent + `caeliq-reviewer` publication procedure; `docs/review-harness.md` — maintainer setup, isolated checks and trusted review contracts
 8. `CHANGELOG.md` — user-facing release notes for the shared `@opencode-compat/*` train (see § Changelog).
 9. `docs/plans/**` — **historical**; shipped work, kept for provenance. Superseded by the above wherever they disagree; do not treat as a roadmap.
 

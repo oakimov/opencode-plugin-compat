@@ -12,6 +12,7 @@ The monorepo ships **one shared train version** across all eleven packages, so u
 - `ocp zcode` plugins can set `"models": "catalog"` to serve every model their own `config` hook publishes, including catalogs that appear only after login.
 - `./scripts/ocp-dev.sh run zcode` / `unshim zcode` wire a downloaded ZCode release to this OCP checkout and a local provider checkout (or `--mode npm` to published packages) by adding one Personal provider to ZCode's `provider_config.json`.
 - Manual Cursor Cloud Agent reviews can use the same Greptile-like `caeliq-reviewer` harness as the Cursor provider: isolated PR checks, structured preview approval, and optional `--token-env` on `post`, `threads`, and `complete-resolutions.py`.
+- `scripts/isolated-check.sh` runs trusted harness contracts (AGENTS.md boundaries and catalog order) against the PR head and its merge base; a failure already on the base is reported as pre-existing instead of failing the check. Re-reviews update the existing summary post and keep current-diff findings as native inline threads. Maintainer setup is documented in `docs/review-harness.md`.
 
 ### Fixed
 
@@ -23,6 +24,7 @@ The monorepo ships **one shared train version** across all eleven packages, so u
 - `ocp zcode auth` can replace or clear credentials that fail catalog discovery. Probe files are cleaned up on exit, and server logs use keyed request ID hashes.
 - `ocp-dev` preserves a ZCode Personal provider that already uses the shim's provider ID with a different credential.
 - `ocp-dev unshim zcode` cleans up shim-owned settings when the provider rule has already been removed.
+- Isolated review checks detect each newly introduced boundary violation, even in files with an inherited violation. Moving an inherited violation to a different line keeps its classification.
 
 - macOS review checks stop same-session children that change process groups before removing their staging files.
 - Cancelling `scripts/isolated-check.sh` or `scripts/isolate-run.sh` with TERM, INT, HUP, or QUIT sent only to the script's process stops the sandboxed command before the archive or staging files are removed, including when the signal arrives before session creation, before the session leader is known or just before the wait. A boundary still running `ISOLATE_TERM_GRACE` seconds later (default 10) is killed. SIGKILL still cannot be forwarded.
