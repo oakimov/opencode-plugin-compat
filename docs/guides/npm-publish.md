@@ -16,7 +16,7 @@ They are **not** private packages. First publish and CI both pass `--access publ
 
 ## Prerequisites
 
-1. [Bun](https://bun.sh) ≥ 1.2 (`packageManager` pins `bun@1.3.14`)
+1. [Bun](https://bun.sh) ≥ 1.2 (`engines.bun`; CI and the publish workflow use the latest Bun release)
 2. npm account that **owns** the **`opencode-compat`** org ([org create](https://www.npmjs.com/org/create) if needed)
 3. Public GitHub repo `oakimov/opencode-plugin-compat` (needed for OIDC provenance)
 4. Release commits you intend to ship on `main`

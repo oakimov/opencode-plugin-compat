@@ -86,6 +86,11 @@ def main() -> None:
         if existing is None or not isinstance(journal, dict) or journal.get("state") != "posted":
             print("No confirmed review receipt; threads were not resolved.", file=sys.stderr)
             raise SystemExit(1)
+        if "update" in payload:
+            publisher.checked_update_review(payload, existing, delivered=True)
+            if journal.get("review_id") != payload["update"]["review"]:
+                raise SystemExit("The update receipt names another review; threads were not resolved.")
+        publisher.require_inline_complete(payload, journal)
         if not publisher.resolution_targets(payload):
             print("No approved resolve actions in this payload.")
             return

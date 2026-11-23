@@ -9,6 +9,7 @@ The monorepo ships **one shared train version** across all eleven packages, so u
 ### Added
 
 - Manual Cursor Cloud Agent reviews can use the same Greptile-like `caeliq-reviewer` harness as the Cursor provider: isolated PR checks, structured preview approval, and optional `--token-env` on `post`, `threads`, and `complete-resolutions.py`.
+- `scripts/isolated-check.sh` runs trusted harness contracts (AGENTS.md boundaries, catalog order, `ocp zcode` bridge wire) against the PR head and its merge base; a failure already on the base is reported as pre-existing instead of failing the check. Re-reviews update the existing summary post and keep current-diff findings as native inline threads. Maintainer setup is documented in `docs/review-harness.md`.
 
 ### Fixed
 

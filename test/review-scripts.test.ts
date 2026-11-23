@@ -734,7 +734,14 @@ describe("isolated check", () => {
             shift
           done
           [[ -n "$dest" ]]
-          local obj
+          # git and tar run concurrently in the archive pipeline; wait for the
+          # stubbed git archive to record its argument before reading it.
+          local obj tries=0
+          until [[ -s "$ARCHIVE_ARG" ]]; do
+            tries=$((tries + 1))
+            [[ "$tries" -lt 500 ]] || return 1
+            sleep 0.01
+          done
           obj="$(cat "$ARCHIVE_ARG")"
           if [[ "$obj" == FETCH_HEAD ]]; then obj="$OTHER"; fi
           printf '%s\\n' "$obj" > "$dest/REV"
